@@ -85,6 +85,13 @@ locals {
       desired_size   = 1
       instance_types = ["m6a.large"]
       labels         = { "role" = "collector" }
+      # IMDSv2 required — SCP denies RunInstances on launch templates without http_tokens=required
+      # hop_limit=2: containers need extra hop to reach IMDS (container → host → IMDS)
+      metadata_options = {
+        http_endpoint               = "enabled"
+        http_tokens                 = "required"
+        http_put_response_hop_limit = 2
+      }
       block_device_mappings = {
         xvda = {
           device_name = "/dev/xvda"
@@ -108,6 +115,11 @@ locals {
       instance_types = ["g4dn.xlarge", "g4dn.2xlarge"]
       ami_type       = "AL2023_x86_64_NVIDIA"
       labels         = { "role" = "ml-inference" }
+      metadata_options = {
+        http_endpoint               = "enabled"
+        http_tokens                 = "required"
+        http_put_response_hop_limit = 2
+      }
       block_device_mappings = {
         xvda = {
           device_name = "/dev/xvda"
@@ -135,6 +147,11 @@ locals {
       desired_size   = 1
       instance_types = ["m6a.xlarge"]
       labels         = { "role" = "cti" }
+      metadata_options = {
+        http_endpoint               = "enabled"
+        http_tokens                 = "required"
+        http_put_response_hop_limit = 2
+      }
       block_device_mappings = {
         xvda = {
           device_name = "/dev/xvda"
