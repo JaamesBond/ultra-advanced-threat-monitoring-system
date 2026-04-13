@@ -68,7 +68,7 @@ locals {
   eks_endpoint_public_access  = false
   eks_endpoint_private_access = true
   eks_enable_irsa             = true
-  eks_deletion_protection     = true
+  eks_deletion_protection     = false
 
   eks_node_group_defaults = {
     ami_type       = "AL2023_x86_64_STANDARD"
