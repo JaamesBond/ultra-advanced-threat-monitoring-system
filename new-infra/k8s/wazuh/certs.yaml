@@ -1,0 +1,252 @@
+#--------------------------------------------------------------
+# Wazuh — cert-manager TLS Certificates
+#
+# DEPLOYED TO: bc-ctrl EKS cluster, namespace "wazuh"
+# Requires:    cert-manager installed (via eks-addons module)
+#
+# Certificate hierarchy:
+#
+#   wazuh-selfsigned-issuer  (ClusterIssuer, type: selfSigned)
+#        │
+#        └── wazuh-ca  (Certificate, isCA: true)
+#                 → Secret "wazuh-root-ca"
+#                 │
+#                 └── wazuh-ca-issuer  (ClusterIssuer, type: CA)
+#                          │
+#                          ├── wazuh-indexer-node-cert  → "wazuh-indexer-node-cert"
+#                          │       node TLS (HTTP + transport) for all 3 Indexer pods
+#                          │       CN matches plugins.security.nodes_dn in opensearch.yml
+#                          │
+#                          ├── wazuh-indexer-admin-cert → "wazuh-indexer-admin-cert"
+#                          │       admin cert for OpenSearch security plugin init
+#                          │       CN matches plugins.security.authcz.admin_dn
+#                          │
+#                          └── wazuh-filebeat-cert → "wazuh-filebeat-cert"
+#                                  client cert used by Filebeat (inside the Manager)
+#                                  to authenticate to the Indexer REST API
+#
+# Volume mapping (see statefulset/deployment files):
+#   Indexer  projected volume  → node.pem, node-key.pem, root-ca.pem,
+#                                 admin.pem, admin-key.pem
+#   Manager  projected volume  → filebeat.pem, filebeat.key, root-ca.pem
+#   Dashboard secret items     → root-ca.pem
+#
+# Apply order:
+#   1. kubectl apply -f certs.yaml
+#   2. Wait for all Certificate resources to reach Ready=True
+#      (kubectl get certificates -n wazuh)
+#   3. Apply indexer/statefulset.yaml, then manager/statefulset.yaml,
+#      then dashboard/deployment.yaml
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+# Step 1 — Bootstrap: self-signed ClusterIssuer
+# Used only to issue the root CA certificate below.
+#--------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: wazuh-selfsigned-issuer
+  labels:
+    app.kubernetes.io/part-of: xdr-platform
+spec:
+  selfSigned: {}
+---
+#--------------------------------------------------------------
+# Step 2 — Root CA certificate
+# isCA: true makes cert-manager store both cert + key in
+# the Secret so that the CA Issuer below can sign with it.
+#--------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wazuh-ca
+  namespace: wazuh
+  labels:
+    app.kubernetes.io/part-of: xdr-platform
+spec:
+  isCA: true
+  commonName: "wazuh-ca"
+  subject:
+    organizations: ["big-chemistry"]
+    organizationalUnits: ["wazuh"]
+    localities: ["Frankfurt"]
+    countries: ["DE"]
+  duration: 87600h    # 10 years — CA cert; rotate intentionally
+  renewBefore: 720h   # alert 30 days before expiry
+  secretName: wazuh-root-ca
+  privateKey:
+    algorithm: RSA
+    size: 4096
+  issuerRef:
+    name: wazuh-selfsigned-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+#--------------------------------------------------------------
+# Step 3 — CA Issuer backed by the root CA above
+# All Wazuh leaf certificates are issued from this issuer.
+#--------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: wazuh-ca-issuer
+  labels:
+    app.kubernetes.io/part-of: xdr-platform
+spec:
+  ca:
+    secretName: wazuh-root-ca
+---
+#--------------------------------------------------------------
+# Step 4a — Wazuh Indexer node certificate
+#
+# Used for:
+#   - OpenSearch HTTP REST API (port 9200, TLS)
+#   - OpenSearch transport layer (port 9300, mTLS)
+#
+# CN must match plugins.security.nodes_dn in opensearch.yml:
+#   CN=wazuh-indexer,OU=wazuh,O=big-chemistry,L=Frankfurt,C=DE
+#
+# SANs cover all 3 StatefulSet pod DNS names + ClusterIP service
+# so the same cert works for every replica and client connections.
+#
+# cert-manager Secret keys: tls.crt, tls.key, ca.crt
+# Remapped via projected volume in indexer/statefulset.yaml:
+#   tls.crt  → node.pem
+#   tls.key  → node-key.pem
+#   ca.crt   → root-ca.pem
+#--------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wazuh-indexer-node-cert
+  namespace: wazuh
+  labels:
+    app: wazuh-indexer
+    app.kubernetes.io/part-of: xdr-platform
+spec:
+  commonName: "wazuh-indexer"
+  subject:
+    organizations: ["big-chemistry"]
+    organizationalUnits: ["wazuh"]
+    localities: ["Frankfurt"]
+    countries: ["DE"]
+  duration: 8760h     # 1 year
+  renewBefore: 336h   # renew 14 days before expiry (cert-manager rotates automatically)
+  secretName: wazuh-indexer-node-cert
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    rotationPolicy: Always
+  usages:
+    - server auth
+    - client auth
+    - digital signature
+    - key encipherment
+  dnsNames:
+    - wazuh-indexer-0.wazuh-indexer-headless.wazuh.svc.cluster.local
+    - wazuh-indexer-1.wazuh-indexer-headless.wazuh.svc.cluster.local
+    - wazuh-indexer-2.wazuh-indexer-headless.wazuh.svc.cluster.local
+    - wazuh-indexer.wazuh.svc.cluster.local
+    - wazuh-indexer-headless.wazuh.svc.cluster.local
+    - wazuh-indexer
+    - localhost
+  issuerRef:
+    name: wazuh-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+#--------------------------------------------------------------
+# Step 4b — Wazuh Indexer admin certificate
+#
+# Used by the OpenSearch security plugin securityadmin.sh tool
+# and as the admin identity for initial security index creation
+# (plugins.security.allow_default_init_securityindex: true lets
+# the plugin bootstrap without manual securityadmin.sh run, but
+# the admin DN must still exist and be trusted in the truststore).
+#
+# CN must match plugins.security.authcz.admin_dn in opensearch.yml:
+#   CN=admin,OU=wazuh,O=big-chemistry,L=Frankfurt,C=DE
+#
+# cert-manager Secret keys: tls.crt, tls.key, ca.crt
+# Remapped via projected volume in indexer/statefulset.yaml:
+#   tls.crt  → admin.pem
+#   tls.key  → admin-key.pem
+#--------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wazuh-indexer-admin-cert
+  namespace: wazuh
+  labels:
+    app: wazuh-indexer
+    app.kubernetes.io/part-of: xdr-platform
+spec:
+  commonName: "admin"
+  subject:
+    organizations: ["big-chemistry"]
+    organizationalUnits: ["wazuh"]
+    localities: ["Frankfurt"]
+    countries: ["DE"]
+  duration: 8760h
+  renewBefore: 336h
+  secretName: wazuh-indexer-admin-cert
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    rotationPolicy: Always
+  usages:
+    - client auth
+    - digital signature
+    - key encipherment
+  issuerRef:
+    name: wazuh-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+#--------------------------------------------------------------
+# Step 4c — Wazuh Filebeat / Manager client certificate
+#
+# Used by the Filebeat process inside the Wazuh Manager to
+# authenticate to the Indexer REST API over mTLS.
+#
+# cert-manager Secret keys: tls.crt, tls.key, ca.crt
+# Remapped via projected volume in manager/statefulset.yaml:
+#   tls.crt  → filebeat.pem
+#   tls.key  → filebeat.key
+#   ca.crt   → root-ca.pem
+#--------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wazuh-filebeat-cert
+  namespace: wazuh
+  labels:
+    app: wazuh-manager
+    app.kubernetes.io/part-of: xdr-platform
+spec:
+  commonName: "wazuh-manager"
+  subject:
+    organizations: ["big-chemistry"]
+    organizationalUnits: ["wazuh"]
+    localities: ["Frankfurt"]
+    countries: ["DE"]
+  duration: 8760h
+  renewBefore: 336h
+  secretName: wazuh-filebeat-cert
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    rotationPolicy: Always
+  usages:
+    - client auth
+    - digital signature
+    - key encipherment
+  dnsNames:
+    - wazuh-manager-0.wazuh-manager-headless.wazuh.svc.cluster.local
+    - wazuh-manager-1.wazuh-manager-headless.wazuh.svc.cluster.local
+    - wazuh-manager-2.wazuh-manager-headless.wazuh.svc.cluster.local
+  issuerRef:
+    name: wazuh-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io

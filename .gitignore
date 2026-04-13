@@ -1,14 +1,46 @@
+# Terraform
 **/.terraform/
 **/.terraform.lock.hcl
 *.tfstate
 *.tfstate.backup
 *.tfplan
 crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+
+# Secrets / certs
 *.pem
 *.key
 .env
+*.tfvars
+*.tfvars.json
+
+# Lambda build artifacts (generated at terraform apply)
+**/*.zip
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Generated docs
+*.docx
+
+# graphify outputs
 graphify-out/cache/
 graphify-out/.graphify_*
 graphify-out/cost.json
 graphify-out/manifest.json
-.venv/
+
+# macOS / Windows
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp

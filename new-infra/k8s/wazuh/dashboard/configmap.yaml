@@ -1,0 +1,69 @@
+#--------------------------------------------------------------
+# Wazuh Dashboard — ConfigMap
+#
+# Static, non-sensitive settings for opensearch_dashboards.yml.
+# Credentials (indexer, API, kibanaserver) are injected at runtime
+# from the wazuh-dashboard-secrets Secret (via external-secrets).
+# The Wazuh Dashboard image entrypoint merges these with the
+# env-var-sourced credentials to produce the final config file.
+#--------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wazuh-dashboard-config
+  namespace: wazuh
+  labels:
+    app: wazuh-dashboard
+    app.kubernetes.io/component: siem-dashboard
+    app.kubernetes.io/part-of: xdr-platform
+data:
+  opensearch_dashboards.yml: |
+    #----------------------------------------------------------
+    # Server
+    #----------------------------------------------------------
+    server.host: "0.0.0.0"
+    server.port: 5601
+    # TLS is terminated at the internal ALB; the pod speaks plain HTTP.
+    server.ssl.enabled: false
+
+    #----------------------------------------------------------
+    # OpenSearch (Wazuh Indexer) connection
+    # Credentials injected via env vars INDEXER_USERNAME /
+    # INDEXER_PASSWORD from wazuh-dashboard-secrets Secret.
+    #----------------------------------------------------------
+    opensearch.hosts: ["https://wazuh-indexer.wazuh.svc.cluster.local:9200"]
+    opensearch.ssl.verificationMode: full
+    # root-ca.pem comes from the wazuh-indexer-certs Secret (cert-manager).
+    # See k8s/wazuh/dashboard/deployment.yaml volume "indexer-certs".
+    opensearch.ssl.certificateAuthorities: ["/usr/share/wazuh-dashboard/certs/root-ca.pem"]
+
+    #----------------------------------------------------------
+    # Security plugin
+    #----------------------------------------------------------
+    opensearch_security.multitenancy.enabled: false
+    opensearch_security.readonly_mode.roles: ["kibana_read_only"]
+    opensearch_security.cookie.secure: true
+    # 8-hour session timeout (analysts' working day)
+    opensearch_security.session.ttl: 28800000
+
+    #----------------------------------------------------------
+    # Logging
+    #----------------------------------------------------------
+    logging:
+      appenders:
+        console:
+          type: console
+          layout:
+            type: pattern
+            pattern: "[%date][%level][%logger] %message"
+      root:
+        appenders: [console]
+        level: warn   # info is too noisy in production; switch to debug when troubleshooting
+
+    #----------------------------------------------------------
+    # Wazuh plugin
+    #----------------------------------------------------------
+    # API connection configured via env vars API_USERNAME / API_PASSWORD
+    # and the WAZUH_API_URL env var set in the Deployment.
+    wazuh.monitoring.enabled: true
+    wazuh.monitoring.frequency: 900    # seconds between agent status polls

@@ -1,0 +1,147 @@
+#--------------------------------------------------------------
+# Wazuh Manager — Services
+#
+# Three Services serve different purposes:
+#
+# 1. wazuh-manager-headless   (ClusterIP: None)
+#    - Required by the StatefulSet for stable DNS
+#    - Publishes wazuh-manager-{0,1,2}.wazuh-manager-headless...
+#    - Used for intra-cluster comms on port 1516
+#
+# 2. wazuh-manager            (LoadBalancer → internal NLB)
+#    - THE entry point for bc-prd agents over TGW
+#    - 1514 (events) + 1515 (enrollment)
+#    - Requires AWS Load Balancer Controller in bc-ctrl EKS
+#
+# 3. wazuh-manager-api        (ClusterIP)
+#    - Internal only
+#    - Port 55000, consumed by Wazuh Dashboard in same cluster
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+# 1. Headless service — stable DNS for StatefulSet pods
+#--------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh-manager-headless
+  namespace: wazuh
+  labels:
+    app: wazuh-manager
+    app.kubernetes.io/component: siem-manager
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true   # allow master to resolve workers during bootstrap
+  selector:
+    app: wazuh-manager
+  ports:
+    - name: cluster
+      port: 1516
+      targetPort: 1516
+      protocol: TCP
+    - name: agents-tcp
+      port: 1514
+      targetPort: 1514
+      protocol: TCP
+    - name: enrollment
+      port: 1515
+      targetPort: 1515
+      protocol: TCP
+---
+#--------------------------------------------------------------
+# 2. Agent entry point — internal NLB
+#
+# This is what bc-prd agents connect to. The NLB lives in
+# bc-ctrl private subnets, reachable from bc-prd via TGW
+# because:
+#   - bc-prd routes 10.0.0.0/16 → TGW (ctrl/vpc.tf:98-101)
+#   - bc-ctrl TGW attachment is associated with shared-rt
+#   - shared-rt routes propagated into spoke-rt
+#
+# IMPORTANT: Requires AWS Load Balancer Controller. If not
+# installed, switch type to ClusterIP and create the NLB
+# in Terraform instead (targeting pod IPs via TargetGroupBinding).
+#--------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh-manager
+  namespace: wazuh
+  labels:
+    app: wazuh-manager
+    app.kubernetes.io/component: siem-manager
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internal
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+    service.beta.kubernetes.io/aws-load-balancer-ip-address-type: ipv4
+    service.beta.kubernetes.io/aws-load-balancer-proxy-protocol: "*"
+    service.beta.kubernetes.io/aws-load-balancer-backend-protocol: tcp
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: tcp
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: "1514"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-interval: "10"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-timeout: "6"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-healthy-threshold: "2"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-unhealthy-threshold: "2"
+    # Restrict NLB source to bc-prd and bc-ctrl CIDRs (defence in depth on top of SG)
+    service.beta.kubernetes.io/load-balancer-source-ranges: "10.30.0.0/16,10.0.0.0/16"
+    service.beta.kubernetes.io/aws-load-balancer-attributes: "deletion_protection.enabled=true,load_balancing.cross_zone.enabled=true"
+    # Tagging for cost allocation
+    service.beta.kubernetes.io/aws-load-balancer-additional-resource-tags: "Customer=Big Chemistry,Environment=ctrl,VPCRole=control-plane,Component=wazuh-manager,Confidential=yes"
+    # external-dns writes wazuh-manager.bc-ctrl.internal → NLB DNS into the private Route53 zone
+    external-dns.alpha.kubernetes.io/hostname: "wazuh-manager.bc-ctrl.internal"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  loadBalancerClass: service.k8s.aws/nlb
+  selector:
+    app: wazuh-manager
+  ports:
+    - name: agents-tcp
+      port: 1514
+      targetPort: 1514
+      protocol: TCP
+    - name: enrollment
+      port: 1515
+      targetPort: 1515
+      protocol: TCP
+---
+#--------------------------------------------------------------
+# 3. Wazuh API — internal ClusterIP (for Dashboard)
+#--------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh-manager-api
+  namespace: wazuh
+  labels:
+    app: wazuh-manager
+    app.kubernetes.io/component: siem-manager-api
+spec:
+  type: ClusterIP
+  selector:
+    app: wazuh-manager
+    statefulset.kubernetes.io/pod-name: wazuh-manager-0   # API only on master
+  ports:
+    - name: api
+      port: 55000
+      targetPort: 55000
+      protocol: TCP
+---
+#--------------------------------------------------------------
+# PodDisruptionBudget — keep quorum during node drains
+# At least 2 of 3 managers must remain up during upgrades/drains.
+#--------------------------------------------------------------
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: wazuh-manager-pdb
+  namespace: wazuh
+  labels:
+    app: wazuh-manager
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: wazuh-manager

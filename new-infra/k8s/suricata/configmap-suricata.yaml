@@ -1,0 +1,647 @@
+#--------------------------------------------------------------
+# Suricata — Configuration ConfigMap
+#
+# Deployed to: bc-xdr EKS cluster, namespace "suricata"
+# Nodegroup:   collector (m6a.large) — alongside nProbe + Vector
+#
+# Holds 3 config keys:
+#   - suricata.yaml         main engine config (IDS/IPS, outputs, parsers)
+#   - classification.config alert category definitions
+#   - threshold.config      rule suppressions and rate limits (empty seed)
+#
+# Phase toggle:
+#   Phase 1 (IDS):  af-packet copy-mode: none   — default in this file
+#   Phase 2 (IPS):  af-packet copy-mode: ips    — see comment below
+#
+# Outputs:
+#   /var/log/suricata/eve.json is tailed by Vector and forwarded
+#   to the XDR pipeline (Kafka → Flink → Wazuh Indexer / OpenSearch).
+#--------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: suricata-config
+  namespace: suricata
+  labels:
+    app: suricata
+    app.kubernetes.io/component: nids
+    app.kubernetes.io/part-of: xdr-platform
+data:
+  suricata.yaml: |
+    %YAML 1.1
+    ---
+
+    #--------------------------------------------------------
+    # 1. VARIABLES
+    # HOME_NET MUST include every VPC CIDR or half the ET Open
+    # rules won't fire. EXTERNAL_NET is "everything else".
+    #--------------------------------------------------------
+    vars:
+      address-groups:
+        HOME_NET: "[10.0.0.0/16,10.11.0.0/16,10.30.0.0/16]"
+        EXTERNAL_NET: "!$HOME_NET"
+
+        HTTP_SERVERS: "$HOME_NET"
+        SMTP_SERVERS: "$HOME_NET"
+        SQL_SERVERS: "$HOME_NET"
+        DNS_SERVERS: "$HOME_NET"
+        TELNET_SERVERS: "$HOME_NET"
+        AIM_SERVERS: "$EXTERNAL_NET"
+        DC_SERVERS: "$HOME_NET"
+        DNP3_SERVER: "$HOME_NET"
+        DNP3_CLIENT: "$HOME_NET"
+        MODBUS_CLIENT: "$HOME_NET"
+        MODBUS_SERVER: "$HOME_NET"
+        ENIP_CLIENT: "$HOME_NET"
+        ENIP_SERVER: "$HOME_NET"
+
+      port-groups:
+        HTTP_PORTS: "[80,81,311,591,593,901,1220,1414,1741,1830,2301,2381,2809,3037,3128,3702,4343,4848,5250,6988,7000,7001,7144,7145,7510,7777,7779,8000,8008,8014,8028,8080,8085,8088,8090,8118,8123,8180,8181,8243,8280,8300,8443,8500,8800,8888,8899,9000,9060,9080,9090,9091,9443,9999,11371,34443,34444,41080,50002,55555]"
+        SHELLCODE_PORTS: "!80"
+        ORACLE_PORTS: 1521
+        SSH_PORTS: 22
+        DNP3_PORTS: 20000
+        MODBUS_PORTS: 502
+        FILE_DATA_PORTS: "[$HTTP_PORTS,110,143]"
+        FTP_PORTS: "[21,2100,3535]"
+        GENEVE_PORTS: 6081
+        VXLAN_PORTS: 4789
+        TEREDO_PORTS: 3544
+        # Kubernetes cluster ports — added for cloud detection
+        K8S_API_PORT: 6443
+        ETCD_PORTS: "[2379,2380]"
+
+    #--------------------------------------------------------
+    # 2. DEFAULT PATHS
+    #--------------------------------------------------------
+    default-log-dir: /var/log/suricata
+    stats:
+      enabled: yes
+      interval: 30
+
+    #--------------------------------------------------------
+    # 3. OUTPUTS — THE XDR PIPELINE
+    # eve.json is tailed by Vector. Every event type enabled
+    # for maximum XDR visibility.
+    #--------------------------------------------------------
+    outputs:
+      # 3.1  FAST alert file — human-readable one-liners
+      - fast:
+          enabled: yes
+          filename: fast.log
+          append: yes
+
+      # 3.2  EVE JSON — THE important one, consumed by Vector
+      - eve-log:
+          enabled: yes
+          filetype: regular
+          filename: eve.json
+          rotate-interval: hour
+          pcap-file: false
+          community-id: yes          # shared flow identifier for Zeek/Wazuh correlation
+          community-id-seed: 0
+          xff:
+            enabled: yes
+            mode: extra-data
+            deployment: reverse
+            header: X-Forwarded-For
+          types:
+            - alert:
+                payload: yes
+                payload-buffer-size: 4kb
+                payload-printable: yes
+                packet: yes
+                http-body: yes
+                http-body-printable: yes
+                metadata: yes
+                tagged-packets: yes
+            - anomaly:
+                enabled: yes
+                types:
+                  decode: yes
+                  stream: yes
+                  applayer: yes
+                  packethdr: yes
+            - http:
+                extended: yes
+                dump-all-headers: both
+            - dns:
+                version: 2
+                requests: yes
+                responses: yes
+                formats: [detailed, grouped]
+            - tls:
+                extended: yes
+                custom: [subject, issuer, session_resumed, serial, fingerprint, sni, version, not_before, not_after, certificate, chain, ja3, ja3s]
+            - files:
+                force-magic: yes
+                force-hash: [md5, sha1, sha256]
+            - drop:
+                alerts: yes
+                flows: all
+            - smtp:
+                extended: yes
+                custom: [received, x-mailer, x-originating-ip, reply-to, bcc]
+                md5: [body, subject]
+            - ftp
+            - rdp
+            - nfs
+            - smb
+            - tftp
+            - ssh
+            - krb5
+            - snmp
+            - ike
+            - dcerpc
+            - dhcp:
+                enabled: yes
+                extended: yes
+            - mqtt:
+                passwords: no
+                string-log-limit: 1048576
+            - http2
+            - pgsql
+            - rfb
+            - sip
+            - bittorrent-dht
+            - flow                  # bidirectional 5-tuple flow with byte/packet counts
+            - netflow               # aggregated netflow-style records
+            - stats:
+                totals: yes
+                threads: no
+                deltas: no
+
+      # 3.3  TLS logging — JA3/JA3S fingerprints to separate file
+      - tls-log:
+          enabled: yes
+          filename: tls.log
+          extended: yes
+
+      # 3.4  File extraction (optional — very disk hungry)
+      - file-store:
+          version: 2
+          enabled: no
+          dir: /var/log/suricata/files
+          force-filestore: no
+          stream-depth: 0
+          force-magic: yes
+          force-hash: [md5, sha1, sha256]
+          xff:
+            enabled: yes
+            mode: extra-data
+            deployment: reverse
+
+      # 3.5  Stats file (human-readable counters)
+      - stats:
+          enabled: yes
+          filename: stats.log
+          append: yes
+          totals: yes
+          threads: no
+
+    #--------------------------------------------------------
+    # 4. LOGGING LEVEL
+    #--------------------------------------------------------
+    logging:
+      default-log-level: info
+      default-output-filter:
+      outputs:
+        - console:
+            enabled: yes
+            type: json
+        - file:
+            enabled: yes
+            level: info
+            filename: /var/log/suricata/suricata.log
+            type: json
+
+    #--------------------------------------------------------
+    # 5. AF_PACKET — Capture engine
+    #
+    # Phase 1 (IDS):
+    #   copy-mode: none               ← default
+    #
+    # Phase 2 (IPS): flip to
+    #   copy-mode: ips
+    #   copy-iface: <outbound nic>
+    #   (requires two interfaces — one in, one out)
+    #--------------------------------------------------------
+    af-packet:
+      - interface: eth0
+        threads: auto
+        cluster-id: 99
+        cluster-type: cluster_flow
+        defrag: yes
+        use-mmap: yes
+        mmap-locked: yes
+        tpacket-v3: yes
+        ring-size: 200000
+        block-size: 1048576
+        block-timeout: 10
+        use-emergency-flush: yes
+        checksum-checks: kernel
+        copy-mode: none
+        # copy-iface: eth1    # Phase 2 only
+
+      # Phase 2 second interface — uncomment + flip copy-mode above
+      # - interface: eth1
+      #   threads: auto
+      #   cluster-id: 98
+      #   cluster-type: cluster_flow
+      #   defrag: yes
+      #   use-mmap: yes
+      #   ring-size: 200000
+      #   tpacket-v3: yes
+      #   copy-mode: ips
+      #   copy-iface: eth0
+
+    #--------------------------------------------------------
+    # 6. PCAP (alternative capture — disabled, AF_PACKET preferred)
+    #--------------------------------------------------------
+    pcap:
+      - interface: eth0
+        checksum-checks: auto
+
+    #--------------------------------------------------------
+    # 7. APP-LAYER PROTOCOL PARSERS
+    # EVERYTHING enabled for maximum XDR coverage.
+    # Modbus / DNP3 / ENIP-CIP enabled because Big Chemistry
+    # likely has OT assets reachable over the network.
+    #--------------------------------------------------------
+    app-layer:
+      protocols:
+        rfb:
+          enabled: yes
+          detection-ports:
+            dp: 5900,5901,5902,5903,5904,5905,5906
+        mqtt:
+          enabled: yes
+          max-msg-length: 1mb
+        krb5:
+          enabled: yes
+        bittorrent-dht:
+          enabled: yes
+        snmp:
+          enabled: yes
+        ike:
+          enabled: yes
+        tls:
+          enabled: yes
+          detection-ports:
+            dp: 443,465,636,989,990,992,993,994,995,4443,8443,9443
+          ja3-fingerprints: yes
+          encryption-handling: track-only
+        dcerpc:
+          enabled: yes
+        ftp:
+          enabled: yes
+          memcap: 64mb
+        rdp:
+          enabled: yes
+        ssh:
+          enabled: yes
+          hassh: yes                 # SSH fingerprinting
+        http2:
+          enabled: yes
+          http1-rules: no
+        smtp:
+          enabled: yes
+          raw-extraction: yes
+          mime:
+            decode-mime: yes
+            decode-base64: yes
+            decode-quoted-printable: yes
+            header-value-depth: 2000
+            extract-urls: yes
+            body-md5: yes
+          inspected-tracker:
+            content-limit: 100000
+            content-inspect-min-size: 32768
+            content-inspect-window: 4096
+        imap:
+          enabled: detection-only
+        smb:
+          enabled: yes
+          detection-ports:
+            dp: 139, 445
+        nfs:
+          enabled: yes
+        tftp:
+          enabled: yes
+        dns:
+          tcp:
+            enabled: yes
+            detection-ports:
+              dp: 53
+          udp:
+            enabled: yes
+            detection-ports:
+              dp: 53
+        http:
+          enabled: yes
+          libhtp:
+             default-config:
+               personality: IDS
+               request-body-limit: 100kb
+               response-body-limit: 100kb
+               request-body-minimal-inspect-size: 32kb
+               request-body-inspect-window: 4kb
+               response-body-minimal-inspect-size: 40kb
+               response-body-inspect-window: 16kb
+               response-body-decompress-layer-limit: 2
+               http-body-inline: auto
+               swf-decompression:
+                 enabled: yes
+                 type: both
+                 compress-depth: 100kb
+                 decompress-depth: 100kb
+               double-decode-path: no
+               double-decode-query: no
+        modbus:
+          enabled: yes
+          detection-ports:
+            dp: 502
+          stream-depth: 0
+        dnp3:
+          enabled: yes
+          detection-ports:
+            dp: 20000
+        enip:
+          enabled: yes
+          detection-ports:
+            dp: 44818
+            sp: 44818
+        ntp:
+          enabled: yes
+        pgsql:
+          enabled: yes
+          stream-depth: 0
+        sip:
+          enabled: yes
+        quic:
+          enabled: yes
+        telnet:
+          enabled: yes
+
+    #--------------------------------------------------------
+    # 8. DETECT ENGINE
+    # profile=high → maximum detection accuracy, memory-heavy
+    #--------------------------------------------------------
+    detect:
+      profile: high
+      custom-values:
+        toclient-groups: 200
+        toserver-groups: 200
+      sgh-mpm-context: auto
+      inspection-recursion-limit: 3000
+      prefilter:
+        default: mpm
+      grouping:
+        tcp-whitelist: 53, 80, 139, 443, 445, 502, 1433, 3306, 3389, 5432, 6379, 6443, 8080, 8443, 9001, 9200, 20000, 44818
+        udp-whitelist: 53, 135, 5060
+      profiling:
+        grouping:
+          dump-to-disk: false
+          include-rules: false
+          include-mpm-stats: false
+
+    mpm-algo: auto
+    spm-algo: auto
+
+    #--------------------------------------------------------
+    # 9. THREADING
+    #--------------------------------------------------------
+    threading:
+      set-cpu-affinity: no
+      detect-thread-ratio: 1.0
+      cpu-affinity:
+        - management-cpu-set:
+            cpu: [ 0 ]
+        - receive-cpu-set:
+            cpu: [ 0 ]
+        - worker-cpu-set:
+            cpu: [ "all" ]
+            mode: "exclusive"
+            prio:
+              low: [ 0 ]
+              medium: [ "1-2" ]
+              high: [ 3 ]
+              default: "medium"
+
+    #--------------------------------------------------------
+    # 10. LUA SUPPORT (for custom detection scripts)
+    #--------------------------------------------------------
+    security:
+      lua:
+        allow-rules: yes
+
+    #--------------------------------------------------------
+    # 11. STREAM / FLOW tracking memory
+    #--------------------------------------------------------
+    flow:
+      memcap: 512mb
+      hash-size: 131072
+      prealloc: 10000
+      emergency-recovery: 30
+
+    stream:
+      memcap: 1gb
+      checksum-validation: yes
+      inline: auto
+      reassembly:
+        memcap: 2gb
+        depth: 1mb
+        toserver-chunk-size: 2560
+        toclient-chunk-size: 2560
+        randomize-chunk-size: yes
+
+    #--------------------------------------------------------
+    # 12. HOST / DEFRAG
+    #--------------------------------------------------------
+    host:
+      hash-size: 4096
+      prealloc: 1000
+      memcap: 128mb
+
+    defrag:
+      memcap: 128mb
+      hash-size: 65536
+      trackers: 65535
+      max-frags: 65535
+      prealloc: yes
+      timeout: 60
+
+    #--------------------------------------------------------
+    # 13. RULE FILES — every ET Open category + custom
+    #--------------------------------------------------------
+    default-rule-path: /var/lib/suricata/rules
+    rule-files:
+      - suricata.rules                 # master file from suricata-update
+      - emerging-attack_response.rules
+      - emerging-chat.rules
+      - emerging-coinminer.rules
+      - emerging-current_events.rules
+      - emerging-dns.rules
+      - emerging-dos.rules
+      - emerging-exploit.rules
+      - emerging-ftp.rules
+      - emerging-hunting.rules
+      - emerging-imap.rules
+      - emerging-info.rules
+      - emerging-malware.rules
+      - emerging-misc.rules
+      - emerging-mobile_malware.rules
+      - emerging-netbios.rules
+      - emerging-p2p.rules
+      - emerging-phishing.rules
+      - emerging-policy.rules
+      - emerging-pop3.rules
+      - emerging-rpc.rules
+      - emerging-scada.rules            # industrial control — BIG for chemistry
+      - emerging-scan.rules
+      - emerging-shellcode.rules
+      - emerging-smtp.rules
+      - emerging-snmp.rules
+      - emerging-sql.rules
+      - emerging-telnet.rules
+      - emerging-tftp.rules
+      - emerging-trojan.rules
+      - emerging-user_agents.rules
+      - emerging-voip.rules
+      - emerging-web_client.rules
+      - emerging-web_server.rules
+      - emerging-web_specific_apps.rules
+      - emerging-worm.rules
+      # Custom rule files
+      - misp.rules                      # generated from MISP IOC feed (sidecar)
+      - bc-custom.rules                 # Big Chemistry specific rules
+      - bc-k8s.rules                    # Kubernetes-aware rules
+
+    classification-file: /etc/suricata/classification.config
+    reference-config-file: /etc/suricata/reference.config
+    threshold-file: /etc/suricata/threshold.config
+
+    #--------------------------------------------------------
+    # 14. ASN.1 / payload inspection
+    #--------------------------------------------------------
+    asn1-max-frames: 256
+
+    #--------------------------------------------------------
+    # 15. DECODER / PARSER TUNING
+    #--------------------------------------------------------
+    decoder:
+      teredo:
+        enabled: true
+        ports: $TEREDO_PORTS
+      vxlan:
+        enabled: true
+        ports: $VXLAN_PORTS
+      geneve:
+        enabled: true
+        ports: $GENEVE_PORTS
+
+    #--------------------------------------------------------
+    # 16. UNIX SOCKET — Suricatasc management
+    #--------------------------------------------------------
+    unix-command:
+      enabled: auto
+      filename: /var/run/suricata/suricata-command.socket
+
+    #--------------------------------------------------------
+    # 17. MAGIC / GEOIP (optional but useful)
+    #--------------------------------------------------------
+    magic-file: /usr/share/file/magic.mgc
+
+    #--------------------------------------------------------
+    # 18. ENGINE ANALYSIS / PROFILING (off by default)
+    #--------------------------------------------------------
+    engine-analysis:
+      rules-fast-pattern: no
+      rules: no
+
+    profiling:
+      rules:
+        enabled: no
+      keywords:
+        enabled: no
+      rulegroups:
+        enabled: no
+      packets:
+        enabled: no
+      locks:
+        enabled: no
+
+    #--------------------------------------------------------
+    # 19. NFQ (Linux netfilter queue — Phase 2 IPS alternative)
+    #--------------------------------------------------------
+    nfq:
+      mode: accept
+      repeat-mark: 1
+      repeat-mask: 1
+      bypass-mark: 1
+      bypass-mask: 1
+      route-queue: 2
+      batchcount: 20
+      fail-open: yes
+
+    #--------------------------------------------------------
+    # 20. NAPATECH / DPDK (hardware offload — not used on EC2)
+    #--------------------------------------------------------
+    # Left out — not applicable to AWS EC2 instances.
+
+  classification.config: |
+    # Standard Suricata classification file
+    config classification: not-suspicious,Not Suspicious Traffic,3
+    config classification: unknown,Unknown Traffic,3
+    config classification: bad-unknown,Potentially Bad Traffic, 2
+    config classification: attempted-recon,Attempted Information Leak,2
+    config classification: successful-recon-limited,Information Leak,2
+    config classification: successful-recon-largescale,Large Scale Information Leak,2
+    config classification: attempted-dos,Attempted Denial of Service,2
+    config classification: successful-dos,Denial of Service,2
+    config classification: attempted-user,Attempted User Privilege Gain,1
+    config classification: unsuccessful-user,Unsuccessful User Privilege Gain,1
+    config classification: successful-user,Successful User Privilege Gain,1
+    config classification: attempted-admin,Attempted Administrator Privilege Gain,1
+    config classification: successful-admin,Successful Administrator Privilege Gain,1
+    config classification: rpc-portmap-decode,Decode of an RPC Query,2
+    config classification: shellcode-detect,Executable Code was Detected,1
+    config classification: string-detect,A Suspicious String was Detected,3
+    config classification: suspicious-filename-detect,A Suspicious Filename was Detected,2
+    config classification: suspicious-login,An Attempted Login Using a Suspicious Username was Detected,2
+    config classification: system-call-detect,A System Call was Detected,2
+    config classification: tcp-connection,A TCP Connection was Detected,4
+    config classification: trojan-activity,A Network Trojan was Detected, 1
+    config classification: unusual-client-port-connection,A Client was Using an Unusual Port,2
+    config classification: network-scan,Detection of a Network Scan,3
+    config classification: denial-of-service,Detection of a Denial of Service Attack,2
+    config classification: non-standard-protocol,Detection of a Non-Standard Protocol or Event,2
+    config classification: protocol-command-decode,Generic Protocol Command Decode,3
+    config classification: web-application-activity,Access to a Potentially Vulnerable Web Application,2
+    config classification: web-application-attack,Web Application Attack,1
+    config classification: misc-activity,Misc activity,3
+    config classification: misc-attack,Misc Attack,2
+    config classification: icmp-event,Generic ICMP event,3
+    config classification: kickass-porn,SCORE! Get the lotion!,1
+    config classification: policy-violation,Potential Corporate Privacy Violation,1
+    config classification: default-login-attempt,Attempt to Login By a Default Username and Password,2
+    # Industrial / OT categories (Big Chemistry)
+    config classification: scada,SCADA Specific Activity,2
+    config classification: ics-alert,Industrial Control System Alert,1
+    # Emerging Threats adds
+    config classification: targeted-activity,Targeted Malicious Activity was Detected,1
+    config classification: exploit-kit,Exploit Kit Activity Detected,1
+    config classification: external-ip-check,Device Retrieving External IP Address Detected,2
+    config classification: domain-c2,Domain Observed Used for C2 Detected,1
+    config classification: pup-activity,Possibly Unwanted Program Detected,2
+    config classification: credential-theft,Successful Credential Theft Detected,1
+    config classification: social-engineering,Possible Social Engineering Attempted,2
+    config classification: coin-mining,Crypto Currency Mining Activity Detected,2
+    config classification: command-and-control,Malware Command and Control Activity Detected,1
+
+  threshold.config: |
+    # Threshold / suppression file — starts empty.
+    # Populate with entries like:
+    #   suppress gen_id 1, sig_id 2019401
+    #   threshold gen_id 1, sig_id 2001219, type both, track by_src, count 10, seconds 60
+    # Tune as rules become noisy.

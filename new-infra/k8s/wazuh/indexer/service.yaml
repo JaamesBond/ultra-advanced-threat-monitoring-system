@@ -1,0 +1,71 @@
+#--------------------------------------------------------------
+# Wazuh Indexer — Services
+#
+# 1. wazuh-indexer-headless  (ClusterIP: None)
+#    Stable DNS for StatefulSet pod discovery. Used by OpenSearch
+#    transport layer (9300) for cluster formation.
+#
+# 2. wazuh-indexer           (ClusterIP)
+#    Stable endpoint consumed by:
+#      - Wazuh Manager Filebeat (writes alerts)
+#      - Wazuh Dashboard        (reads alerts for UI)
+#      - External Secrets Operator (ISM policy bootstrap)
+#    Exposed ONLY inside the bc-ctrl EKS cluster.
+#
+# No LoadBalancer / NLB — the Indexer is never exposed outside
+# the cluster. All external access goes through the Dashboard,
+# which is itself fronted by an authenticated proxy.
+#--------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh-indexer-headless
+  namespace: wazuh
+  labels:
+    app: wazuh-indexer
+    app.kubernetes.io/component: siem-indexer
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: wazuh-indexer
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+      protocol: TCP
+    - name: transport
+      port: 9300
+      targetPort: 9300
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh-indexer
+  namespace: wazuh
+  labels:
+    app: wazuh-indexer
+    app.kubernetes.io/component: siem-indexer
+spec:
+  type: ClusterIP
+  selector:
+    app: wazuh-indexer
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+      protocol: TCP
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: wazuh-indexer-pdb
+  namespace: wazuh
+  labels:
+    app: wazuh-indexer
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: wazuh-indexer

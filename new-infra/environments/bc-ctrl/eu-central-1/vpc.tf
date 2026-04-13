@@ -58,7 +58,7 @@ module "vpc_endpoints" {
   enable_cloudwatch_logs = true
   enable_kms             = true
   enable_sts             = true
-  enable_secretsmanager  = false  # Enable when Secrets Manager is adopted
+  enable_secretsmanager  = true   # Wazuh Manager + external-secrets operator read bc/* secrets
 
   tags = local.common_tags
 }

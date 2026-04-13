@@ -1,0 +1,356 @@
+#--------------------------------------------------------------
+# Suricata — Namespace + ServiceAccount + DaemonSet
+#
+# Deployed to: bc-xdr EKS cluster, namespace "suricata"
+# Nodegroup:   collector (m6a.large — runs alongside nProbe + Vector)
+#
+# Depends on:
+#   - configmap-suricata.yaml       (mounted at /etc/suricata/*)
+#   - ECR pull-through cache rule "docker-hub" (same as Wazuh agent)
+#
+# Pod structure:
+#   initContainer rule-updater   — pulls ET Open rules on boot
+#   main       suricata          — AF_PACKET IDS/IPS engine
+#   sidecar    rule-refresher    — cron: refresh rules every 6h
+#                                  then SIGUSR2 → live reload
+#
+# PACKET VISIBILITY NOTES
+# ----------------------------------------------------------------
+# Phase 1 (current vpc.tf):
+#   Suricata only sees traffic hitting the collector node's own
+#   ENI. bc-prd egress passes through TGW attachment ENIs in the
+#   /28 intra subnets — not the /24 private subnets where this
+#   DaemonSet lands. For full bc-prd visibility add VPC Traffic
+#   Mirroring in Terraform (bc-prd ENIs → NLB → this DaemonSet).
+#
+# Phase 2 (inline IPS — separate architecture):
+#   Dedicated inspection-subnet EC2 pair with two NICs,
+#   appliance-mode TGW routes traffic through them. See
+#   bc-xdr/vpc.tf comments for the planned design. That pair
+#   would NOT be a DaemonSet — it would be a pair of dedicated
+#   instances managed by Terraform.
+#
+# This DaemonSet is the Phase 1 tuning/testing baseline and the
+# receive-side for future traffic mirroring.
+#--------------------------------------------------------------
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: suricata
+  labels:
+    name: suricata
+    app.kubernetes.io/part-of: xdr-platform
+    customer: big-chemistry
+    environment: xdr
+    vpc-role: xdr-infrastructure
+  annotations:
+    description: "Suricata NIDS/NIPS — bc-xdr collector nodegroup"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: suricata
+  namespace: suricata
+  labels:
+    app: suricata
+    app.kubernetes.io/component: nids
+---
+#--------------------------------------------------------------
+# DaemonSet
+#--------------------------------------------------------------
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: suricata
+  namespace: suricata
+  labels:
+    app: suricata
+    app.kubernetes.io/component: nids
+    app.kubernetes.io/part-of: xdr-platform
+spec:
+  selector:
+    matchLabels:
+      app: suricata
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: suricata
+        app.kubernetes.io/component: nids
+      annotations:
+        checksum/config: "PLACEHOLDER_CONFIGMAP_SHA"
+        # Scrape Suricata stats via promtail/prometheus if later added
+        prometheus.io/scrape: "false"
+    spec:
+      serviceAccountName: suricata
+      terminationGracePeriodSeconds: 60
+
+      # Land on the collector nodegroup in bc-xdr
+      nodeSelector:
+        role: collector
+
+      # Collector nodegroup has no taints — no tolerations needed
+      tolerations: []
+
+      #--------------------------------------------------------------
+      # Host namespace sharing — required for packet capture
+      #--------------------------------------------------------------
+      hostNetwork: true
+      hostPID: false
+      dnsPolicy: ClusterFirstWithHostNet
+
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+
+      #--------------------------------------------------------------
+      # Init container: pull ET Open rules into shared volume
+      #--------------------------------------------------------------
+      initContainers:
+        - name: rule-updater
+          image: PLACEHOLDER_AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/jasonish/suricata:7.0.7
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              mkdir -p /var/lib/suricata/rules /var/lib/suricata/update
+              suricata-update update-sources
+              suricata-update enable-source et/open
+              suricata-update \
+                --data-dir /var/lib/suricata \
+                --suricata-conf /etc/suricata/suricata.yaml \
+                --output /var/lib/suricata/rules \
+                --no-test \
+                --force
+              echo "Rules loaded:"
+              ls -la /var/lib/suricata/rules/
+          volumeMounts:
+            - name: rules
+              mountPath: /var/lib/suricata
+            - name: config
+              mountPath: /etc/suricata/suricata.yaml
+              subPath: suricata.yaml
+              readOnly: true
+            - name: config
+              mountPath: /etc/suricata/classification.config
+              subPath: classification.config
+              readOnly: true
+            - name: config
+              mountPath: /etc/suricata/threshold.config
+              subPath: threshold.config
+              readOnly: true
+
+      containers:
+        #--------------------------------------------------------------
+        # Main container — Suricata IDS/IPS
+        #--------------------------------------------------------------
+        - name: suricata
+          image: PLACEHOLDER_AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/jasonish/suricata:7.0.7
+          imagePullPolicy: IfNotPresent
+          command:
+            - /usr/bin/suricata
+          args:
+            - -c
+            - /etc/suricata/suricata.yaml
+            - --af-packet=eth0
+            - -v
+            - --set
+            - outputs.1.eve-log.filename=eve.json
+
+          securityContext:
+            privileged: false
+            runAsUser: 0
+            capabilities:
+              drop: [ALL]
+              add:
+                - NET_ADMIN        # put eth0 in promisc mode
+                - NET_RAW          # raw packet capture
+                - SYS_NICE         # CPU affinity / RT priority
+                - IPC_LOCK         # mmap-locked AF_PACKET ring buffer
+                - SYS_RESOURCE     # bump mmap limits
+                - DAC_OVERRIDE     # write to /var/log/suricata
+
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 6Gi
+
+          volumeMounts:
+            # Config (read-only)
+            - name: config
+              mountPath: /etc/suricata/suricata.yaml
+              subPath: suricata.yaml
+              readOnly: true
+            - name: config
+              mountPath: /etc/suricata/classification.config
+              subPath: classification.config
+              readOnly: true
+            - name: config
+              mountPath: /etc/suricata/threshold.config
+              subPath: threshold.config
+              readOnly: true
+
+            # Rules — shared with rule-updater and rule-refresher
+            - name: rules
+              mountPath: /var/lib/suricata
+
+            # Logs — hostPath so Vector (same nodegroup) can tail eve.json
+            - name: suricata-logs
+              mountPath: /var/log/suricata
+
+            # Unix socket dir for suricatasc (live reload signalling)
+            - name: run
+              mountPath: /var/run/suricata
+
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - |
+                  # Startup takes a while on cold boot (rule compile)
+                  test -S /var/run/suricata/suricata-command.socket && \
+                  suricatasc -c uptime /var/run/suricata/suricata-command.socket 2>/dev/null | grep -q message
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 40   # 40 × 15s = 10 min for rule compile
+
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - |
+                  suricatasc -c uptime /var/run/suricata/suricata-command.socket 2>/dev/null | grep -q message
+            periodSeconds: 60
+            timeoutSeconds: 15
+            failureThreshold: 3
+
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - |
+                  suricatasc -c iface-stat eth0 /var/run/suricata/suricata-command.socket 2>/dev/null | grep -q pkts
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - |
+                    suricatasc -c shutdown /var/run/suricata/suricata-command.socket 2>/dev/null || \
+                    kill -TERM 1
+
+        #--------------------------------------------------------------
+        # Sidecar — rule refresher
+        # Every 6h: suricata-update, then SIGUSR2 to main container for
+        # live reload without dropping packets.
+        #--------------------------------------------------------------
+        - name: rule-refresher
+          image: PLACEHOLDER_AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/jasonish/suricata:7.0.7
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              echo "Rule refresher started (interval: 6h)"
+              while true; do
+                sleep 21600   # 6h
+                echo "[$(date -Iseconds)] Refreshing rules..."
+                suricata-update \
+                  --data-dir /var/lib/suricata \
+                  --suricata-conf /etc/suricata/suricata.yaml \
+                  --output /var/lib/suricata/rules \
+                  --no-test \
+                  --force || {
+                    echo "suricata-update failed, will retry next cycle"
+                    continue
+                  }
+                echo "[$(date -Iseconds)] Signalling main container for live reload"
+                if [ -S /var/run/suricata/suricata-command.socket ]; then
+                  suricatasc -c reload-rules /var/run/suricata/suricata-command.socket || true
+                else
+                  echo "Command socket not found, skipping reload"
+                fi
+              done
+
+          securityContext:
+            runAsUser: 0
+            capabilities:
+              drop: [ALL]
+              add:
+                - DAC_OVERRIDE
+
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+
+          volumeMounts:
+            - name: rules
+              mountPath: /var/lib/suricata
+            - name: config
+              mountPath: /etc/suricata/suricata.yaml
+              subPath: suricata.yaml
+              readOnly: true
+            - name: run
+              mountPath: /var/run/suricata
+
+      #--------------------------------------------------------------
+      # Volumes
+      #--------------------------------------------------------------
+      volumes:
+        - name: config
+          configMap:
+            name: suricata-config
+            items:
+              - key: suricata.yaml
+                path: suricata.yaml
+              - key: classification.config
+                path: classification.config
+              - key: threshold.config
+                path: threshold.config
+
+        # Shared emptyDir for rules — survives init→main→sidecar
+        - name: rules
+          emptyDir:
+            medium: ""
+            sizeLimit: 1Gi
+
+        # hostPath logs — Vector tails eve.json from here
+        - name: suricata-logs
+          hostPath:
+            path: /var/log/suricata
+            type: DirectoryOrCreate
+
+        # Unix socket dir
+        - name: run
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
