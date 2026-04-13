@@ -12,19 +12,6 @@
 # this file can be applied via terraform apply.
 #--------------------------------------------------------------
 
-terraform {
-  required_providers {
-    helm = {
-      source  = "hashicorp/helm"
-      version = ">= 2.15"
-    }
-    kubernetes = {
-      source  = "hashicorp/kubernetes"
-      version = ">= 2.32"
-    }
-  }
-}
-
 #--------------------------------------------------------------
 # Providers pointing at the bc-ctrl cluster
 # (assumes the eks module is declared in this workspace;

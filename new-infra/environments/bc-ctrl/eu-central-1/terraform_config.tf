@@ -14,6 +14,14 @@ terraform {
       source  = "hashicorp/time"
       version = ">= 0.9"
     }
+    helm = {
+      source  = "hashicorp/helm"
+      version = ">= 2.15"
+    }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = ">= 2.32"
+    }
   }
 
   backend "s3" {

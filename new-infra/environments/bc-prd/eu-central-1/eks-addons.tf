@@ -19,19 +19,6 @@
 # BLOCKED until EKS cluster exists (same SCP constraint as bc-ctrl).
 #--------------------------------------------------------------
 
-terraform {
-  required_providers {
-    helm = {
-      source  = "hashicorp/helm"
-      version = ">= 2.15"
-    }
-    kubernetes = {
-      source  = "hashicorp/kubernetes"
-      version = ">= 2.32"
-    }
-  }
-}
-
 #--------------------------------------------------------------
 # Providers pointing at the bc-prd cluster
 #--------------------------------------------------------------
