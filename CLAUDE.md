@@ -121,8 +121,15 @@ Auth: GitHub OIDC → `arn:aws:iam::286439316079:role/GitHubActionsDeployRole`. 
 ### bc-xdr — no EKS
 XDR VPC runs a single EC2 test instance (t3.medium, SSM only) for TGW/routing validation. No EKS. Security tooling (Wazuh, MISP, nProbe) is future scope, pending SCP resolution.
 
-### bc-ctrl — EC2 test instance (EKS future scope)
-Control plane VPC currently runs an EC2 test instance. EKS with `security` + `platform` node groups is defined in `locals.tf` but not yet deployed.
+### bc-ctrl — EKS (pending SCP fix)
+Control plane VPC runs an EC2 test instance (t3.large, SSM only) + EKS cluster with `security` + `platform` node groups. Node group creation blocked by SCP `p-bg731gel`.
+
+| Group | Instance | Min/Desired/Max | Purpose |
+|-------|----------|-----------------|---------|
+| `security` | m6a.xlarge | 2/2/6 | Cilium/Falco/Tetragon DaemonSets; taint `dedicated=security:NoSchedule` |
+| `platform` | m6a.large | 2/2/6 | Enforcement API (FastAPI + Celery + boto3/WAF/NFW workers), Cilium Operator, Grafana, Kibana, Keycloak, Kyverno (3 replicas), Trivy + Sigstore webhooks |
+
+Private endpoint only.
 
 ### bc-prd — EKS for Cilium / Falco / Tetragon (pending SCP fix)
 
