@@ -195,10 +195,7 @@ module "eks" {
       resolve_conflicts_on_create = "OVERWRITE"
       resolve_conflicts_on_update = "OVERWRITE"
       before_compute              = true
-      pod_identity_association = [{
-        role_arn        = aws_iam_role.addon_vpc_cni.arn
-        service_account = "kube-system:aws-node"
-      }]
+      # vpc-cni does not support Pod Identity — node IAM role carries AmazonEKS_CNI_Policy
     }
 
     coredns = {
@@ -247,17 +244,6 @@ data "aws_iam_policy_document" "eks_pod_identity_trust" {
       identifiers = ["pods.eks.amazonaws.com"]
     }
   }
-}
-
-resource "aws_iam_role" "addon_vpc_cni" {
-  name               = "${local.eks_cluster_name}-addon-vpc-cni"
-  assume_role_policy = data.aws_iam_policy_document.eks_pod_identity_trust.json
-  tags               = local.common_tags
-}
-
-resource "aws_iam_role_policy_attachment" "addon_vpc_cni" {
-  role       = aws_iam_role.addon_vpc_cni.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
 }
 
 resource "aws_iam_role" "addon_ebs_csi" {

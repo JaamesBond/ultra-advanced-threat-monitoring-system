@@ -84,8 +84,18 @@ locals {
       max_size       = 4
       desired_size   = 1
       instance_types = ["m6a.large"]
-      disk_size      = 100
       labels         = { "role" = "collector" }
+      block_device_mappings = {
+        xvda = {
+          device_name = "/dev/xvda"
+          ebs = {
+            volume_size           = 100
+            volume_type           = "gp3"
+            encrypted             = true
+            delete_on_termination = true
+          }
+        }
+      }
     }
 
     # Triton Inference Server — T1: LightGBM, T2: CNN-MLP, GNN, Autoencoder, DGA, Behavioral
@@ -97,8 +107,18 @@ locals {
       capacity_type  = "SPOT"
       instance_types = ["g4dn.xlarge", "g4dn.2xlarge"]
       ami_type       = "AL2023_x86_64_NVIDIA"
-      disk_size      = 100
       labels         = { "role" = "ml-inference" }
+      block_device_mappings = {
+        xvda = {
+          device_name = "/dev/xvda"
+          ebs = {
+            volume_size           = 100
+            volume_type           = "gp3"
+            encrypted             = true
+            delete_on_termination = true
+          }
+        }
+      }
       taints = {
         gpu = {
           key    = "nvidia.com/gpu"
@@ -114,8 +134,18 @@ locals {
       max_size       = 4
       desired_size   = 1
       instance_types = ["m6a.xlarge"]
-      disk_size      = 150
       labels         = { "role" = "cti" }
+      block_device_mappings = {
+        xvda = {
+          device_name = "/dev/xvda"
+          ebs = {
+            volume_size           = 150
+            volume_type           = "gp3"
+            encrypted             = true
+            delete_on_termination = true
+          }
+        }
+      }
       taints = {
         dedicated = {
           key    = "dedicated"
