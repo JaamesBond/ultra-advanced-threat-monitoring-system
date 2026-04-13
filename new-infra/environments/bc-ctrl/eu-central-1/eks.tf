@@ -3,39 +3,6 @@
 # Access: private endpoint only
 #==============================================================
 
-data "aws_iam_policy_document" "eks_pod_identity_trust" {
-  statement {
-    effect  = "Allow"
-    actions = ["sts:AssumeRole", "sts:TagSession"]
-    principals {
-      type        = "Service"
-      identifiers = ["pods.eks.amazonaws.com"]
-    }
-  }
-}
-
-resource "aws_iam_role" "addon_ebs_csi" {
-  name               = "${local.eks_cluster_name}-addon-ebs-csi"
-  assume_role_policy = data.aws_iam_policy_document.eks_pod_identity_trust.json
-  tags               = local.common_tags
-}
-
-resource "aws_iam_role_policy_attachment" "addon_ebs_csi" {
-  role       = aws_iam_role.addon_ebs_csi.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
-}
-
-resource "aws_iam_role" "addon_cloudwatch" {
-  name               = "${local.eks_cluster_name}-addon-cloudwatch"
-  assume_role_policy = data.aws_iam_policy_document.eks_pod_identity_trust.json
-  tags               = local.common_tags
-}
-
-resource "aws_iam_role_policy_attachment" "addon_cloudwatch" {
-  role       = aws_iam_role.addon_cloudwatch.name
-  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
-}
-
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 21.0"
@@ -52,49 +19,11 @@ module "eks" {
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnet_ids
 
-  addons = {
-    kube-proxy = {
-      addon_version               = local.eks_addons["kube-proxy"].addon_version
-      resolve_conflicts_on_create = "OVERWRITE"
-      resolve_conflicts_on_update = "OVERWRITE"
-      before_compute              = true
-    }
+  # Addons deferred — CoreDNS + ebs-csi + cloudwatch require nodes to reach ACTIVE state.
+  # SCP p-bg731gel blocks ec2:RunInstances; restore addons once SCP is resolved.
+  addons = {}
 
-    vpc-cni = {
-      addon_version               = local.eks_addons["vpc-cni"].addon_version
-      resolve_conflicts_on_create = "OVERWRITE"
-      resolve_conflicts_on_update = "OVERWRITE"
-      before_compute              = true
-    }
-
-    coredns = {
-      addon_version               = local.eks_addons["coredns"].addon_version
-      resolve_conflicts_on_create = "OVERWRITE"
-      resolve_conflicts_on_update = "OVERWRITE"
-    }
-
-    aws-ebs-csi-driver = {
-      addon_version               = local.eks_addons["aws-ebs-csi-driver"].addon_version
-      resolve_conflicts_on_create = "OVERWRITE"
-      resolve_conflicts_on_update = "OVERWRITE"
-      pod_identity_association = [{
-        role_arn        = aws_iam_role.addon_ebs_csi.arn
-        service_account = "kube-system:ebs-csi-controller-sa"
-      }]
-    }
-
-    amazon-cloudwatch-observability = {
-      addon_version               = local.eks_addons["amazon-cloudwatch-observability"].addon_version
-      resolve_conflicts_on_create = "OVERWRITE"
-      resolve_conflicts_on_update = "OVERWRITE"
-      pod_identity_association = [{
-        role_arn        = aws_iam_role.addon_cloudwatch.arn
-        service_account = "amazon-cloudwatch:cloudwatch-agent"
-      }]
-    }
-  }
-
-  eks_managed_node_groups = {} # node groups disabled — SCP p-bg731gel blocks ec2:RunInstances
+  eks_managed_node_groups = {} # blocked by SCP p-bg731gel
 
   tags = local.common_tags
 }
