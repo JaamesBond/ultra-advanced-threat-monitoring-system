@@ -1,13 +1,13 @@
 #--------------------------------------------------------------
-# TEST VARIANT: EC2 instead of EKS
+# XDR Inline Inspection Appliance (EC2)
 #
-# Replaces the XDR Infrastructure EKS cluster with a single Ubuntu
-# EC2 instance for connectivity and TGW routing tests.
+# Dedicated instance for Zeek + Suricata network sensors.
+# Sits in the inspection path: TGW → inspection subnet → NAT GW.
+# Runs alongside EKS — EKS handles pipeline workloads,
+# this EC2 handles packet-level inline inspection.
 #
 # Access: SSM Session Manager only (no SSH key, no public IP)
-# Docker installed — can run collector containers for testing.
-#
-# Switch back to EKS once the SCP block on eks:CreateCluster is resolved.
+# Zeek + Vector (CloudWatch) deployed via Docker in user_data.
 #--------------------------------------------------------------
 
 data "aws_ami" "ubuntu_xdr" {
@@ -47,6 +47,25 @@ resource "aws_iam_role" "xdr_test" {
 resource "aws_iam_role_policy_attachment" "xdr_test_ssm" {
   role       = aws_iam_role.xdr_test.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_role_policy" "xdr_test_zeek_logs" {
+  name = "bc-xdr-test-zeek-cloudwatch"
+  role = aws_iam_role.xdr_test.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogStreams"
+      ]
+      Resource = "arn:aws:logs:${local.region}:*:log-group:/bc-xdr/zeek:*"
+    }]
+  })
 }
 
 resource "aws_iam_instance_profile" "xdr_test" {
@@ -135,6 +154,76 @@ resource "aws_instance" "xdr_test" {
 
     systemctl enable --now docker
     usermod -aG docker ubuntu
+
+    # ── Zeek: network security monitor ──────────────────────────
+    mkdir -p /opt/zeek/{logs,config,spool}
+
+    # Zeek local.zeek config — enable standard scripts + JSON logging
+    cat > /opt/zeek/config/local.zeek <<'ZEEKCONF'
+    @load base/protocols/conn
+    @load base/protocols/dns
+    @load base/protocols/http
+    @load base/protocols/ssl
+    @load frameworks/files/hash-all-files
+    @load policy/frameworks/notice/community-id
+    @load policy/protocols/ssl/validate-certs
+    @load policy/tuning/json-logs
+    redef LogAscii::use_json = T;
+    ZEEKCONF
+
+    # Detect primary interface
+    PRIMARY_IF=$(ip -o link show up | awk -F': ' '!/lo/{print $2; exit}')
+
+    docker run -d \
+      --name zeek \
+      --restart always \
+      --net=host \
+      --cap-add=NET_RAW \
+      --cap-add=NET_ADMIN \
+      --workdir /zeek/logs \
+      -v /opt/zeek/logs:/zeek/logs \
+      -v /opt/zeek/config/local.zeek:/usr/local/zeek/share/zeek/site/local.zeek:ro \
+      zeek/zeek:latest \
+      zeek -i "$PRIMARY_IF" local
+
+    # ── Vector: ship Zeek logs to CloudWatch ────────────────────
+    mkdir -p /opt/vector
+
+    cat > /opt/vector/vector.yaml <<'VECTORCONF'
+    sources:
+      zeek_logs:
+        type: file
+        include:
+          - /zeek-logs/*.log
+        read_from: beginning
+
+    transforms:
+      parse_zeek:
+        type: remap
+        inputs: [zeek_logs]
+        source: |
+          .timestamp = now()
+          .environment = "bc-xdr"
+          .source_host = get_hostname!()
+          .log_file = replace!(.file, "/zeek-logs/", "")
+
+    sinks:
+      cloudwatch:
+        type: aws_cloudwatch_logs
+        inputs: [parse_zeek]
+        group_name: /bc-xdr/zeek
+        stream_name: "{{ source_host }}/{{ log_file }}"
+        region: eu-central-1
+        encoding:
+          codec: json
+    VECTORCONF
+
+    docker run -d \
+      --name vector \
+      --restart always \
+      -v /opt/zeek/logs:/zeek-logs:ro \
+      -v /opt/vector/vector.yaml:/etc/vector/vector.yaml:ro \
+      timberio/vector:latest-alpine
   EOF
   )
 
@@ -154,3 +243,132 @@ output "xdr_test_private_ip" {
   value       = aws_instance.xdr_test.private_ip
 }
 
+#==============================================================
+# XDR EKS Cluster (runs alongside inline inspection EC2)
+#
+# Node groups (defined in locals.tf):
+#   collector  m6a.large   ON_DEMAND  — nProbe + Vector
+#   ml         g4dn.xlarge SPOT GPU   — Triton (scales to 0)
+#   cti        m6a.xlarge  ON_DEMAND  — MISP + OpenCTI + AI
+#
+# CNI: aws-vpc-cni (IPAM) + Cilium chained (eBPF policy)
+# Access: private endpoint only
+#==============================================================
+
+module "eks" {
+  source  = "terraform-aws-modules/eks/aws"
+  version = "~> 21.0"
+
+  name               = local.eks_cluster_name
+  kubernetes_version = local.eks_cluster_version
+
+  endpoint_public_access  = local.eks_endpoint_public_access
+  endpoint_private_access = local.eks_endpoint_private_access
+
+  enable_irsa        = local.eks_enable_irsa
+  deletion_protection = local.eks_deletion_protection
+
+  vpc_id     = module.vpc.vpc_id
+  subnet_ids = module.vpc.private_subnet_ids
+
+  addons = {
+    kube-proxy = {
+      addon_version               = local.eks_addons["kube-proxy"].addon_version
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+      before_compute              = true
+    }
+
+    vpc-cni = {
+      addon_version               = local.eks_addons["vpc-cni"].addon_version
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+      before_compute              = true
+      # vpc-cni does not support Pod Identity — node IAM role carries AmazonEKS_CNI_Policy
+    }
+
+    coredns = {
+      addon_version               = local.eks_addons["coredns"].addon_version
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+    }
+
+    aws-ebs-csi-driver = {
+      addon_version               = local.eks_addons["aws-ebs-csi-driver"].addon_version
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+      pod_identity_association = [{
+        role_arn        = aws_iam_role.addon_ebs_csi.arn
+        service_account = "kube-system:ebs-csi-controller-sa"
+      }]
+    }
+
+    amazon-cloudwatch-observability = {
+      addon_version               = local.eks_addons["amazon-cloudwatch-observability"].addon_version
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+      pod_identity_association = [{
+        role_arn        = aws_iam_role.addon_cloudwatch.arn
+        service_account = "amazon-cloudwatch:cloudwatch-agent"
+      }]
+    }
+  }
+
+  # eks_managed_node_group_defaults removed in v21 — defaults inlined per node group in locals.tf
+  eks_managed_node_groups = local.eks_node_groups
+
+  tags = local.common_tags
+}
+
+#--------------------------------------------------------------
+# IAM — Pod Identity roles for managed addons
+#--------------------------------------------------------------
+
+data "aws_iam_policy_document" "eks_pod_identity_trust" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole", "sts:TagSession"]
+    principals {
+      type        = "Service"
+      identifiers = ["pods.eks.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "addon_ebs_csi" {
+  name               = "${local.eks_cluster_name}-addon-ebs-csi"
+  assume_role_policy = data.aws_iam_policy_document.eks_pod_identity_trust.json
+  tags               = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "addon_ebs_csi" {
+  role       = aws_iam_role.addon_ebs_csi.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+}
+
+resource "aws_iam_role" "addon_cloudwatch" {
+  name               = "${local.eks_cluster_name}-addon-cloudwatch"
+  assume_role_policy = data.aws_iam_policy_document.eks_pod_identity_trust.json
+  tags               = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "addon_cloudwatch" {
+  role       = aws_iam_role.addon_cloudwatch.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+}
+
+#--------------------------------------------------------------
+# Outputs
+#--------------------------------------------------------------
+
+output "eks_cluster_name" {
+  value = module.eks.cluster_name
+}
+
+output "eks_cluster_endpoint" {
+  value = module.eks.cluster_endpoint
+}
+
+output "eks_node_group_arns" {
+  value = { for k, v in module.eks.eks_managed_node_groups : k => v.node_group_arn }
+}

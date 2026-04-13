@@ -83,14 +83,7 @@ Remote state wiring: each environment reads TGW IDs from `data "terraform_remote
 
 **TGW appliance_mode = `enable` on the XDR attachment.** Without this, TGW load-balances a 5-tuple flow across AZs, breaking symmetric routing on the Suricata/Zeek inline IPS pair. Never remove or change this.
 
-**SCP `p-bg731gel` (org `o-vkd12h7z3c`) blocks ALL `ec2:RunInstances on instance/*` account-wide.** This prevents ALL EKS node group creation across xdr, ctrl, and prd. The SCP is org-level — it cannot be fixed by Terraform config or by switching IAM principals (user vs role). Org admin must modify it before any EKS node groups can be created.
-
-**bc-xdr has no EKS cluster.** `eks.tf` deploys only a t3.medium EC2 test instance (SSM-only) for TGW routing validation. EKS is not planned for XDR VPC.
-
-```bash
-# Connect to the XDR test instance
-aws ssm start-session --target <xdr_test_instance_id output>
-```
+**bc-xdr runs both an EKS cluster and an inline inspection EC2.** EKS (`bc-xdr-eks`, K8s 1.34) has three managed node groups: collector (m6a.large), ml (g4dn SPOT GPU), cti (m6a.xlarge). The EC2 instance (`bc-xdr-test`) runs Zeek + Suricata as inline network sensors in the inspection subnet path (TGW → inspection → NAT GW). EKS handles pipeline workloads; EC2 handles packet-level inspection. Both are defined in `eks.tf`.
 
 ## Module structure
 
@@ -118,8 +111,16 @@ Auth: GitHub OIDC → `arn:aws:iam::286439316079:role/GitHubActionsDeployRole`. 
 
 ## EKS clusters
 
-### bc-xdr — no EKS
-XDR VPC runs a single EC2 test instance (t3.medium, SSM only) for TGW/routing validation. No EKS. Security tooling (Wazuh, MISP, nProbe) is future scope, pending SCP resolution.
+### bc-xdr — EKS + inline inspection EC2
+EKS cluster `bc-xdr-eks` (K8s 1.34, private endpoint). Tetragon + Falco deployed via `helm.tf`, TracingPolicies in `tracing-policies.tf`. EC2 instance runs Zeek + Suricata for packet-level inspection.
+
+| Group | Instance | Purpose |
+|-------|----------|---------|
+| `collector` | m6a.large | nProbe + Vector (IPFIX / log collection) |
+| `ml` | g4dn.xlarge/2xlarge (SPOT) | Triton Inference Server — scales to 0 when idle |
+| `cti` | m6a.xlarge | MISP + OpenCTI + AI investigation |
+
+ML nodes carry a `nvidia.com/gpu=true:NoSchedule` taint; CTI nodes carry `dedicated=cti:NoSchedule`.
 
 ### bc-ctrl — EKS (pending SCP fix)
 Control plane VPC runs an EC2 test instance (t3.large, SSM only) + EKS cluster with `security` + `platform` node groups. Node group creation blocked by SCP `p-bg731gel`.
@@ -131,10 +132,10 @@ Control plane VPC runs an EC2 test instance (t3.large, SSM only) + EKS cluster w
 
 Private endpoint only.
 
-### bc-prd — EKS for Cilium / Falco / Tetragon (pending SCP fix)
+### bc-prd — EKS for workloads
 
 | Group | Instance | Min/Desired/Max | Purpose |
 |-------|----------|-----------------|---------|
 | `workload` | m6a.large | 1/1/3 | Cilium + Falco + Tetragon DaemonSets + app pods |
 
-Private endpoint only. Helm chart deployment (`helm.tf`) is next step after SCP is resolved.
+Private endpoint only.
