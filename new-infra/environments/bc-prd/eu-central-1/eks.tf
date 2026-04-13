@@ -98,7 +98,7 @@ module "eks" {
     }
   }
 
-  eks_managed_node_groups = local.eks_node_groups
+  eks_managed_node_groups = {} # node groups disabled — SCP p-bg731gel blocks ec2:RunInstances
 
   tags = local.common_tags
 }
