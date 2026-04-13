@@ -52,7 +52,7 @@ locals {
   #                                         Kibana, Keycloak, Kyverno, Trivy/Sigstore
   #--------------------------------------------------------------
   eks_cluster_name            = "${local.platform_name}-${local.env}-eks"
-  eks_cluster_version         = "1.34"
+  eks_cluster_version         = "1.35"
   eks_endpoint_public_access  = false
   eks_endpoint_private_access = true
   eks_enable_irsa             = true
@@ -132,11 +132,11 @@ locals {
 
   eks_addons = {
     kube-proxy = {
-      addon_version  = "v1.34.1-eksbuild.2"
+      addon_version  = "v1.35.3-eksbuild.2"
       before_compute = true
     }
     vpc-cni = {
-      addon_version             = "v1.21.1-eksbuild.1"
+      addon_version             = "v1.21.1-eksbuild.7"
       before_compute            = true
       use_pod_identity          = true
       iam_policy_type           = "managed"
@@ -145,7 +145,7 @@ locals {
       service_account_name      = "aws-node"
     }
     coredns = {
-      addon_version = "v1.12.4-eksbuild.1"
+      addon_version = "v1.13.2-eksbuild.4"
     }
     aws-ebs-csi-driver = {
       addon_version             = "v1.54.0-eksbuild.1"
