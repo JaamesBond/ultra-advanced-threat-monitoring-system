@@ -65,8 +65,7 @@ locals {
   }
 
   eks_node_groups = {
-    # Wazuh Manager 3-node HA, Shuffle SOAR, DFIR-IRIS
-    # Also hosts Cilium/Falco/Tetragon operator + control-plane components
+    # Wazuh Manager 3-node HA (~4-6 GB each), Shuffle SOAR, DFIR-IRIS case management
     security = {
       min_size       = 2
       max_size       = 6
@@ -101,8 +100,8 @@ locals {
       }
     }
 
-    # Enforcement API, Grafana, Kibana, Keycloak, Kyverno, Trivy
-    # Cilium/Falco/Tetragon DaemonSets run here as well
+    # Enforcement API (FastAPI + Celery + boto3/WAF/NFW workers), Cilium Operator,
+    # Grafana, Kibana, Keycloak, Kyverno (3 replicas), Trivy + Sigstore webhooks
     platform = {
       min_size       = 2
       max_size       = 6
