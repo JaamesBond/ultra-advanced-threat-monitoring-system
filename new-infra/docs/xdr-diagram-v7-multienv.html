@@ -1,0 +1,1588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>XDR Architecture v7 — Multi-Environment Comparison</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Inter',sans-serif;background:#f1f5f9;color:#1e293b}
+
+  /* ===== ENV TABS ===== */
+  .env-tabs{
+    position:sticky;top:0;z-index:1100;
+    background:linear-gradient(135deg,#0a0e1a,#131a2e);
+    padding:10px 20px 0;
+    display:flex;align-items:flex-end;gap:6px;
+    border-bottom:3px solid var(--env-accent,#3b82f6);
+    box-shadow:0 4px 24px rgba(0,0,0,0.4);
+  }
+  .env-tab{
+    padding:10px 28px 9px;border-radius:8px 8px 0 0;border:1px solid #334155;border-bottom:none;
+    background:#1e293b;color:#94a3b8;font-size:12px;font-weight:700;
+    cursor:pointer;transition:all 0.25s;font-family:'Inter',sans-serif;
+    letter-spacing:0.5px;position:relative;
+  }
+  .env-tab:hover{background:#253348;color:#cbd5e1}
+  .env-tab.active{color:#fff;border-color:var(--env-accent,#3b82f6)}
+  .env-tab.active::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:3px;background:var(--env-accent)}
+  .env-tab[data-env="aws"]{--tab-color:#FF9900}
+  .env-tab[data-env="proxmox"]{--tab-color:#2196F3}
+  .env-tab[data-env="onprem"]{--tab-color:#4CAF50}
+  .env-tab.active[data-env="aws"]{background:linear-gradient(135deg,#3d2200,#5a3300);border-color:#FF9900}
+  .env-tab.active[data-env="proxmox"]{background:linear-gradient(135deg,#0d2744,#143d6b);border-color:#2196F3}
+  .env-tab.active[data-env="onprem"]{background:linear-gradient(135deg,#1a3a1a,#1d4a1d);border-color:#4CAF50}
+  .env-tab .tab-icon{margin-right:6px;font-size:13px}
+  .env-tab .tab-sub{display:block;font-size:8px;font-weight:500;color:#64748b;margin-top:2px;letter-spacing:0.3px}
+  .env-tab.active .tab-sub{color:#94a3b8}
+
+  /* ===== CONTROL PANEL (sticky) ===== */
+  .ctrl-panel{
+    position:sticky;top:0;z-index:1000;
+    background:linear-gradient(135deg,#0f172a,#1e293b);
+    border-bottom:3px solid var(--env-accent,#3b82f6);
+    padding:10px 20px 8px;
+    color:#e2e8f0;
+    box-shadow:0 4px 20px rgba(0,0,0,0.3);
+  }
+  .ctrl-top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+  .ctrl-left{flex:1;min-width:680px}
+  .ctrl-right{min-width:280px}
+  .ctrl-title{font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#94a3b8;margin-bottom:6px}
+  .ctrl-cols{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .ctrl-col h4{font-size:8.5px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#64748b;margin-bottom:4px;border-bottom:1px solid #334155;padding-bottom:3px}
+  .ctrl-col label{display:flex;align-items:center;gap:4px;font-size:9.5px;color:#cbd5e1;cursor:pointer;padding:1.5px 0;transition:color 0.2s}
+  .ctrl-col label:hover{color:#fff}
+  .ctrl-col input[type="checkbox"]{accent-color:var(--env-accent,#3b82f6);width:12px;height:12px;cursor:pointer}
+  .ctrl-btns{display:flex;gap:5px;margin-top:6px}
+  .ctrl-btn{
+    padding:3px 9px;border-radius:4px;border:1px solid #475569;
+    background:#1e293b;color:#94a3b8;font-size:8.5px;font-weight:600;
+    cursor:pointer;transition:all 0.2s;font-family:'Inter',sans-serif;
+  }
+  .ctrl-btn:hover{background:#334155;color:#fff;border-color:#64748b}
+  .ctrl-btn.active{background:var(--env-accent,#3b82f6);color:#fff;border-color:var(--env-accent,#3b82f6)}
+
+  .scenario-btns{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+  .scenario-btn{
+    padding:4px 10px;border-radius:5px;border:1px solid #475569;
+    background:#1e293b;color:#cbd5e1;font-size:9.5px;font-weight:600;
+    cursor:pointer;transition:all 0.2s;font-family:'Inter',sans-serif;
+  }
+  .scenario-btn:hover{background:#334155;color:#fff;border-color:#64748b}
+  .scenario-btn.active{background:#ef4444;color:#fff;border-color:#ef4444}
+  .scenario-btn.s-full.active{background:#8b5cf6;border-color:#8b5cf6}
+
+  .step-panel{
+    display:none;
+    background:#0f172a;border:1px solid #334155;border-radius:8px;
+    padding:8px 14px;margin-top:6px;
+  }
+  .step-panel.visible{display:block}
+  .step-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
+  .step-title{font-size:11px;font-weight:700;color:#f59e0b}
+  .step-close{
+    background:none;border:1px solid #475569;color:#94a3b8;padding:2px 8px;
+    border-radius:3px;cursor:pointer;font-size:9px;font-family:'Inter',sans-serif;
+  }
+  .step-close:hover{color:#fff;border-color:#64748b}
+  .step-body{font-size:10px;color:#cbd5e1;line-height:1.6;margin-bottom:6px;min-height:34px}
+  .step-progress{display:flex;gap:4px;margin-bottom:6px}
+  .step-dot{width:8px;height:8px;border-radius:50%;background:#334155;transition:background 0.3s}
+  .step-dot.done{background:var(--env-accent,#3b82f6)}
+  .step-dot.current{background:#f59e0b;box-shadow:0 0 6px rgba(245,158,11,0.5)}
+  .step-nav{display:flex;gap:6px}
+  .step-btn{
+    padding:3px 12px;border-radius:4px;border:1px solid #475569;
+    background:#1e293b;color:#cbd5e1;font-size:9.5px;font-weight:600;
+    cursor:pointer;transition:all 0.2s;font-family:'Inter',sans-serif;
+  }
+  .step-btn:hover{background:#334155;color:#fff}
+  .step-btn:disabled{opacity:0.3;cursor:not-allowed}
+  .step-counter{font-size:9.5px;color:#64748b;display:flex;align-items:center}
+
+  /* Env-specific warning badge */
+  .env-warn{
+    display:inline-flex;align-items:center;gap:4px;
+    padding:3px 10px;border-radius:12px;font-size:8px;font-weight:600;
+    margin-left:12px;
+  }
+  .env-warn.warn-aws{background:#7c2d12;color:#fed7aa;border:1px solid #ea580c}
+  .env-warn.warn-proxmox{background:#1e3a5f;color:#bfdbfe;border:1px solid #3b82f6}
+  .env-warn.warn-onprem{background:#14532d;color:#bbf7d0;border:1px solid #22c55e}
+
+  /* ===== PAGE ===== */
+  .page{width:1800px;margin:0 auto 20px;padding-top:14px;position:relative}
+
+  .arrows{position:absolute;top:0;left:0;width:1800px;pointer-events:none;z-index:10}
+
+  @keyframes marchForward{from{stroke-dashoffset:24}to{stroke-dashoffset:0}}
+  @keyframes marchReverse{from{stroke-dashoffset:0}to{stroke-dashoffset:24}}
+  .flow-arrow{opacity:0;transition:opacity 0.3s ease}
+  .flow-arrow.visible{opacity:1}
+  .flow-arrow.visible path.animated{animation:marchForward 0.8s linear infinite}
+  .flow-arrow.visible path.animated-reverse{animation:marchReverse 0.8s linear infinite}
+
+  .component{transition:box-shadow 0.3s ease,filter 0.3s ease}
+  .component.glow-blue{box-shadow:0 0 14px rgba(59,130,246,0.5) !important;filter:brightness(1.05)}
+  .component.glow-red{box-shadow:0 0 14px rgba(239,68,68,0.5) !important;filter:brightness(1.05)}
+  .component.glow-amber{box-shadow:0 0 14px rgba(245,158,11,0.5) !important;filter:brightness(1.05)}
+  .component.glow-purple{box-shadow:0 0 14px rgba(139,92,246,0.5) !important;filter:brightness(1.05)}
+  .component.glow-green{box-shadow:0 0 14px rgba(16,185,129,0.5) !important;filter:brightness(1.05)}
+
+  /* ===== CONTROL PLANE ===== */
+  .cp{background:linear-gradient(135deg,#0f172a,#1e293b);border-radius:12px;padding:14px 16px 12px;position:relative;z-index:1;border-top:3px solid var(--env-accent,#3b82f6)}
+  .cp-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .cp-t{font-size:12px;font-weight:800;letter-spacing:3px;color:#e2e8f0;text-transform:uppercase}
+  .cp-s{font-size:9.5px;color:#64748b;font-style:italic}
+  .cp-g{display:grid;grid-template-columns:repeat(8,1fr);gap:7px}
+  .cb{border-radius:8px;padding:9px 8px 7px}
+  .cb-l{font-size:7.5px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;padding:2px 5px;border-radius:3px;display:inline-block;margin-bottom:4px}
+  .cb-t{font-size:10.5px;font-weight:700;color:#fff;margin-bottom:3px;line-height:1.2}
+  .cb-i{font-size:8.5px;line-height:1.5;opacity:.88;list-style:none}
+  .cb-en{background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#dbeafe;border:1px solid #3b82f6}.cb-en .cb-l{background:#1d4ed8;color:#dbeafe}
+  .cb-hi{background:linear-gradient(135deg,#7f1d1d,#dc2626);color:#fde8e8;border:1px solid #ef4444}.cb-hi .cb-l{background:#991b1b;color:#fee2e2}
+  .cb-so{background:linear-gradient(135deg,#7c2d12,#ea580c);color:#fff1e6;border:1px solid #f97316}.cb-so .cb-l{background:#9a3412;color:#ffedd5}
+  .cb-ca{background:linear-gradient(135deg,#713f12,#d97706);color:#fef3c7;border:1px solid #f59e0b}.cb-ca .cb-l{background:#92400e;color:#fef3c7}
+  .cb-cn{background:linear-gradient(135deg,#14532d,#16a34a);color:#dcfce7;border:1px solid #22c55e}.cb-cn .cb-l{background:#166534;color:#dcfce7}
+  .cb-sd{background:linear-gradient(135deg,#312e81,#4f46e5);color:#e0e7ff;border:1px solid #6366f1}.cb-sd .cb-l{background:#3730a3;color:#e0e7ff}
+  .cb-we{background:linear-gradient(135deg,#1e3a5f,#0284c7);color:#e0f2fe;border:1px solid #0ea5e9}.cb-we .cb-l{background:#075985;color:#e0f2fe}
+  .cb-su{background:linear-gradient(135deg,#3b0764,#9333ea);color:#f3e8ff;border:1px solid #a855f7}.cb-su .cb-l{background:#6b21a8;color:#f3e8ff}
+
+  /* ===== MAIN ===== */
+  .main{display:grid;grid-template-columns:400px 1fr;gap:0;margin-top:12px;position:relative;z-index:1}
+
+  .zones{display:flex;flex-direction:column;gap:8px;padding-right:12px}
+  .zone{background:#fff;border-radius:10px;border:2px solid #e2e8f0;padding:10px;border-top:3px solid var(--env-accent,#3b82f6)}
+  .z-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .z-t{font-size:11.5px;font-weight:700;color:#1e293b}
+  .z-b{font-size:8px;font-weight:600;padding:2px 7px;border-radius:10px;background:#f0fdf4;color:#166534;border:1px solid #bbf7d0}
+  .z-svcs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
+  .z-svc{font-size:8px;font-weight:600;padding:2px 6px;border-radius:5px;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;text-align:center}
+  .z-svc small{display:block;font-size:7px;font-weight:400;color:#94a3b8}
+  .sensors{border-top:1px dashed #e2e8f0;padding-top:5px}
+  .sen{font-size:8.5px;padding:1.5px 0;display:flex;align-items:center;gap:4px;color:#475569}
+  .sen-i{width:14px;text-align:center;flex-shrink:0}
+  .sen-t1{color:#b91c1c;font-weight:600}
+  .sen-new{color:#7c3aed;font-weight:600}
+  .sen-fix{color:#0369a1;font-weight:600}
+  .z-tel{display:flex;align-items:center;gap:4px;font-size:8px;color:#6366f1;font-weight:600;padding-top:4px;border-top:1px dashed #e2e8f0;margin-top:4px}
+  .dot{width:6px;height:6px;border-radius:50%;background:#6366f1}
+  .z-mini{display:flex;gap:6px}
+  .z-mini-b{flex:1;background:#f8fafc;border-radius:8px;border:1.5px dashed #cbd5e1;padding:6px;text-align:center;font-size:8.5px;font-weight:600;color:#64748b}
+  .z-mini-b small{display:block;font-size:7px;font-weight:400;color:#94a3b8;margin-top:1px}
+  .wan-b{display:inline-flex;align-items:center;gap:4px;background:#f8fafc;border:1.5px dashed #94a3b8;border-radius:16px;padding:4px 10px;font-size:8.5px;color:#64748b;font-weight:500;margin-top:3px}
+  .new-tag{font-size:6.5px;background:#7c3aed;color:#fff;padding:1px 4px;border-radius:3px;font-weight:700;margin-left:2px;vertical-align:middle}
+  .fix-tag{font-size:6.5px;background:#0369a1;color:#fff;padding:1px 4px;border-radius:3px;font-weight:700;margin-left:2px;vertical-align:middle}
+  .aws-tag{font-size:6.5px;background:#FF9900;color:#fff;padding:1px 4px;border-radius:3px;font-weight:700;margin-left:2px;vertical-align:middle}
+
+  /* XDR */
+  .xdr{display:flex;flex-direction:column}
+  .xdr-head{background:linear-gradient(135deg,#0f172a,#1e293b);border-radius:10px 10px 0 0;padding:7px 12px;display:flex;justify-content:space-between;align-items:center;border-top:3px solid var(--env-accent,#3b82f6)}
+  .xdr-t{font-size:11.5px;font-weight:700;letter-spacing:2px;color:#e2e8f0;text-transform:uppercase}
+  .xdr-s{font-size:8.5px;color:#94a3b8;font-style:italic}
+  .xdr-body{background:#fff;border:2px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px;padding:10px;flex:1}
+  .p-row{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:5px}
+  .pb{border-radius:7px;padding:8px}
+  .pb-i{font-size:13px;margin-bottom:2px}
+  .pb-t{font-size:10px;font-weight:700;color:#1e293b;margin-bottom:2px}
+  .pb-l{font-size:8px;color:#64748b;line-height:1.45;list-style:none}
+  .pi{background:#eff6ff;border:1px solid #bfdbfe}
+  .pp{background:#f0fdf4;border:1px solid #bbf7d0}
+  .p-flow{text-align:center;font-size:8px;color:#94a3b8;padding:2px 0;font-style:italic}
+  .p-flow .a{color:#6366f1;font-weight:700}
+  .ml-box{background:linear-gradient(135deg,#fefce8,#fef9c3);border:1px solid #fde68a;border-radius:7px;padding:8px;margin-bottom:5px}
+  .ml-box .pb-t{font-size:10.5px}
+  .ml-g{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-top:4px}
+  .ml-c{font-size:7.5px;background:#fff;border:1px solid #fde68a;border-radius:3px;padding:2px 4px;text-align:center;color:#713f12;font-weight:500}
+  .ml-r{grid-column:1/-1;font-size:7.5px;text-align:center;color:#92400e;padding-top:2px;font-weight:500}
+  .verdict{background:linear-gradient(135deg,#dc2626,#991b1b);border-radius:8px;padding:10px;text-align:center;color:#fff;margin-top:5px}
+  .verdict-t{font-size:12px;font-weight:800;letter-spacing:2px;margin-bottom:3px}
+  .verdict-d{font-size:9px;opacity:.9}
+  .fast-path{background:#fef2f2;border:2px dashed #ef4444;border-radius:8px;padding:6px 10px;margin-top:5px;display:flex;align-items:center;gap:6px}
+  .fast-path .fp-icon{font-size:15px}
+  .fast-path .fp-text{font-size:8.5px;color:#991b1b;line-height:1.45}
+  .fast-path .fp-text strong{color:#7f1d1d}
+
+  /* TIERS */
+  .tiers{background:#fff;border-radius:10px;border:2px solid #e2e8f0;padding:12px 16px;margin-top:12px;position:relative;z-index:1;border-top:3px solid var(--env-accent,#3b82f6)}
+  .ti-h{font-size:11.5px;font-weight:700;color:#1e293b;letter-spacing:1px;text-transform:uppercase}
+  .ti-s{font-size:8.5px;color:#64748b;margin-bottom:8px;font-style:italic}
+  .ti-g{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .ti{border-radius:7px;padding:9px}
+  .ti-l{font-size:8.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:1px}
+  .ti-d{font-size:7.5px;margin-bottom:5px;font-style:italic}
+  .ti-items{font-size:8.5px;line-height:1.6;list-style:none}
+  .ti-items li{padding-left:12px;position:relative}
+  .ti-items li::before{content:'\251C';position:absolute;left:0;opacity:.4}
+  .ti-items li:last-child::before{content:'\2514'}
+  .t0{background:#f0f9ff;border:1.5px solid #7dd3fc}.t0 .ti-l{color:#0369a1}.t0 .ti-d{color:#0284c7}.t0 .ti-items{color:#0c4a6e}
+  .t1{background:#fef2f2;border:1.5px solid #fca5a5}.t1 .ti-l{color:#b91c1c}.t1 .ti-d{color:#dc2626}.t1 .ti-items{color:#7f1d1d}
+  .t2{background:#fff7ed;border:1.5px solid #fdba74}.t2 .ti-l{color:#c2410c}.t2 .ti-d{color:#ea580c}.t2 .ti-items{color:#7c2d12}
+
+  .legend{display:flex;gap:14px;padding:8px 0 4px;flex-wrap:wrap;margin-top:8px;position:relative;z-index:1}
+  .leg{display:flex;align-items:center;gap:4px;font-size:8.5px;color:#475569}
+  .leg-line{width:26px;height:3px;border-radius:2px}
+  .leg-det{background:#3b82f6}.leg-res{background:#ef4444}.leg-aut{background:#f59e0b}.leg-mgmt{background:#8b5cf6}.leg-enr{background:#10b981}.leg-fast{background:none;border-top:2px dashed #ef4444;height:0}.leg-feed{background:#a855f7}
+
+  /* ===== COMPARISON TABLE ===== */
+  .comp-section{
+    width:1800px;margin:30px auto 40px;
+  }
+  .comp-title{
+    font-size:16px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#0f172a;
+    margin-bottom:4px;
+  }
+  .comp-sub{font-size:10px;color:#64748b;margin-bottom:14px;font-style:italic}
+  .comp-table{
+    width:100%;border-collapse:collapse;font-size:9px;
+    border:2px solid #e2e8f0;border-radius:10px;overflow:hidden;
+  }
+  .comp-table thead{background:linear-gradient(135deg,#0f172a,#1e293b)}
+  .comp-table th{
+    padding:10px 8px;color:#e2e8f0;font-weight:700;font-size:10px;
+    text-align:left;letter-spacing:0.5px;border-bottom:2px solid #334155;
+  }
+  .comp-table th:first-child{width:130px}
+  .comp-table th.col-aws{border-top:3px solid #FF9900}
+  .comp-table th.col-prox{border-top:3px solid #2196F3}
+  .comp-table th.col-onprem{border-top:3px solid #4CAF50}
+  .comp-table td{
+    padding:7px 8px;border-bottom:1px solid #f1f5f9;vertical-align:top;line-height:1.5;
+  }
+  .comp-table tr:nth-child(even) td{background:#f8fafc}
+  .comp-table tr:hover td{background:#eff6ff}
+  .comp-table td:first-child{font-weight:700;color:#1e293b;background:#f1f5f9 !important;font-size:9px;letter-spacing:0.3px}
+  .comp-table .cat-row td{
+    background:linear-gradient(135deg,#1e293b,#334155) !important;
+    color:#e2e8f0;font-weight:800;font-size:10px;letter-spacing:1px;text-transform:uppercase;
+    padding:6px 8px;
+  }
+  .comp-table .warn{color:#dc2626;font-weight:600}
+  .comp-table .good{color:#16a34a;font-weight:600}
+  .comp-table .note{color:#ea580c;font-weight:600}
+  .comp-table .cost-row td{font-weight:700;font-size:9.5px}
+
+  /* Rating stars */
+  .rating{display:inline-flex;gap:1px}
+  .rating .star{color:#fbbf24}
+  .rating .star.empty{color:#d1d5db}
+</style>
+</head>
+<body>
+
+<!-- ===== ENVIRONMENT TABS ===== -->
+<div class="env-tabs" id="env-tabs">
+  <div class="env-tab active" data-env="aws">
+    <span class="tab-icon">&#9729;</span>AWS Cloud
+    <span class="tab-sub">Managed services + EKS</span>
+  </div>
+  <div class="env-tab" data-env="proxmox">
+    <span class="tab-icon">&#9634;</span>Proxmox Lab
+    <span class="tab-sub">Single server, 64GB / 32 vCPU</span>
+  </div>
+  <div class="env-tab" data-env="onprem">
+    <span class="tab-icon">&#9881;</span>On-Prem Data Center
+    <span class="tab-sub">Full hardware, SONiC + DPU</span>
+  </div>
+</div>
+
+<!-- ===== STICKY CONTROL PANEL ===== -->
+<div class="ctrl-panel" id="ctrl-panel">
+  <div class="ctrl-top">
+    <div class="ctrl-left">
+      <div class="ctrl-title">Flow Toggles <span class="env-warn" id="env-badge"></span></div>
+      <div class="ctrl-cols">
+        <div class="ctrl-col">
+          <h4>Detection Sources</h4>
+          <label><input type="checkbox" data-flow="det-wazuh"> Wazuh Alerts</label>
+          <label><input type="checkbox" data-flow="det-nids"> NIDS Events</label>
+          <label><input type="checkbox" data-flow="det-falco"> Falco Alerts</label>
+          <label><input type="checkbox" data-flow="det-netflow"> NetFlow/IPFIX</label>
+          <label><input type="checkbox" data-flow="det-ebpf"> eBPF/Hubble</label>
+          <label><input type="checkbox" data-flow="det-dns"> DNS Logs</label>
+          <label><input type="checkbox" data-flow="det-auth"> Identity/Auth</label>
+          <label><input type="checkbox" data-flow="det-agent"> Agent Telemetry</label>
+          <label id="lbl-guardduty" style="display:none"><input type="checkbox" data-flow="det-guardduty"> GuardDuty/CloudTrail</label>
+        </div>
+        <div class="ctrl-col">
+          <h4>Pipeline</h4>
+          <label><input type="checkbox" data-flow="pipe-ingest"> Ingest (Coll-MQ-Proc)</label>
+          <label><input type="checkbox" data-flow="pipe-ml"> ML Inference</label>
+          <label><input type="checkbox" data-flow="pipe-analysis"> Analysis (OS-CTI-AI-V)</label>
+          <label><input type="checkbox" data-flow="fast-path"> Fast Path</label>
+        </div>
+        <div class="ctrl-col">
+          <h4>Response</h4>
+          <label><input type="checkbox" data-flow="resp-verdict"> Verdict &rarr; SOAR</label>
+          <label><input type="checkbox" data-flow="resp-net"> Network Enforcement</label>
+          <label><input type="checkbox" data-flow="resp-wazuh"> Wazuh Response</label>
+          <label><input type="checkbox" data-flow="resp-cilium"> Cilium Quarantine</label>
+        </div>
+        <div class="ctrl-col">
+          <h4>Other</h4>
+          <label><input type="checkbox" data-flow="auto-tetragon"> Autonomous: Tetragon</label>
+          <label><input type="checkbox" data-flow="auto-wazuh"> Autonomous: Wazuh Local</label>
+          <label><input type="checkbox" data-flow="feedback"> Feedback Loop</label>
+          <div class="ctrl-btns">
+            <button class="ctrl-btn" id="btn-show-all">Show All</button>
+            <button class="ctrl-btn" id="btn-clear-all">Clear All</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="ctrl-right">
+      <div class="ctrl-title">Attack Scenarios</div>
+      <div class="scenario-btns">
+        <button class="scenario-btn" data-scenario="dns-tunnel">DNS Tunnel</button>
+        <button class="scenario-btn" data-scenario="lateral-movement">Lateral Movement</button>
+        <button class="scenario-btn" data-scenario="brute-force">Brute Force</button>
+        <button class="scenario-btn" data-scenario="ddos">DDoS</button>
+        <button class="scenario-btn" data-scenario="container-compromise">Container Compromise</button>
+        <button class="scenario-btn s-full" data-scenario="full-pipeline">Full Pipeline</button>
+      </div>
+    </div>
+  </div>
+  <div class="step-panel" id="step-panel">
+    <div class="step-header">
+      <div class="step-title" id="step-title">Scenario</div>
+      <button class="step-close" id="step-close">Close</button>
+    </div>
+    <div class="step-progress" id="step-progress"></div>
+    <div class="step-body" id="step-body">Select a scenario to begin.</div>
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div class="step-nav">
+        <button class="step-btn" id="step-prev" disabled>Prev</button>
+        <button class="step-btn" id="step-next">Next</button>
+      </div>
+      <div class="step-counter" id="step-counter"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== DIAGRAM ===== -->
+<div class="page">
+
+<!-- SVG ARROWS -->
+<svg class="arrows" id="svg-arrows" viewBox="0 0 1800 2050" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ab" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6Z" fill="#3b82f6"/></marker>
+    <marker id="ar" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6Z" fill="#ef4444"/></marker>
+    <marker id="ao" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6Z" fill="#f59e0b"/></marker>
+    <marker id="ap" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6Z" fill="#8b5cf6"/></marker>
+    <marker id="ag" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6Z" fill="#10b981"/></marker>
+    <marker id="av" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6Z" fill="#a855f7"/></marker>
+  </defs>
+
+  <!-- det-wazuh -->
+  <g class="flow-arrow" data-flows="det-wazuh">
+    <path class="animated" d="M400,370 Q430,370 445,340 L445,300 Q445,285 465,285 L510,285" stroke="#3b82f6" stroke-width="2" fill="none" marker-end="url(#ab)" stroke-dasharray="12 12"/>
+    <rect x="408" y="333" width="70" height="14" rx="3" fill="#eff6ff" stroke="#bfdbfe" stroke-width=".5"/>
+    <text x="443" y="343" text-anchor="middle" font-size="7" fill="#1d4ed8" font-weight="600" font-family="Inter,sans-serif">Wazuh alerts</text>
+    <circle cx="415" cy="370" r="7" fill="#3b82f6"/><text x="415" y="373" text-anchor="middle" font-size="7" fill="#fff" font-weight="700" font-family="Inter,sans-serif">1</text>
+  </g>
+
+  <!-- det-nids -->
+  <g class="flow-arrow" data-flows="det-nids">
+    <path class="animated" d="M400,390 Q440,390 460,355 L460,305 Q460,290 480,290 L510,290" stroke="#3b82f6" stroke-width="2" fill="none" marker-end="url(#ab)" stroke-dasharray="12 12"/>
+    <rect x="418" y="378" width="60" height="14" rx="3" fill="#eff6ff" stroke="#bfdbfe" stroke-width=".5"/>
+    <text x="448" y="388" text-anchor="middle" font-size="7" fill="#1d4ed8" font-weight="600" font-family="Inter,sans-serif">NIDS events</text>
+    <circle cx="415" cy="390" r="7" fill="#3b82f6"/><text x="415" y="393" text-anchor="middle" font-size="7" fill="#fff" font-weight="700" font-family="Inter,sans-serif">2</text>
+  </g>
+
+  <!-- det-falco -->
+  <g class="flow-arrow" data-flows="det-falco">
+    <path class="animated" d="M400,430 Q450,430 470,380 L470,310 Q470,295 490,295 L510,295" stroke="#3b82f6" stroke-width="2" fill="none" marker-end="url(#ab)" stroke-dasharray="12 12"/>
+    <rect x="418" y="418" width="70" height="14" rx="3" fill="#faf5ff" stroke="#d8b4fe" stroke-width=".7"/>
+    <text x="453" y="428" text-anchor="middle" font-size="6.5" fill="#7c3aed" font-weight="700" font-family="Inter,sans-serif">Falco alerts</text>
+    <circle cx="415" cy="430" r="7" fill="#7c3aed"/><text x="415" y="433" text-anchor="middle" font-size="5.5" fill="#fff" font-weight="700" font-family="Inter,sans-serif">2.5</text>
+  </g>
+
+  <!-- det-netflow -->
+  <g class="flow-arrow" data-flows="det-netflow">
+    <path class="animated" d="M400,480 Q460,480 480,420 L480,315 Q480,300 500,300 L510,300" stroke="#3b82f6" stroke-width="2" fill="none" marker-end="url(#ab)" stroke-dasharray="12 12"/>
+    <rect x="418" y="468" width="55" height="14" rx="3" fill="#eff6ff" stroke="#bfdbfe" stroke-width=".5"/>
+    <text x="445" y="478" text-anchor="middle" font-size="7" fill="#1d4ed8" font-weight="600" font-family="Inter,sans-serif">NetFlow</text>
+    <circle cx="415" cy="480" r="7" fill="#3b82f6"/><text x="415" y="483" text-anchor="middle" font-size="7" fill="#fff" font-weight="700" font-family="Inter,sans-serif">3</text>
+  </g>
+
+  <!-- det-ebpf -->
+  <g class="flow-arrow" data-flows="det-ebpf">
+    <path class="animated" d="M400,410 Q445,410 455,370 L455,308 Q455,295 475,295 L510,292" stroke="#3b82f6" stroke-width="1.5" fill="none" marker-end="url(#ab)" stroke-dasharray="12 12"/>
+    <rect x="420" y="398" width="55" height="13" rx="3" fill="#f0fdf4" stroke="#86efac" stroke-width=".5"/>
+    <text x="447" y="407" text-anchor="middle" font-size="6.5" fill="#15803d" font-weight="600" font-family="Inter,sans-serif">eBPF flows</text>
+    <circle cx="415" cy="410" r="7" fill="#3b82f6" opacity=".7"/><text x="415" y="413" text-anchor="middle" font-size="7" fill="#fff" font-weight="700" font-family="Inter,sans-serif">4</text>
+  </g>
+
+  <!-- det-dns -->
+  <g class="flow-arrow" data-flows="det-dns">
+    <path class="animated" d="M400,452 Q455,452 468,395 L468,312 Q468,298 488,298 L510,298" stroke="#7c3aed" stroke-width="2" fill="none" marker-end="url(#av)" stroke-dasharray="12 12"/>
+    <rect x="418" y="440" width="65" height="14" rx="3" fill="#faf5ff" stroke="#d8b4fe" stroke-width=".7"/>
+    <text x="450" y="450" text-anchor="middle" font-size="6.5" fill="#7c3aed" font-weight="700" font-family="Inter,sans-serif">DNS logs</text>
+    <circle cx="415" cy="452" r="7" fill="#7c3aed"/><text x="415" y="455" text-anchor="middle" font-size="7" fill="#fff" font-weight="700" font-family="Inter,sans-serif">5</text>
+  </g>
+
+  <!-- det-auth -->
+  <g class="flow-arrow" data-flows="det-auth">
+    <path class="animated" d="M400,500 Q470,500 485,430 L485,318 Q485,303 505,303 L510,303" stroke="#7c3aed" stroke-width="2" fill="none" marker-end="url(#av)" stroke-dasharray="12 12"/>
+    <rect x="420" y="490" width="80" height="14" rx="3" fill="#faf5ff" stroke="#d8b4fe" stroke-width=".7"/>
+    <text x="460" y="500" text-anchor="middle" font-size="6.5" fill="#7c3aed" font-weight="700" font-family="Inter,sans-serif">Identity/Auth</text>
+    <circle cx="415" cy="500" r="7" fill="#7c3aed"/><text x="415" y="503" text-anchor="middle" font-size="7" fill="#fff" font-weight="700" font-family="Inter,sans-serif">6</text>
+  </g>
+
+  <!-- det-agent -->
+  <g class="flow-arrow" data-flows="det-agent">
+    <path class="animated" d="M250,265 L250,230 Q250,215 280,215 L345,215 Q355,215 355,200 L355,180" stroke="#8b5cf6" stroke-width="1.5" fill="none" marker-end="url(#ap)" stroke-dasharray="12 12"/>
+    <rect x="262" y="204" width="82" height="13" rx="3" fill="#f5f3ff" stroke="#c4b5fd" stroke-width=".5"/>
+    <text x="303" y="213" text-anchor="middle" font-size="6.5" fill="#6d28d9" font-weight="600" font-family="Inter,sans-serif">agent telemetry</text>
+    <circle cx="254" cy="248" r="7" fill="#8b5cf6"/><text x="254" y="251" text-anchor="middle" font-size="7" fill="#fff" font-weight="700" font-family="Inter,sans-serif">7</text>
+    <path class="animated" d="M400,140 L520,140 Q540,140 540,200 L540,278 Q540,288 530,288 L510,288" stroke="#3b82f6" stroke-width="1.5" fill="none" marker-end="url(#ab)" stroke-dasharray="12 12"/>
+    <rect x="442" y="133" width="90" height="13" rx="3" fill="#eff6ff" stroke="#bfdbfe" stroke-width=".5"/>
+    <text x="487" y="142" text-anchor="middle" font-size="6.5" fill="#1d4ed8" font-weight="600" font-family="Inter,sans-serif">forwarded alerts</text>
+    <circle cx="540" cy="170" r="7" fill="#3b82f6"/><text x="540" y="173" text-anchor="middle" font-size="7" fill="#fff" font-weight="700" font-family="Inter,sans-serif">8</text>
+  </g>
+
+  <!-- det-guardduty (AWS only, same position as det-agent secondary) -->
+  <g class="flow-arrow" data-flows="det-guardduty">
+    <path class="animated" d="M400,520 Q475,520 492,445 L492,322 Q492,308 510,308 L510,308" stroke="#FF9900" stroke-width="2" fill="none" marker-end="url(#ab)" stroke-dasharray="12 12"/>
+    <rect x="420" y="510" width="88" height="14" rx="3" fill="#fff7ed" stroke="#fdba74" stroke-width=".7"/>
+    <text x="464" y="520" text-anchor="middle" font-size="6.5" fill="#c2410c" font-weight="700" font-family="Inter,sans-serif">GuardDuty/CloudTrail</text>
+    <circle cx="415" cy="520" r="7" fill="#FF9900"/><text x="415" y="523" text-anchor="middle" font-size="6" fill="#fff" font-weight="700" font-family="Inter,sans-serif">GD</text>
+  </g>
+
+  <!-- pipe-ingest -->
+  <g class="flow-arrow" data-flows="pipe-ingest">
+    <path class="animated" d="M700,300 L735,300" stroke="#3b82f6" stroke-width="2.5" fill="none" marker-end="url(#ab)" stroke-dasharray="12 12"/>
+    <circle cx="720" cy="300" r="7" fill="#3b82f6"/><text x="720" y="303" text-anchor="middle" font-size="7" fill="#fff" font-weight="700" font-family="Inter,sans-serif">9</text>
+    <path class="animated" d="M940,300 L975,300" stroke="#3b82f6" stroke-width="2.5" fill="none" marker-end="url(#ab)" stroke-dasharray="12 12"/>
+    <circle cx="960" cy="300" r="7" fill="#3b82f6"/><text x="960" y="303" text-anchor="middle" font-size="6.5" fill="#fff" font-weight="700" font-family="Inter,sans-serif">10</text>
+  </g>
+
+  <!-- pipe-ml -->
+  <g class="flow-arrow" data-flows="pipe-ml">
+    <path class="animated" d="M1100,340 L1100,375 Q1100,390 1080,390 L920,390" stroke="#3b82f6" stroke-width="2.5" fill="none" marker-end="url(#ab)" stroke-dasharray="12 12"/>
+    <text x="1110" y="368" font-size="7" fill="#94a3b8" font-style="italic" font-family="Inter,sans-serif">preprocessed</text>
+    <circle cx="1100" cy="375" r="7" fill="#3b82f6"/><text x="1100" y="378" text-anchor="middle" font-size="6.5" fill="#fff" font-weight="700" font-family="Inter,sans-serif">11</text>
+  </g>
+
+  <!-- pipe-analysis -->
+  <g class="flow-arrow" data-flows="pipe-analysis">
+    <path class="animated" d="M820,460 L820,490 Q820,505 750,505 L640,505" stroke="#3b82f6" stroke-width="2.5" fill="none" marker-end="url(#ab)" stroke-dasharray="12 12"/>
+    <text x="740" y="498" font-size="7" fill="#94a3b8" font-style="italic" font-family="Inter,sans-serif">alerts + enriched</text>
+    <circle cx="820" cy="480" r="7" fill="#3b82f6"/><text x="820" y="483" text-anchor="middle" font-size="6.5" fill="#fff" font-weight="700" font-family="Inter,sans-serif">12</text>
+    <path class="animated" d="M700,540 L735,540" stroke="#10b981" stroke-width="2" fill="none" marker-end="url(#ag)" stroke-dasharray="12 12"/>
+    <path class="animated-reverse" d="M735,555 L700,555" stroke="#10b981" stroke-width="2" fill="none" marker-end="url(#ag)" stroke-dasharray="12 12"/>
+    <text x="718" y="533" text-anchor="middle" font-size="6.5" fill="#10b981" font-weight="600" font-family="Inter,sans-serif">enrich</text>
+    <path class="animated" d="M940,540 L975,540" stroke="#3b82f6" stroke-width="2" fill="none" marker-end="url(#ab)" stroke-dasharray="12 12"/>
+    <circle cx="960" cy="540" r="7" fill="#3b82f6"/><text x="960" y="543" text-anchor="middle" font-size="6.5" fill="#fff" font-weight="700" font-family="Inter,sans-serif">13</text>
+    <path class="animated" d="M1100,600 L1100,625 Q1100,640 1060,640 L920,640" stroke="#3b82f6" stroke-width="2.5" fill="none" marker-end="url(#ab)" stroke-dasharray="12 12"/>
+    <circle cx="1100" cy="625" r="7" fill="#3b82f6"/><text x="1100" y="628" text-anchor="middle" font-size="6.5" fill="#fff" font-weight="700" font-family="Inter,sans-serif">14</text>
+  </g>
+
+  <!-- fast-path -->
+  <g class="flow-arrow" data-flows="fast-path">
+    <path class="animated" d="M920,440 Q950,440 960,470 L960,630 Q960,640 940,640 L920,640" stroke="#ef4444" stroke-width="2" fill="none" marker-end="url(#ar)" stroke-dasharray="12 12"/>
+    <rect x="942" y="510" width="90" height="26" rx="4" fill="#fef2f2" stroke="#fca5a5" stroke-width=".7"/>
+    <text x="987" y="520" text-anchor="middle" font-size="7" fill="#dc2626" font-weight="700" font-family="Inter,sans-serif">FAST PATH</text>
+    <text x="987" y="530" text-anchor="middle" font-size="6" fill="#dc2626" font-family="Inter,sans-serif">ML &gt;95% conf.</text>
+  </g>
+
+  <!-- resp-verdict -->
+  <g class="flow-arrow" data-flows="resp-verdict">
+    <path class="animated" d="M870,680 Q870,720 840,740 L700,740 Q680,740 680,720 L680,200 Q680,185 660,185 L630,180" stroke="#ef4444" stroke-width="2.5" fill="none" marker-end="url(#ar)" stroke-dasharray="12 12"/>
+    <rect x="700" y="718" width="110" height="16" rx="4" fill="#fef2f2" stroke="#fca5a5" stroke-width=".7"/>
+    <text x="755" y="729" text-anchor="middle" font-size="8" fill="#dc2626" font-weight="700" font-family="Inter,sans-serif">VERDICT &#8594; SOAR</text>
+    <circle cx="760" cy="740" r="9" fill="#ef4444"/><text x="760" y="743.5" text-anchor="middle" font-size="7.5" fill="#fff" font-weight="800" font-family="Inter,sans-serif">R1</text>
+  </g>
+
+  <!-- resp-net -->
+  <g class="flow-arrow" data-flows="resp-net">
+    <path class="animated" d="M480,150 L380,150 Q365,150 365,140 L365,135 Q365,128 350,128 L282,128" stroke="#ef4444" stroke-width="2" fill="none" marker-end="url(#ar)" stroke-dasharray="12 12"/>
+    <rect x="335" y="117" width="105" height="13" rx="3" fill="#fef2f2" stroke="#fca5a5" stroke-width=".5"/>
+    <text x="387" y="126" text-anchor="middle" font-size="7" fill="#dc2626" font-weight="600" font-family="Inter,sans-serif">enforcement actions</text>
+    <circle cx="400" cy="150" r="7" fill="#ef4444"/><text x="400" y="153" text-anchor="middle" font-size="6" fill="#fff" font-weight="700" font-family="Inter,sans-serif">R2</text>
+    <path class="animated" d="M140,180 L140,218 Q140,230 155,240 L155,265" stroke="#ef4444" stroke-width="2" fill="none" marker-end="url(#ar)" stroke-dasharray="12 12"/>
+    <rect x="92" y="217" width="72" height="13" rx="3" fill="#fef2f2" stroke="#fca5a5" stroke-width=".5" id="lbl-net-push"/>
+    <text x="128" y="226" text-anchor="middle" font-size="6.5" fill="#dc2626" font-weight="600" font-family="Inter,sans-serif" id="txt-net-push">ACL push</text>
+    <circle cx="155" cy="248" r="7" fill="#ef4444"/><text x="155" y="251" text-anchor="middle" font-size="6" fill="#fff" font-weight="700" font-family="Inter,sans-serif">R3</text>
+    <path class="animated" d="M100,180 L100,930" stroke="#ef4444" stroke-width="2" fill="none" marker-end="url(#ar)" stroke-dasharray="12 12"/>
+    <rect x="50" y="550" width="88" height="13" rx="3" fill="#fef2f2" stroke="#fca5a5" stroke-width=".5" id="lbl-wan-push"/>
+    <text x="94" y="559" text-anchor="middle" font-size="6.5" fill="#dc2626" font-weight="600" font-family="Inter,sans-serif" id="txt-wan-push">WAN block</text>
+    <circle cx="100" cy="560" r="7" fill="#ef4444"/><text x="100" y="563" text-anchor="middle" font-size="6" fill="#fff" font-weight="700" font-family="Inter,sans-serif">R4</text>
+  </g>
+
+  <!-- resp-wazuh -->
+  <g class="flow-arrow" data-flows="resp-wazuh">
+    <path class="animated" d="M530,165 L400,165" stroke="#ef4444" stroke-width="2" fill="none" marker-end="url(#ar)" stroke-dasharray="12 12"/>
+    <rect x="428" y="157" width="88" height="13" rx="3" fill="#fef2f2" stroke="#fca5a5" stroke-width=".5"/>
+    <text x="472" y="166" text-anchor="middle" font-size="6.5" fill="#dc2626" font-weight="600" font-family="Inter,sans-serif">active response</text>
+    <circle cx="460" cy="165" r="7" fill="#ef4444"/><text x="460" y="168" text-anchor="middle" font-size="6" fill="#fff" font-weight="700" font-family="Inter,sans-serif">R5</text>
+    <path class="animated" d="M320,180 L320,220 Q320,235 300,242 L280,265" stroke="#ef4444" stroke-width="1.5" fill="none" marker-end="url(#ar)" stroke-dasharray="12 12"/>
+    <circle cx="310" cy="245" r="7" fill="#ef4444" opacity=".8"/><text x="310" y="248" text-anchor="middle" font-size="6" fill="#fff" font-weight="700" font-family="Inter,sans-serif">R6</text>
+  </g>
+
+  <!-- resp-cilium -->
+  <g class="flow-arrow" data-flows="resp-cilium">
+    <path class="animated" d="M680,150 L900,150" stroke="#ef4444" stroke-width="2" fill="none" marker-end="url(#ar)" stroke-dasharray="12 12"/>
+    <rect x="745" y="138" width="95" height="13" rx="3" fill="#fef2f2" stroke="#fca5a5" stroke-width=".5"/>
+    <text x="792" y="147.5" text-anchor="middle" font-size="6.5" fill="#dc2626" font-weight="600" font-family="Inter,sans-serif">quarantine labels</text>
+    <circle cx="850" cy="150" r="7" fill="#ef4444"/><text x="850" y="153" text-anchor="middle" font-size="6" fill="#fff" font-weight="700" font-family="Inter,sans-serif">R7</text>
+  </g>
+
+  <!-- auto-tetragon -->
+  <g class="flow-arrow" data-flows="auto-tetragon">
+    <circle cx="50" cy="400" r="18" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-dasharray="12 12">
+      <animate attributeName="stroke-dashoffset" from="24" to="0" dur="0.8s" repeatCount="indefinite"/>
+    </circle>
+    <path d="M62,388 L68,400 L56,400Z" fill="#f59e0b"/>
+    <text x="50" y="428" text-anchor="middle" font-size="7" fill="#b45309" font-weight="700" font-family="Inter,sans-serif">Tier 1</text>
+    <text x="50" y="438" text-anchor="middle" font-size="6" fill="#b45309" font-family="Inter,sans-serif">in-kernel kill</text>
+  </g>
+
+  <!-- auto-wazuh -->
+  <g class="flow-arrow" data-flows="auto-wazuh">
+    <circle cx="50" cy="340" r="18" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-dasharray="12 12">
+      <animate attributeName="stroke-dashoffset" from="24" to="0" dur="0.8s" repeatCount="indefinite"/>
+    </circle>
+    <path d="M62,328 L68,340 L56,340Z" fill="#f59e0b"/>
+    <text x="50" y="312" text-anchor="middle" font-size="7" fill="#b45309" font-weight="700" font-family="Inter,sans-serif">Tier 1</text>
+    <text x="50" y="322" text-anchor="middle" font-size="6" fill="#b45309" font-family="Inter,sans-serif">local fw-drop</text>
+  </g>
+
+  <!-- feedback -->
+  <g class="flow-arrow" data-flows="feedback">
+    <path class="animated" d="M780,180 L780,210 Q780,225 800,225 L1200,225 Q1220,225 1220,260 L1220,400 Q1220,415 1200,415 L930,415" stroke="#a855f7" stroke-width="2" fill="none" marker-end="url(#av)" stroke-dasharray="12 12"/>
+    <rect x="1000" y="218" width="115" height="16" rx="4" fill="#faf5ff" stroke="#d8b4fe" stroke-width=".7"/>
+    <text x="1057" y="229" text-anchor="middle" font-size="7" fill="#7c3aed" font-weight="700" font-family="Inter,sans-serif">FEEDBACK LOOP</text>
+  </g>
+</svg>
+
+<!-- CONTROL PLANE -->
+<div class="cp" id="cp-section">
+  <div class="cp-h"><div class="cp-t" id="cp-title">Control Plane</div><div class="cp-s" id="cp-sub">enforcement &amp; management</div></div>
+  <div class="cp-g" id="cp-grid">
+    <!-- Populated by JS -->
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <!-- ZONES -->
+  <div class="zones" id="zones-section">
+    <!-- Populated by JS -->
+  </div>
+
+  <!-- XDR INFRASTRUCTURE -->
+  <div class="xdr">
+    <div class="xdr-head"><div class="xdr-t" id="xdr-title">XDR Infrastructure</div><div class="xdr-s">detection &amp; analysis only</div></div>
+    <div class="xdr-body" id="xdr-body">
+      <!-- Populated by JS -->
+    </div>
+  </div>
+</div>
+
+<!-- TIERED DEFENSE -->
+<div class="tiers" id="tiers-section">
+  <div class="ti-h">Tiered Defense Model</div>
+  <div class="ti-s">Immune system architecture &mdash; no single point of failure for response</div>
+  <div class="ti-g" id="tiers-grid">
+    <!-- Populated by JS -->
+  </div>
+</div>
+
+<!-- LEGEND -->
+<div class="legend">
+  <div class="leg"><div class="leg-line leg-det"></div><strong>Detection</strong></div>
+  <div class="leg"><div class="leg-line leg-res"></div><strong>Response</strong></div>
+  <div class="leg"><div class="leg-line leg-aut"></div><strong>Autonomous</strong></div>
+  <div class="leg"><div class="leg-line leg-mgmt"></div><strong>Management</strong></div>
+  <div class="leg"><div class="leg-line leg-enr"></div><strong>Enrichment</strong></div>
+  <div class="leg"><div class="leg-line leg-feed"></div><strong>Feedback loop</strong></div>
+  <div class="leg" style="border:2px dashed #ef4444;padding:2px 8px;border-radius:4px"><strong style="color:#dc2626">Fast path</strong></div>
+</div>
+
+</div><!-- end .page -->
+
+<!-- ===== COMPARISON TABLE ===== -->
+<div class="comp-section">
+  <div class="comp-title">Environment Comparison Matrix</div>
+  <div class="comp-sub">Side-by-side mapping of all three deployment environments</div>
+  <table class="comp-table">
+    <thead>
+      <tr>
+        <th>Component / Role</th>
+        <th class="col-aws" style="width:24%">&#9729; AWS Cloud</th>
+        <th class="col-prox" style="width:24%">&#9634; Proxmox Lab (64GB / 32 vCPU)</th>
+        <th class="col-onprem" style="width:24%">&#9881; On-Prem Data Center</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- CONTROL PLANE -->
+      <tr class="cat-row"><td colspan="4">Control Plane</td></tr>
+      <tr>
+        <td>Network Enforcement</td>
+        <td>Enforcement API: boto3 SG worker, WAF worker, Network Firewall worker</td>
+        <td>Enforcement API: Faucet/OVS worker, nftables worker, Proxmox FW worker</td>
+        <td>Enforcement API: SONiC gNMI worker, DPU DOCA worker, BGP Flowspec worker</td>
+      </tr>
+      <tr>
+        <td>HIDS Manager</td>
+        <td>Wazuh Manager (EKS)</td>
+        <td>Wazuh Manager (VM, 6GB)</td>
+        <td>Wazuh Manager cluster (dedicated VMs)</td>
+      </tr>
+      <tr>
+        <td>SOAR</td>
+        <td>Shuffle SOAR (EKS)</td>
+        <td>Shuffle SOAR (LXC container)</td>
+        <td>Shuffle SOAR (K8s)</td>
+      </tr>
+      <tr>
+        <td>Case Management</td>
+        <td>DFIR-IRIS (EKS)</td>
+        <td>DFIR-IRIS (LXC container)</td>
+        <td>DFIR-IRIS (K8s)</td>
+      </tr>
+      <tr>
+        <td>CNI</td>
+        <td>Cilium Operator (EKS)</td>
+        <td>Cilium Operator (k3s)</td>
+        <td>Cilium Operator (K8s)</td>
+      </tr>
+      <tr>
+        <td>SDN / Network Control</td>
+        <td>AWS VPC + Transit Gateway</td>
+        <td>Faucet SDN Controller (OVS)</td>
+        <td>SONiC switches (no controller needed)</td>
+      </tr>
+      <tr>
+        <td>Dashboards</td>
+        <td>Grafana + Kibana (EKS)</td>
+        <td>Grafana + Kibana (LXC)</td>
+        <td>Grafana + Kibana (K8s)</td>
+      </tr>
+      <tr>
+        <td>Supply Chain</td>
+        <td>Trivy + Sigstore + Kyverno</td>
+        <td>Trivy + Sigstore + Kyverno</td>
+        <td>Trivy + Sigstore + Kyverno</td>
+      </tr>
+
+      <!-- MONITORED ZONES -->
+      <tr class="cat-row"><td colspan="4">Monitored Zones</td></tr>
+      <tr>
+        <td>Zone Separation</td>
+        <td>VPCs + Transit Gateway</td>
+        <td>OVS bridges + VLANs</td>
+        <td>Physical switches + VLANs</td>
+      </tr>
+      <tr>
+        <td>NIDS</td>
+        <td>VPC Traffic Mirroring &#8594; Suricata EC2 <span class="warn">(bandwidth limits!)</span></td>
+        <td>OVS mirror port &#8594; Suricata VM</td>
+        <td>Physical TAPs &#8594; Suricata servers <span class="good">(line-rate)</span></td>
+      </tr>
+      <tr>
+        <td>Network Flows</td>
+        <td>VPC Flow Logs <span class="warn">(1-10 min delay!)</span></td>
+        <td>OVS IPFIX export</td>
+        <td>IPFIX from SONiC switches <span class="good">(real-time)</span></td>
+      </tr>
+      <tr>
+        <td>DNS Monitoring</td>
+        <td>Route 53 Query Logging</td>
+        <td>CoreDNS dnstap (k3s)</td>
+        <td>CoreDNS dnstap</td>
+      </tr>
+      <tr>
+        <td>Identity</td>
+        <td>CloudTrail + Cognito/Keycloak</td>
+        <td>Keycloak audit (k3s)</td>
+        <td>Keycloak audit</td>
+      </tr>
+      <tr>
+        <td>Cloud-Native Security</td>
+        <td>GuardDuty, Security Hub, Config, Inspector, Macie</td>
+        <td><em>N/A</em></td>
+        <td><em>N/A</em></td>
+      </tr>
+      <tr>
+        <td>Host Sensors</td>
+        <td>Wazuh + Cilium + Tetragon + Falco</td>
+        <td>Wazuh + Cilium + Tetragon + Falco</td>
+        <td>Wazuh + Cilium + Tetragon + Falco</td>
+      </tr>
+
+      <!-- XDR PIPELINE -->
+      <tr class="cat-row"><td colspan="4">XDR Pipeline</td></tr>
+      <tr>
+        <td>Collector</td>
+        <td>nProbe + Vector (EKS)</td>
+        <td>nProbe + Vector (VM)</td>
+        <td>nProbe + Vector (K8s)</td>
+      </tr>
+      <tr>
+        <td>Message Queue</td>
+        <td>Amazon MSK (managed Kafka)</td>
+        <td><span class="note">NATS JetStream</span> (lightweight, saves ~1GB)</td>
+        <td>Apache Kafka (3 brokers, self-hosted)</td>
+      </tr>
+      <tr>
+        <td>Stream Processing</td>
+        <td>Amazon Managed Flink</td>
+        <td><span class="note">Vector VRL transforms</span> (saves ~1GB)</td>
+        <td>Apache Flink (6 TaskManagers)</td>
+      </tr>
+      <tr>
+        <td>ML Engine</td>
+        <td>Triton on EKS (Spot GPU)</td>
+        <td><span class="note">LightGBM + RF (CPU only)</span> &#8212; no GNN</td>
+        <td>Triton on GPU nodes (A100)</td>
+      </tr>
+      <tr>
+        <td>Analytical DB</td>
+        <td>Amazon OpenSearch Service</td>
+        <td>OpenSearch (single node, 8GB)</td>
+        <td>OpenSearch cluster (12 nodes)</td>
+      </tr>
+      <tr>
+        <td>Threat Intel</td>
+        <td>MISP + OpenCTI (EKS)</td>
+        <td><span class="note">MISP only (3GB)</span> &#8212; no OpenCTI</td>
+        <td>MISP + OpenCTI (K8s)</td>
+      </tr>
+      <tr>
+        <td>AI Investigation</td>
+        <td>Amazon Bedrock (Claude) or self-hosted</td>
+        <td><span class="note">Phi-3-mini 3.8B (Q4, CPU)</span></td>
+        <td>Foundation-sec-8B (Triton, A100)</td>
+      </tr>
+
+      <!-- RESPONSE -->
+      <tr class="cat-row"><td colspan="4">Response Channels</td></tr>
+      <tr>
+        <td>Switch ACL</td>
+        <td>boto3: ec2.authorize/revoke_security_group</td>
+        <td>Faucet YAML edit + SIGHUP &#8594; OVS</td>
+        <td>gNMI SET &#8594; SONiC switch</td>
+      </tr>
+      <tr>
+        <td>Firewall</td>
+        <td>AWS Network Firewall rule update</td>
+        <td>nftables on Proxmox host</td>
+        <td>DPU DOCA inline filter</td>
+      </tr>
+      <tr>
+        <td>DDoS / WAN</td>
+        <td>AWS Shield Advanced + WAF rate rules</td>
+        <td>nftables on external interface</td>
+        <td>BGP Flowspec to upstream</td>
+      </tr>
+      <tr>
+        <td>Host Response</td>
+        <td>Wazuh active response + SSM Run Command</td>
+        <td>Wazuh active response</td>
+        <td>Wazuh active response</td>
+      </tr>
+      <tr>
+        <td>Pod Quarantine</td>
+        <td>Cilium quarantine labels</td>
+        <td>Cilium quarantine labels</td>
+        <td>Cilium quarantine labels</td>
+      </tr>
+      <tr>
+        <td>Autonomous</td>
+        <td>Tetragon SIGKILL + Wazuh local</td>
+        <td>Tetragon SIGKILL + Wazuh local</td>
+        <td>Tetragon SIGKILL + Wazuh local</td>
+      </tr>
+
+      <!-- KEY METRICS -->
+      <tr class="cat-row"><td colspan="4">Key Metrics &amp; Ratings</td></tr>
+      <tr>
+        <td>Detection Latency</td>
+        <td><span class="warn">Flow logs: 1-10 min</span><br>GuardDuty: 1-5 min<br>NIDS: near real-time<br>Host: sub-second</td>
+        <td>All sources: sub-second to seconds<br>OVS IPFIX: near real-time<br>Host: sub-second</td>
+        <td><span class="good">All sources: sub-second</span><br>IPFIX: real-time<br>TAPs: line-rate<br>Host: sub-second</td>
+      </tr>
+      <tr>
+        <td>Response Latency</td>
+        <td>API calls: 1-5s<br>Shield: automatic<br>Autonomous: sub-second</td>
+        <td>nftables: ~100ms<br>OVS: ~500ms<br>Autonomous: sub-second</td>
+        <td><span class="good">gNMI: ~50ms</span><br>DPU: wire-speed<br>BGP: ~2s<br>Autonomous: sub-second</td>
+      </tr>
+      <tr class="cost-row">
+        <td>Monthly Cost</td>
+        <td><span class="warn">$15K-17K/month</span><br>(managed services reduce ops)</td>
+        <td><span class="good">~$0/month ongoing</span><br>(hardware already owned; ~$2K server)</td>
+        <td>~$2-5K/month power+cooling<br>(<span class="warn">~$983K hardware upfront</span>)</td>
+      </tr>
+      <tr>
+        <td>Resource Budget</td>
+        <td>Elastic (auto-scale)</td>
+        <td><span class="note">58.5GB of 64GB, 30 of 32 vCPUs</span></td>
+        <td>Generous (dedicated hardware per role)</td>
+      </tr>
+
+      <!-- SCENARIO RATINGS -->
+      <tr class="cat-row"><td colspan="4">Scenario Security Rating</td></tr>
+      <tr>
+        <td>DNS Tunnel</td>
+        <td><span class="rating"><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star empty">&#9733;</span></span> Route 53 logs + ML</td>
+        <td><span class="rating"><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star empty">&#9733;</span></span> CoreDNS dnstap + ML</td>
+        <td><span class="rating"><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span></span> dnstap + full ML + fast response</td>
+      </tr>
+      <tr>
+        <td>Lateral Movement</td>
+        <td><span class="rating"><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star empty">&#9733;</span></span> VPC isolation + Cilium</td>
+        <td><span class="rating"><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star empty">&#9733;</span><span class="star empty">&#9733;</span></span> No GNN model</td>
+        <td><span class="rating"><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span></span> Full ML + hardware enforcement</td>
+      </tr>
+      <tr>
+        <td>Brute Force</td>
+        <td><span class="rating"><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span></span> WAF + Wazuh + GuardDuty</td>
+        <td><span class="rating"><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star empty">&#9733;</span></span> Wazuh + nftables</td>
+        <td><span class="rating"><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span></span> Wazuh + gNMI ACL</td>
+      </tr>
+      <tr>
+        <td>DDoS</td>
+        <td><span class="rating"><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span></span> Shield Advanced (AWS-managed)</td>
+        <td><span class="rating"><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star empty">&#9733;</span><span class="star empty">&#9733;</span><span class="star empty">&#9733;</span></span> nftables only (limited)</td>
+        <td><span class="rating"><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span></span> BGP Flowspec + DPU</td>
+      </tr>
+      <tr>
+        <td>Container Compromise</td>
+        <td><span class="rating"><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span></span> Tetragon + Falco + AI</td>
+        <td><span class="rating"><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star empty">&#9733;</span></span> Tetragon + Falco (weaker AI)</td>
+        <td><span class="rating"><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span></span> Tetragon + Falco + full AI</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ============================
+  // STATE
+  // ============================
+  var activeFlows = new Set();
+  var currentScenario = null;
+  var currentStep = -1;
+  var currentEnv = 'aws';
+
+  var ALL_FLOWS = [
+    'det-wazuh','det-nids','det-falco','det-netflow','det-ebpf','det-dns','det-auth','det-agent',
+    'pipe-ingest','pipe-ml','pipe-analysis','fast-path',
+    'resp-verdict','resp-net','resp-wazuh','resp-cilium',
+    'auto-tetragon','auto-wazuh',
+    'feedback'
+  ];
+
+  var ALL_FLOWS_WITH_GD = ALL_FLOWS.concat(['det-guardduty']);
+
+  // ============================
+  // ENVIRONMENT DATA
+  // ============================
+  var ENV = {
+    aws: {
+      accent: '#FF9900',
+      label: 'AWS Cloud',
+      badge: { cls: 'warn-aws', text: 'AWS: VPC Flow Logs have 1-10 min delay — not real-time' },
+      cpTitle: 'Control Plane (EKS Cluster)',
+      cpSub: 'managed services + Kubernetes orchestration',
+      xdrTitle: 'XDR Infrastructure (EKS + Managed Services)',
+      controlPlane: [
+        { cls:'cb-en', member:'resp-net', label:'NET ENFORCE', title:'Network Enforcement API', items:['FastAPI + Celery (EKS)','boto3 SG worker','WAF worker','Network Firewall worker','Idempotent + TTL-based'] },
+        { cls:'cb-hi', member:'det-agent,resp-wazuh,auto-wazuh', label:'HIDS', title:'Wazuh Manager (EKS)', items:['3,000+ detection rules','Active response modules','Agent management','Autonomous Tier 1 resp.','EKS deployment'] },
+        { cls:'cb-so', member:'resp-verdict,resp-net,resp-wazuh,resp-cilium', label:'SOAR', title:'Shuffle SOAR (EKS)', items:['Playbook automation','Graduated response','Verdict \u2192 Action','Confidence thresholds','Rate-limited enforcement'] },
+        { cls:'cb-ca', member:'feedback', label:'CASE', title:'DFIR-IRIS (EKS)', items:['Incident lifecycle','Researcher reinstate','Evidence chain','FP/TP feedback \u2192 ML'] },
+        { cls:'cb-cn', member:'det-ebpf,resp-cilium', label:'CNI', title:'Cilium Operator (EKS)', items:['Network policy push','Quarantine labels','WireGuard encryption','L7 Hubble visibility'] },
+        { cls:'cb-sd', member:'', label:'SDN', title:'AWS VPC + Transit GW', items:['VPC isolation per zone','Transit Gateway routing','Security Groups','NACLs'] },
+        { cls:'cb-we', member:'', label:'WEB', title:'Dashboards (EKS)', items:['Grafana + Kibana','Security analytics','Self-service portal','Meta-monitoring'] },
+        { cls:'cb-su', member:'', label:'SUPPLY CHAIN', title:'Admission Control', items:['Trivy image scan','Sigstore signer ID verify','SBOM / Kyverno','failurePolicy: Fail'] }
+      ],
+      zones: {
+        zoneA: { title:'Production VPC \u2014 Zone A', badge:'production',
+          svcs:[{n:'SG',s:'Security Groups'},{n:'Auth',s:'Cognito/Keycloak'},{n:'Mon',s:'CloudWatch'},{n:'Secrets',s:'Secrets Manager'},{n:'DNS',s:'Route 53'}],
+          sensors:[
+            {icon:'\u2B21',text:'Wazuh Agent on each instance (HIDS)',cls:''},
+            {icon:'\uD83D\uDCE1',text:'VPC Traffic Mirroring \u2192 Suricata EC2',cls:'fix',tag:'LIMITS'},
+            {icon:'\u2B21',text:'Cilium eBPF agent (E-W + Hubble L7)',cls:''},
+            {icon:'\uD83D\uDEE1',text:'Tetragon (Tier 1 autonomous enforce)',cls:'t1'},
+            {icon:'\uD83D\uDC33',text:'Falco \u2192 XDR Collector',cls:''},
+            {icon:'\uD83D\uDD0D',text:'Route 53 Query Logging \u2192 Kafka',cls:'new'},
+            {icon:'\uD83D\uDD11',text:'CloudTrail + Cognito audit \u2192 Kafka',cls:'new'},
+            {icon:'\u2638',text:'EKS API audit logs \u2192 Kafka',cls:'new'},
+            {icon:'\uD83D\uDCA0',text:'GuardDuty + Security Hub findings',cls:'aws'}
+          ],
+          telemetry:'VPC Flow Logs (1-10 min delay!)'
+        },
+        zoneB: { title:'Research VPC \u2014 Zone B', badge:'research',
+          svcs:[{n:'EC2',s:'instances'},{n:'DWH',s:'data pipeline'},{n:'Mon',s:'CloudWatch'}],
+          sensors:[
+            {icon:'\u2B21',text:'Wazuh Agent on each instance (HIDS)',cls:''},
+            {icon:'\uD83D\uDCE1',text:'VPC Traffic Mirroring \u2192 Suricata EC2',cls:'fix',tag:'LIMITS'},
+            {icon:'\u2B21',text:'Cilium eBPF agent (E-W + Hubble L7)',cls:''},
+            {icon:'\uD83D\uDEE1',text:'Tetragon (Tier 1 autonomous enforce)',cls:'t1'},
+            {icon:'\uD83D\uDC33',text:'Falco \u2192 XDR Collector',cls:''},
+            {icon:'\uD83D\uDD0D',text:'Route 53 Query Logging \u2192 Kafka',cls:'new'},
+            {icon:'\uD83D\uDD11',text:'CloudTrail audit \u2192 Kafka',cls:'new'}
+          ],
+          telemetry:'VPC Flow Logs (1-10 min delay!)'
+        },
+        miniC: 'Zone C (multi-account)',
+        miniD: 'Zone D \u2026 N (hybrid)',
+        wan: '\u2601 WAN / CloudFront / Shield Advanced target'
+      },
+      pipeline: {
+        collector: { title:'Collector (nProbe + Vector)', items:['nProbe: VPC Flow Logs','Vector: logs, Falco, DNS, Auth','GuardDuty findings ingest','Schema validation'] },
+        queue: { title:'Amazon MSK (Managed Kafka)', items:['Per-zone + per-source topics','Durable buffer (72h retain)','Managed Kafka (acks=all)','Schema Registry'] },
+        processor: { title:'Amazon Managed Flink', items:['CEP correlation + dedup','ECS normalization','Cross-zone correlator','Serverless auto-scaling'] },
+        ml: { title:'ML Inference Engine (Triton on EKS)', models:['T1: LightGBM (ALL)','T2: CNN-MLP (suspicious)','T2: GNN graph (suspicious)','T2: Autoencoder (suspicious)','T2: DGA / DNS tunnel','T2: Behavioral analytics'], runtime:'Triton on EKS Spot GPU instances \u2014 Tiered: ALL \u2192 T1, ~5% \u2192 T2, ~1% \u2192 AI' },
+        opensearch: { title:'Amazon OpenSearch Service', items:['Hot 48h / warm 30d / cold 365d','2,200+ Sigma rules (tiered)','300 real-time, rest scheduled','Managed, auto-scaling'] },
+        cti: { title:'Threat Intelligence', items:['Community IOC feeds','STIX 2.1 graph','ATT&CK technique map','MISP + OpenCTI (EKS)'] },
+        ai: { title:'Agentic AI Investigation', items:['Amazon Bedrock (Claude) or self-hosted','RAG over CTI + ATT&CK','Kill chain mapping','Multi-agent LLM triage','<100 alerts/hr (gated)','60s timeout per investigation'] }
+      },
+      tiers: {
+        t0: ['Default-deny Cilium policies (GitOps)','Security Groups (default deny)','mTLS between all services','VPC isolation (no peering by default)','Kyverno failurePolicy: Fail'],
+        t1: ['Tetragon: in-kernel SIGKILL','Wazuh local active response','Cilium eBPF: persists in kernel','Shield Advanced: auto-DDoS','GuardDuty: auto-block (via Lambda)'],
+        t2: ['SOAR \u2192 Enforcement API','boto3 SG revoke/authorize','AWS WAF rule updates','Cross-system quarantine','Human-in-the-loop escalation']
+      },
+      netPushLabel: 'SG/WAF push',
+      wanPushLabel: 'Shield/WAF rate'
+    },
+
+    proxmox: {
+      accent: '#2196F3',
+      label: 'Proxmox Lab',
+      badge: { cls: 'warn-proxmox', text: 'Proxmox: 58.5GB of 64GB, 30 of 32 vCPUs \u2014 tight resource budget' },
+      cpTitle: 'Control Plane (k3s + LXC)',
+      cpSub: 'lightweight deployment on single server',
+      xdrTitle: 'XDR Infrastructure (VMs + LXC)',
+      controlPlane: [
+        { cls:'cb-en', member:'resp-net', label:'NET ENFORCE', title:'Enforcement API (LXC)', items:['FastAPI + Celery','Faucet/OVS worker','nftables worker','Proxmox FW worker','Idempotent + TTL-based'] },
+        { cls:'cb-hi', member:'det-agent,resp-wazuh,auto-wazuh', label:'HIDS', title:'Wazuh Manager (VM, 6GB)', items:['3,000+ detection rules','Active response modules','Agent management','Autonomous Tier 1 resp.','Single VM, 6GB RAM'] },
+        { cls:'cb-so', member:'resp-verdict,resp-net,resp-wazuh,resp-cilium', label:'SOAR', title:'Shuffle SOAR (LXC)', items:['Playbook automation','Graduated response','Verdict \u2192 Action','Confidence thresholds','LXC container'] },
+        { cls:'cb-ca', member:'feedback', label:'CASE', title:'DFIR-IRIS (LXC)', items:['Incident lifecycle','Researcher reinstate','Evidence chain','FP/TP feedback \u2192 ML'] },
+        { cls:'cb-cn', member:'det-ebpf,resp-cilium', label:'CNI', title:'Cilium Operator (k3s)', items:['Network policy push','Quarantine labels','WireGuard encryption','L7 Hubble visibility'] },
+        { cls:'cb-sd', member:'', label:'SDN', title:'Faucet SDN Controller', items:['OVS bridge control','VLAN management','Flow-based ACLs','YAML config + SIGHUP'] },
+        { cls:'cb-we', member:'', label:'WEB', title:'Dashboards (LXC)', items:['Grafana + Kibana','Security analytics','Self-service portal','Meta-monitoring'] },
+        { cls:'cb-su', member:'', label:'SUPPLY CHAIN', title:'Admission Control', items:['Trivy image scan','Sigstore signer ID verify','SBOM / Kyverno','failurePolicy: Fail'] }
+      ],
+      zones: {
+        zoneA: { title:'Production Bridge \u2014 Zone A', badge:'production',
+          svcs:[{n:'OVS-A',s:'bridge'},{n:'Auth',s:'Keycloak'},{n:'Mon',s:'Grafana'},{n:'Secrets',s:'Vault'},{n:'DNS',s:'CoreDNS'}],
+          sensors:[
+            {icon:'\u2B21',text:'Wazuh Agent on each VM/CT (HIDS)',cls:''},
+            {icon:'\uD83D\uDCE1',text:'OVS mirror port \u2192 Suricata VM',cls:''},
+            {icon:'\u2B21',text:'Cilium eBPF agent (E-W + Hubble L7)',cls:''},
+            {icon:'\uD83D\uDEE1',text:'Tetragon (Tier 1 autonomous enforce)',cls:'t1'},
+            {icon:'\uD83D\uDC33',text:'Falco \u2192 XDR Collector',cls:''},
+            {icon:'\uD83D\uDD0D',text:'CoreDNS dnstap \u2192 NATS',cls:'new'},
+            {icon:'\uD83D\uDD11',text:'Keycloak audit events \u2192 NATS',cls:'new'},
+            {icon:'\u2638',text:'k3s API audit logs \u2192 NATS',cls:'new'}
+          ],
+          telemetry:'OVS IPFIX export (near real-time)'
+        },
+        zoneB: { title:'Research Bridge \u2014 Zone B', badge:'research',
+          svcs:[{n:'OVS-B',s:'bridge'},{n:'VMs',s:'workloads'},{n:'Mon',s:'Grafana'}],
+          sensors:[
+            {icon:'\u2B21',text:'Wazuh Agent on each VM/CT (HIDS)',cls:''},
+            {icon:'\uD83D\uDCE1',text:'OVS mirror port \u2192 Suricata VM',cls:''},
+            {icon:'\u2B21',text:'Cilium eBPF agent (E-W + Hubble L7)',cls:''},
+            {icon:'\uD83D\uDEE1',text:'Tetragon (Tier 1 autonomous enforce)',cls:'t1'},
+            {icon:'\uD83D\uDC33',text:'Falco \u2192 XDR Collector',cls:''},
+            {icon:'\uD83D\uDD0D',text:'CoreDNS dnstap \u2192 NATS',cls:'new'},
+            {icon:'\uD83D\uDD11',text:'Keycloak audit \u2192 NATS',cls:'new'}
+          ],
+          telemetry:'OVS IPFIX export (near real-time)'
+        },
+        miniC: 'Zone C (VLAN)',
+        miniD: 'Zone D \u2026 N (VLAN)',
+        wan: '\u2601 WAN / External interface \u2014 nftables rate-limit target'
+      },
+      pipeline: {
+        collector: { title:'Collector (nProbe + Vector)', items:['nProbe: OVS IPFIX','Vector: logs, Falco, DNS, Auth','Schema validation','Single VM deployment'] },
+        queue: { title:'NATS JetStream', items:['Per-zone + per-source subjects','Durable buffer','Lightweight (~256MB RAM)','Replaces Kafka (saves ~1GB)'] },
+        processor: { title:'Vector VRL Transforms', items:['CEP-like correlation','ECS normalization','Cross-zone correlator','Replaces Flink (saves ~1GB)'] },
+        ml: { title:'ML Inference Engine (CPU only)', models:['T1: LightGBM (ALL)','T2: Random Forest','T2: Autoencoder','T2: DGA / DNS tunnel','T2: Behavioral analytics','GNN removed (too expensive)'], runtime:'LightGBM + RF on CPU \u2014 No GNN model, no GPU. Tiered: ALL \u2192 T1, ~5% \u2192 T2, ~1% \u2192 AI' },
+        opensearch: { title:'OpenSearch (single node, 8GB)', items:['Hot 48h / warm 14d','2,200+ Sigma rules (tiered)','100 real-time, rest scheduled','Single node, 8GB RAM'] },
+        cti: { title:'Threat Intelligence', items:['Community IOC feeds','STIX 2.1 graph','ATT&CK technique map','MISP only (3GB, no OpenCTI)'] },
+        ai: { title:'AI Investigation (CPU)', items:['Phi-3-mini 3.8B (Q4, CPU)','RAG over CTI + ATT&CK','Kill chain mapping','Slower inference (~30s/query)','<50 alerts/hr (gated)','120s timeout per investigation'] }
+      },
+      tiers: {
+        t0: ['Default-deny Cilium policies (GitOps)','OVS default-drop rules','mTLS between all services','VLAN segmentation','Kyverno failurePolicy: Fail'],
+        t1: ['Tetragon: in-kernel SIGKILL','Wazuh local active response','Cilium eBPF: persists in kernel','nftables persistent rules','Faucet ACL baseline'],
+        t2: ['SOAR \u2192 Enforcement API','Faucet YAML + SIGHUP \u2192 OVS','nftables rule updates','Cross-system quarantine','Human-in-the-loop escalation']
+      },
+      netPushLabel: 'Faucet/OVS push',
+      wanPushLabel: 'nftables rate'
+    },
+
+    onprem: {
+      accent: '#4CAF50',
+      label: 'On-Prem Data Center',
+      badge: { cls: 'warn-onprem', text: 'On-Prem: Full hardware control \u2014 lowest latency, highest upfront cost (~$983K)' },
+      cpTitle: 'Control Plane (K8s Cluster)',
+      cpSub: 'dedicated hardware + full Kubernetes',
+      xdrTitle: 'XDR Infrastructure (K8s + Dedicated Hardware)',
+      controlPlane: [
+        { cls:'cb-en', member:'resp-net', label:'NET ENFORCE', title:'Network Enforcement API', items:['FastAPI + Celery (K8s)','SONiC gNMI worker','DPU DOCA/P4 worker','BGP Flowspec worker','Idempotent + TTL-based'] },
+        { cls:'cb-hi', member:'det-agent,resp-wazuh,auto-wazuh', label:'HIDS', title:'Wazuh Manager cluster', items:['3,000+ detection rules','Active response modules','Agent management','Autonomous Tier 1 resp.','Clustered: master+worker'] },
+        { cls:'cb-so', member:'resp-verdict,resp-net,resp-wazuh,resp-cilium', label:'SOAR', title:'Shuffle SOAR (K8s)', items:['Playbook automation','Graduated response','Verdict \u2192 Action','Confidence thresholds','Rate-limited enforcement'] },
+        { cls:'cb-ca', member:'feedback', label:'CASE', title:'DFIR-IRIS (K8s)', items:['Incident lifecycle','Researcher reinstate','Evidence chain','FP/TP feedback \u2192 ML'] },
+        { cls:'cb-cn', member:'det-ebpf,resp-cilium', label:'CNI', title:'Cilium Operator (K8s)', items:['Network policy push','Quarantine labels','WireGuard encryption','L7 Hubble visibility'] },
+        { cls:'cb-sd', member:'', label:'NETWORK', title:'SONiC Switches', items:['gNMI programmable','No controller needed','IPFIX native export','BGP Flowspec capable'] },
+        { cls:'cb-we', member:'', label:'WEB', title:'Dashboards (K8s)', items:['Grafana + Kibana','Security analytics','Self-service portal','Meta-monitoring'] },
+        { cls:'cb-su', member:'', label:'SUPPLY CHAIN', title:'Admission Control', items:['Trivy image scan','Sigstore signer ID verify','SBOM / Kyverno','failurePolicy: Fail'] }
+      ],
+      zones: {
+        zoneA: { title:'Core Network \u2014 Zone A', badge:'production',
+          svcs:[{n:'S\u2081-S\u2084',s:'SONiC switches'},{n:'Auth',s:'Keycloak'},{n:'Mon',s:'Grafana'},{n:'Secrets',s:'Vault'},{n:'DNS',s:'CoreDNS'}],
+          sensors:[
+            {icon:'\u2B21',text:'Wazuh Agent on each host (HIDS)',cls:''},
+            {icon:'\uD83D\uDCE1',text:'Physical TAPs \u2192 Suricata servers (line-rate)',cls:''},
+            {icon:'\u2B21',text:'Cilium eBPF agent (E-W + Hubble L7)',cls:''},
+            {icon:'\uD83D\uDEE1',text:'Tetragon (Tier 1 autonomous enforce)',cls:'t1'},
+            {icon:'\uD83D\uDC33',text:'Falco \u2192 XDR Collector',cls:''},
+            {icon:'\uD83D\uDD0D',text:'CoreDNS dnstap \u2192 Kafka',cls:'new'},
+            {icon:'\uD83D\uDD11',text:'Keycloak audit events \u2192 Kafka',cls:'new'},
+            {icon:'\u2638',text:'K8s API audit logs \u2192 Kafka',cls:'new'}
+          ],
+          telemetry:'IPFIX from SONiC switches (real-time)'
+        },
+        zoneB: { title:'Research Network \u2014 Zone B', badge:'research',
+          svcs:[{n:'S\u2085-S\u2087',s:'SONiC switches'},{n:'DWH',s:'Nomad'},{n:'Mon',s:'Grafana'}],
+          sensors:[
+            {icon:'\u2B21',text:'Wazuh Agent on each host (HIDS)',cls:''},
+            {icon:'\uD83D\uDCE1',text:'Physical TAPs \u2192 Suricata servers (line-rate)',cls:''},
+            {icon:'\u2B21',text:'Cilium eBPF agent (E-W + Hubble L7)',cls:''},
+            {icon:'\uD83D\uDEE1',text:'Tetragon (Tier 1 autonomous enforce)',cls:'t1'},
+            {icon:'\uD83D\uDC33',text:'Falco \u2192 XDR Collector',cls:''},
+            {icon:'\uD83D\uDD0D',text:'CoreDNS dnstap \u2192 Kafka',cls:'new'},
+            {icon:'\uD83D\uDD11',text:'Keycloak audit \u2192 Kafka',cls:'new'}
+          ],
+          telemetry:'IPFIX from SONiC switches (real-time)'
+        },
+        miniC: 'Zone C (physical)',
+        miniD: 'Zone D \u2026 N (hybrid)',
+        wan: '\u2601 WAN / ISP / Upstream \u2014 BGP Flowspec / RTBH target'
+      },
+      pipeline: {
+        collector: { title:'Collector (nProbe + Vector)', items:['nProbe: IPFIX/NetFlow','Vector: logs, Falco, DNS, Auth','Schema validation','K8s deployment'] },
+        queue: { title:'Apache Kafka (3 brokers)', items:['Per-zone + per-source topics','Durable buffer (72h retain)','Apache Kafka (acks=all)','Schema Registry'] },
+        processor: { title:'Apache Flink (6 TaskManagers)', items:['CEP correlation + dedup','ECS normalization','Cross-zone correlator','RocksDB state backend'] },
+        ml: { title:'ML Inference Engine (Triton on A100)', models:['T1: LightGBM (ALL)','T2: CNN-MLP (suspicious)','T2: GNN graph (suspicious)','T2: Autoencoder (suspicious)','T2: DGA / DNS tunnel','T2: Behavioral analytics'], runtime:'ONNX Runtime / Triton on A100 GPU \u2014 Tiered: ALL \u2192 T1, ~5% \u2192 T2, ~1% \u2192 AI' },
+        opensearch: { title:'OpenSearch cluster (12 nodes)', items:['Hot 48h / warm 30d / cold 365d','2,200+ Sigma rules (tiered)','300 real-time, rest scheduled','12-node cluster, full HA'] },
+        cti: { title:'Threat Intelligence', items:['Community IOC feeds','STIX 2.1 graph','ATT&CK technique map','MISP + OpenCTI (K8s)'] },
+        ai: { title:'Agentic AI Investigation', items:['Foundation-sec-8B (Triton, A100)','RAG over CTI + ATT&CK','Kill chain mapping','Multi-agent LLM triage','<100 alerts/hr (gated)','60s timeout per investigation'] }
+      },
+      tiers: {
+        t0: ['Default-deny Cilium policies (GitOps)','DPU hardware filtering (fail-closed)','mTLS between all services','Physical network segmentation','Kyverno failurePolicy: Fail'],
+        t1: ['Tetragon: in-kernel SIGKILL','Wazuh local active response','Cilium eBPF: persists in kernel','BGP Flowspec: LLGR (RFC 9494)','DPU pre-loaded baseline rules'],
+        t2: ['SOAR \u2192 Enforcement API','Dynamic SONiC ACL (gNMI)','DPU DOCA inline filter','Cross-system quarantine','Human-in-the-loop escalation']
+      },
+      netPushLabel: 'gNMI ACL push',
+      wanPushLabel: 'BGP Flowspec'
+    }
+  };
+
+  // ============================
+  // SCENARIO DEFINITIONS (per environment)
+  // ============================
+  var SCENARIOS = {
+    'dns-tunnel': {
+      name: 'DNS Tunnel Attack',
+      steps: {
+        aws: [
+          { desc:'Step 1: Attacker establishes DNS tunnel for C2. Route 53 Query Logging captures all queries in CloudWatch Logs.', flows:['det-dns'] },
+          { desc:'Step 2: DNS logs flow through MSK to Managed Flink. CEP correlates: high-entropy subdomains + never-seen domain.', flows:['det-dns','pipe-ingest'] },
+          { desc:'Step 3: LightGBM flags suspicious. DGA/DNS tunnel detector on Triton (Spot GPU) classifies with 97% confidence.', flows:['det-dns','pipe-ingest','pipe-ml'] },
+          { desc:'Step 4: Confidence >95% \u2192 FAST PATH. Verdict generated directly, bypassing Bedrock AI. ~2s total.', flows:['det-dns','pipe-ingest','pipe-ml','fast-path'] },
+          { desc:'Step 5: SOAR executes: AWS WAF blocks DNS to evil.com. Security Group revokes source IP. Network Firewall rule added.', flows:['det-dns','pipe-ingest','pipe-ml','fast-path','resp-verdict','resp-net'] }
+        ],
+        proxmox: [
+          { desc:'Step 1: Attacker establishes DNS tunnel for C2. CoreDNS dnstap on k3s captures all queries.', flows:['det-dns'] },
+          { desc:'Step 2: DNS logs flow through NATS JetStream to Vector VRL. Correlation: high-entropy subdomains + never-seen domain.', flows:['det-dns','pipe-ingest'] },
+          { desc:'Step 3: LightGBM flags suspicious. DGA/DNS tunnel detector classifies with 94% confidence (CPU inference, slightly slower).', flows:['det-dns','pipe-ingest','pipe-ml'] },
+          { desc:'Step 4: Confidence ~94% \u2192 passes to Phi-3-mini AI for confirmation. Confidence raised to 97%. ~5s total.', flows:['det-dns','pipe-ingest','pipe-ml','pipe-analysis'] },
+          { desc:'Step 5: SOAR executes: Faucet YAML edit + SIGHUP blocks DNS to evil.com on OVS. nftables blocks source IP.', flows:['det-dns','pipe-ingest','pipe-ml','pipe-analysis','resp-verdict','resp-net'] }
+        ],
+        onprem: [
+          { desc:'Step 1: Attacker establishes DNS tunnel for C2. CoreDNS dnstap captures all queries in real-time.', flows:['det-dns'] },
+          { desc:'Step 2: DNS logs flow through Kafka to Flink. CEP correlates: high-entropy subdomains + never-seen domain.', flows:['det-dns','pipe-ingest'] },
+          { desc:'Step 3: LightGBM flags suspicious. DGA/DNS tunnel detector on Triton (A100) classifies with 97% confidence.', flows:['det-dns','pipe-ingest','pipe-ml'] },
+          { desc:'Step 4: Confidence >95% \u2192 FAST PATH. Verdict generated directly, bypassing Foundation-sec-8B. ~1.5s total.', flows:['det-dns','pipe-ingest','pipe-ml','fast-path'] },
+          { desc:'Step 5: SOAR executes: BGP Flowspec blocks DNS to evil.com upstream. gNMI ACL blocks source IP on SONiC switches in ~50ms.', flows:['det-dns','pipe-ingest','pipe-ml','fast-path','resp-verdict','resp-net'] }
+        ]
+      }
+    },
+    'lateral-movement': {
+      name: 'Lateral Movement (Zone B \u2192 Zone A)',
+      steps: {
+        aws: [
+          { desc:'Step 1: Attacker gets shell in Zone B pod on EKS. Falco detects "Terminal shell in container".', flows:['det-falco'] },
+          { desc:'Step 2: Tetragon monitors process execution. If TracingPolicy matches (nc, nmap), SIGKILL immediately.', flows:['det-falco','auto-tetragon'] },
+          { desc:'Step 3: Attacker tries cross-VPC traffic. VPC isolation blocks Zone B\u2192A. Hubble logs denied flow.', flows:['det-falco','auto-tetragon','det-ebpf'] },
+          { desc:'Step 4: Denied flow + Falco alert correlated in Managed Flink. GNN detects anomalous graph on Triton. Bedrock AI maps to MITRE T1021.', flows:['det-falco','auto-tetragon','det-ebpf','pipe-ingest','pipe-ml','pipe-analysis'] },
+          { desc:'Step 5: SOAR quarantines pod via Cilium label on EKS. All ingress/egress blocked. DFIR-IRIS case created.', flows:['det-falco','auto-tetragon','det-ebpf','pipe-ingest','pipe-ml','pipe-analysis','resp-verdict','resp-cilium'] }
+        ],
+        proxmox: [
+          { desc:'Step 1: Attacker gets shell in Zone B container on k3s. Falco detects "Terminal shell in container".', flows:['det-falco'] },
+          { desc:'Step 2: Tetragon monitors process execution. If TracingPolicy matches (nc, nmap), SIGKILL immediately.', flows:['det-falco','auto-tetragon'] },
+          { desc:'Step 3: Attacker tries cross-bridge traffic. OVS VLAN rules block Zone B\u2192A. Hubble logs denied flow.', flows:['det-falco','auto-tetragon','det-ebpf'] },
+          { desc:'Step 4: Denied flow + Falco alert correlated in Vector VRL. LightGBM + RF detect anomaly. Phi-3-mini maps to MITRE T1021 (no GNN available).', flows:['det-falco','auto-tetragon','det-ebpf','pipe-ingest','pipe-ml','pipe-analysis'] },
+          { desc:'Step 5: SOAR quarantines pod via Cilium label on k3s. All ingress/egress blocked. DFIR-IRIS case created.', flows:['det-falco','auto-tetragon','det-ebpf','pipe-ingest','pipe-ml','pipe-analysis','resp-verdict','resp-cilium'] }
+        ],
+        onprem: [
+          { desc:'Step 1: Attacker gets shell in Zone B pod. Falco detects "Terminal shell in container".', flows:['det-falco'] },
+          { desc:'Step 2: Tetragon monitors process execution. If TracingPolicy matches (nc, nmap), SIGKILL immediately.', flows:['det-falco','auto-tetragon'] },
+          { desc:'Step 3: Attacker tries cross-zone traffic. SONiC ACLs + Cilium default-deny block Zone B\u2192A. Hubble logs denied flow.', flows:['det-falco','auto-tetragon','det-ebpf'] },
+          { desc:'Step 4: Denied flow + Falco alert correlated in Flink. GNN on Triton A100 detects anomalous graph. Foundation-sec-8B maps to MITRE T1021.', flows:['det-falco','auto-tetragon','det-ebpf','pipe-ingest','pipe-ml','pipe-analysis'] },
+          { desc:'Step 5: SOAR quarantines pod via Cilium label. gNMI pushes ACL to SONiC switches in ~50ms. DFIR-IRIS case created.', flows:['det-falco','auto-tetragon','det-ebpf','pipe-ingest','pipe-ml','pipe-analysis','resp-verdict','resp-cilium','resp-net'] }
+        ]
+      }
+    },
+    'brute-force': {
+      name: 'Brute Force + Credential Abuse',
+      steps: {
+        aws: [
+          { desc:'Step 1: Attacker attempts credential stuffing. CloudTrail + Cognito capture 50 failed logins in 30s. GuardDuty detects.', flows:['det-auth','det-guardduty'] },
+          { desc:'Step 2: Wazuh agent detects repeated SSH auth failures. Tier 1 autonomous: firewall-drop blocks IP in 50ms.', flows:['det-auth','det-guardduty','det-wazuh','det-agent','auto-wazuh'] },
+          { desc:'Step 3: Managed Flink correlates CloudTrail + Wazuh + GuardDuty. ML confirms brute force. Sigma rule triggers.', flows:['det-auth','det-guardduty','det-wazuh','det-agent','auto-wazuh','pipe-ingest','pipe-ml','pipe-analysis'] },
+          { desc:'Step 4: SOAR escalates: boto3 revokes Security Group. WAF rate-limits source. Wazuh Manager sends active response. SSM Run Command executes.', flows:['det-auth','det-guardduty','det-wazuh','det-agent','auto-wazuh','pipe-ingest','pipe-ml','pipe-analysis','resp-verdict','resp-net','resp-wazuh'] }
+        ],
+        proxmox: [
+          { desc:'Step 1: Attacker attempts credential stuffing. Keycloak audit on k3s captures 50 failed logins in 30s.', flows:['det-auth'] },
+          { desc:'Step 2: Wazuh agent detects repeated SSH auth failures. Tier 1 autonomous: firewall-drop blocks IP in 50ms.', flows:['det-auth','det-wazuh','det-agent','auto-wazuh'] },
+          { desc:'Step 3: Vector VRL correlates Keycloak events + Wazuh alerts. ML confirms brute force. Sigma rule triggers.', flows:['det-auth','det-wazuh','det-agent','auto-wazuh','pipe-ingest','pipe-ml','pipe-analysis'] },
+          { desc:'Step 4: SOAR escalates: nftables blocks source IP on Proxmox host. Faucet ACL pushed to OVS. Wazuh Manager sends active response.', flows:['det-auth','det-wazuh','det-agent','auto-wazuh','pipe-ingest','pipe-ml','pipe-analysis','resp-verdict','resp-net','resp-wazuh'] }
+        ],
+        onprem: [
+          { desc:'Step 1: Attacker attempts credential stuffing. Keycloak audit captures 50 failed logins in 30s.', flows:['det-auth'] },
+          { desc:'Step 2: Wazuh agent detects repeated SSH auth failures. Tier 1 autonomous: firewall-drop blocks IP in 50ms.', flows:['det-auth','det-wazuh','det-agent','auto-wazuh'] },
+          { desc:'Step 3: Flink correlates Keycloak events + Wazuh alerts. ML confirms brute force on Triton. Sigma rule triggers.', flows:['det-auth','det-wazuh','det-agent','auto-wazuh','pipe-ingest','pipe-ml','pipe-analysis'] },
+          { desc:'Step 4: SOAR escalates: gNMI ACL blocks source on SONiC switches in ~50ms. DPU DOCA blocks inline. Wazuh active response to all agents.', flows:['det-auth','det-wazuh','det-agent','auto-wazuh','pipe-ingest','pipe-ml','pipe-analysis','resp-verdict','resp-net','resp-wazuh'] }
+        ]
+      }
+    },
+    'ddos': {
+      name: 'DDoS Attack',
+      steps: {
+        aws: [
+          { desc:'Step 1: Sudden 10x spike in VPC Flow Logs. BUT: 1-10 min delay on flow logs! Shield Advanced detects volumetric attack independently.', flows:['det-netflow','det-guardduty'] },
+          { desc:'Step 2: Shield Advanced auto-mitigates at AWS edge. Meanwhile, nProbe on NIDS detects SYN flood pattern.', flows:['det-netflow','det-guardduty','det-nids','pipe-ingest','pipe-ml','fast-path'] },
+          { desc:'Step 3: SOAR adds WAF rate rules. Network Firewall updated. Shield Advanced continues auto-mitigation.', flows:['det-netflow','det-guardduty','det-nids','pipe-ingest','pipe-ml','fast-path','resp-verdict','resp-net'] },
+          { desc:'Step 4: Tetragon protects EKS pods: SIGKILL on flood-source processes. Wazuh local response on instances.', flows:['det-netflow','det-guardduty','det-nids','pipe-ingest','pipe-ml','fast-path','resp-verdict','resp-net','auto-tetragon'] }
+        ],
+        proxmox: [
+          { desc:'Step 1: Sudden 10x spike in OVS IPFIX flow records. SYN flood pattern detected by nProbe.', flows:['det-netflow'] },
+          { desc:'Step 2: LightGBM classifies DDoS 98% confidence in 500ms (CPU). FAST PATH verdict.', flows:['det-netflow','pipe-ingest','pipe-ml','fast-path'] },
+          { desc:'Step 3: nftables on Proxmox external interface rate-limits source. Faucet blocks on OVS. Limited DDoS protection (single server).', flows:['det-netflow','pipe-ingest','pipe-ml','fast-path','resp-verdict','resp-net'] },
+          { desc:'Step 4: Tetragon protects k3s pods: SIGKILL on flood-source processes.', flows:['det-netflow','pipe-ingest','pipe-ml','fast-path','resp-verdict','resp-net','auto-tetragon'] }
+        ],
+        onprem: [
+          { desc:'Step 1: Sudden 10x spike in real-time IPFIX from SONiC switches. SYN flood pattern detected by nProbe immediately.', flows:['det-netflow'] },
+          { desc:'Step 2: LightGBM classifies DDoS 99% confidence in 200ms on Triton A100. FAST PATH verdict.', flows:['det-netflow','pipe-ingest','pipe-ml','fast-path'] },
+          { desc:'Step 3: BGP Flowspec announces upstream block in ~2s. DPU DOCA pre-loaded rate-limit activates at wire-speed. gNMI ACL on SONiC in ~50ms.', flows:['det-netflow','pipe-ingest','pipe-ml','fast-path','resp-verdict','resp-net'] },
+          { desc:'Step 4: Tetragon protects hosts: SIGKILL on flood-source processes. DPU continues wire-speed filtering.', flows:['det-netflow','pipe-ingest','pipe-ml','fast-path','resp-verdict','resp-net','auto-tetragon'] }
+        ]
+      }
+    },
+    'container-compromise': {
+      name: 'Container Compromise',
+      steps: {
+        aws: [
+          { desc:'Step 1: Backdoor in EKS container activates. Falco detects unexpected process (container drift).', flows:['det-falco'] },
+          { desc:'Step 2: Tetragon SIGKILL in <1 microsecond. Malicious process never completes.', flows:['det-falco','auto-tetragon'] },
+          { desc:'Step 3: Falco alert + Tetragon event correlated in Managed Flink. Bedrock AI maps to T1610 + T1059.', flows:['det-falco','auto-tetragon','pipe-ingest','pipe-ml','pipe-analysis'] },
+          { desc:'Step 4: SOAR quarantines pod on EKS. Cilium isolates. DFIR-IRIS case for forensics.', flows:['det-falco','auto-tetragon','pipe-ingest','pipe-ml','pipe-analysis','resp-verdict','resp-cilium'] },
+          { desc:'Step 5: Analyst closes case. Feedback loop: FP/TP label \u2192 ML retraining pipeline.', flows:['det-falco','auto-tetragon','pipe-ingest','pipe-ml','pipe-analysis','resp-verdict','resp-cilium','feedback'] }
+        ],
+        proxmox: [
+          { desc:'Step 1: Backdoor in k3s container activates. Falco detects unexpected process (container drift).', flows:['det-falco'] },
+          { desc:'Step 2: Tetragon SIGKILL in <1 microsecond. Malicious process never completes.', flows:['det-falco','auto-tetragon'] },
+          { desc:'Step 3: Falco alert + Tetragon event correlated in Vector VRL. Phi-3-mini AI maps to T1610 + T1059 (slower, ~30s).', flows:['det-falco','auto-tetragon','pipe-ingest','pipe-ml','pipe-analysis'] },
+          { desc:'Step 4: SOAR quarantines pod on k3s. Cilium isolates. DFIR-IRIS case for forensics.', flows:['det-falco','auto-tetragon','pipe-ingest','pipe-ml','pipe-analysis','resp-verdict','resp-cilium'] },
+          { desc:'Step 5: Analyst closes case. Feedback loop: FP/TP label \u2192 ML retraining pipeline.', flows:['det-falco','auto-tetragon','pipe-ingest','pipe-ml','pipe-analysis','resp-verdict','resp-cilium','feedback'] }
+        ],
+        onprem: [
+          { desc:'Step 1: Backdoor in K8s container activates. Falco detects unexpected process (container drift).', flows:['det-falco'] },
+          { desc:'Step 2: Tetragon SIGKILL in <1 microsecond. Malicious process never completes.', flows:['det-falco','auto-tetragon'] },
+          { desc:'Step 3: Falco alert + Tetragon event correlated in Flink. Foundation-sec-8B on A100 maps to T1610 + T1059.', flows:['det-falco','auto-tetragon','pipe-ingest','pipe-ml','pipe-analysis'] },
+          { desc:'Step 4: SOAR quarantines pod. Cilium isolates. gNMI ACL blocks on SONiC. DFIR-IRIS case for forensics.', flows:['det-falco','auto-tetragon','pipe-ingest','pipe-ml','pipe-analysis','resp-verdict','resp-cilium','resp-net'] },
+          { desc:'Step 5: Analyst closes case. Feedback loop: FP/TP label \u2192 ML retraining pipeline.', flows:['det-falco','auto-tetragon','pipe-ingest','pipe-ml','pipe-analysis','resp-verdict','resp-cilium','resp-net','feedback'] }
+        ]
+      }
+    },
+    'full-pipeline': {
+      name: 'Full Pipeline',
+      steps: {
+        aws: [{ desc:'All flows activated simultaneously \u2014 showing the complete AWS XDR architecture with every detection, pipeline, response, autonomous, and feedback path. Note: GuardDuty/CloudTrail flow also shown.', flows: ALL_FLOWS_WITH_GD.slice() }],
+        proxmox: [{ desc:'All flows activated simultaneously \u2014 showing the complete Proxmox lab XDR architecture with every detection, pipeline, response, autonomous, and feedback path.', flows: ALL_FLOWS.slice() }],
+        onprem: [{ desc:'All flows activated simultaneously \u2014 showing the complete on-prem data center XDR architecture with every detection, pipeline, response, autonomous, and feedback path.', flows: ALL_FLOWS.slice() }]
+      }
+    }
+  };
+
+  // ============================
+  // RENDERING FUNCTIONS
+  // ============================
+
+  function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+  function renderControlPlane() {
+    var env = ENV[currentEnv];
+    document.getElementById('cp-title').textContent = env.cpTitle;
+    document.getElementById('cp-sub').textContent = env.cpSub;
+    var html = '';
+    env.controlPlane.forEach(function(c) {
+      html += '<div class="cb ' + c.cls + ' component" data-member="' + c.member + '">';
+      html += '<div class="cb-l">' + esc(c.label) + '</div>';
+      html += '<div class="cb-t">' + esc(c.title) + '</div>';
+      html += '<ul class="cb-i">';
+      c.items.forEach(function(it) { html += '<li>' + esc(it) + '</li>'; });
+      html += '</ul></div>';
+    });
+    document.getElementById('cp-grid').innerHTML = html;
+  }
+
+  function renderZones() {
+    var env = ENV[currentEnv];
+    var z = env.zones;
+
+    function renderZone(zd, id, memberAll) {
+      var html = '<div class="zone component" id="' + id + '" data-member="' + memberAll + '">';
+      html += '<div class="z-h"><div class="z-t">' + esc(zd.title) + '</div><div class="z-b">' + esc(zd.badge) + '</div></div>';
+      html += '<div class="z-svcs">';
+      zd.svcs.forEach(function(s) { html += '<div class="z-svc">' + esc(s.n) + '<small>' + esc(s.s) + '</small></div>'; });
+      html += '</div><div class="sensors">';
+      zd.sensors.forEach(function(s) {
+        var cls = s.cls === 't1' ? ' sen-t1' : s.cls === 'new' ? ' sen-new' : s.cls === 'fix' ? ' sen-fix' : s.cls === 'aws' ? ' sen-new' : '';
+        html += '<div class="sen' + cls + '"><span class="sen-i">' + s.icon + '</span> ' + esc(s.text);
+        if (s.tag) html += ' <span class="fix-tag">' + esc(s.tag) + '</span>';
+        if (s.cls === 'new') html += ' <span class="new-tag">NEW</span>';
+        if (s.cls === 'aws') html += ' <span class="aws-tag">AWS</span>';
+        html += '</div>';
+      });
+      html += '</div>';
+      html += '<div class="z-tel"><span class="dot"></span><span class="dot"></span> ' + esc(zd.telemetry) + '</div>';
+      html += '</div>';
+      return html;
+    }
+
+    var memberAll = 'det-wazuh,det-nids,det-falco,det-netflow,det-ebpf,det-dns,det-auth,det-agent,auto-tetragon,auto-wazuh';
+    if (currentEnv === 'aws') memberAll += ',det-guardduty';
+
+    var html = '';
+    html += renderZone(z.zoneA, 'comp-zone-a', memberAll);
+    html += renderZone(z.zoneB, 'comp-zone-b', memberAll);
+    html += '<div class="z-mini">';
+    html += '<div class="z-mini-b component" data-member="">' + esc(z.miniC) + '</div>';
+    html += '<div class="z-mini-b component" data-member="">' + esc(z.miniD) + '</div>';
+    html += '</div>';
+    html += '<div class="wan-b component" data-member="resp-net">' + esc(z.wan) + '</div>';
+
+    document.getElementById('zones-section').innerHTML = html;
+  }
+
+  function renderPipeline() {
+    var env = ENV[currentEnv];
+    var p = env.pipeline;
+    document.getElementById('xdr-title').textContent = env.xdrTitle;
+
+    var html = '';
+    // Row 1: Collector, Queue, Processor
+    html += '<div class="p-row">';
+    html += '<div class="pb pi component" data-member="det-wazuh,det-nids,det-falco,det-netflow,det-ebpf,det-dns,det-auth,det-agent,pipe-ingest' + (currentEnv==='aws'?',det-guardduty':'') + '"><div class="pb-i">&#x1F4E1;</div><div class="pb-t">' + esc(p.collector.title) + '</div><ul class="pb-l">';
+    p.collector.items.forEach(function(it) { html += '<li>' + esc(it) + '</li>'; });
+    html += '</ul></div>';
+    html += '<div class="pb pi component" data-member="pipe-ingest"><div class="pb-i">&#x1F500;</div><div class="pb-t">' + esc(p.queue.title) + '</div><ul class="pb-l">';
+    p.queue.items.forEach(function(it) { html += '<li>' + esc(it) + '</li>'; });
+    html += '</ul></div>';
+    html += '<div class="pb pp component" data-member="pipe-ingest,pipe-ml"><div class="pb-i">&#x2699;&#xFE0F;</div><div class="pb-t">' + esc(p.processor.title) + '</div><ul class="pb-l">';
+    p.processor.items.forEach(function(it) { html += '<li>' + esc(it) + '</li>'; });
+    html += '</ul></div>';
+    html += '</div>';
+
+    html += '<div class="p-flow"><span class="a">&darr;</span> preprocessed + deduplicated flows</div>';
+
+    // ML Engine
+    html += '<div class="ml-box component" data-member="pipe-ml,pipe-analysis,fast-path,feedback"><div class="pb-i">&#x1F9EE;</div><div class="pb-t">' + esc(p.ml.title) + '</div><div class="ml-g">';
+    p.ml.models.forEach(function(m, i) {
+      var style = i === 0 ? ' style="border-color:#ef4444;background:#fef2f2"' : '';
+      var bold = i === 0 ? '<strong>' + esc(m) + '</strong>' : esc(m);
+      html += '<div class="ml-c"' + style + '>' + (i === 0 ? '<strong>' + esc(m) + '</strong>' : esc(m)) + '</div>';
+    });
+    html += '<div class="ml-r">' + esc(p.ml.runtime) + '</div></div></div>';
+
+    html += '<div class="p-flow"><span class="a">&darr;</span> alerts + enriched events</div>';
+
+    // Row 2: OpenSearch, CTI, AI
+    html += '<div class="p-row">';
+    html += '<div class="pb component" data-member="pipe-analysis" style="background:#f1f5f9;border:1px solid #e2e8f0"><div class="pb-i">&#x1F5C4;</div><div class="pb-t">' + esc(p.opensearch.title) + '</div><ul class="pb-l">';
+    p.opensearch.items.forEach(function(it) { html += '<li>' + esc(it) + '</li>'; });
+    html += '</ul></div>';
+    html += '<div class="pb component" data-member="pipe-analysis" style="background:#ede9fe;border:1px solid #c4b5fd"><div class="pb-i">&#x1F30D;</div><div class="pb-t">' + esc(p.cti.title) + '</div><ul class="pb-l">';
+    p.cti.items.forEach(function(it) { html += '<li>' + esc(it) + '</li>'; });
+    html += '</ul></div>';
+    html += '<div class="pb component" data-member="pipe-analysis" style="background:#fce7f3;border:1px solid #f9a8d4"><div class="pb-i">&#x1F916;</div><div class="pb-t">' + esc(p.ai.title) + '</div><ul class="pb-l">';
+    p.ai.items.forEach(function(it) { html += '<li>' + esc(it) + '</li>'; });
+    html += '</ul></div>';
+    html += '</div>';
+
+    // Verdict
+    html += '<div class="verdict component" data-member="pipe-analysis,fast-path,resp-verdict"><div class="verdict-t">VERDICT</div><div class="verdict-d">Confidence score (0-100%) &bull; Attack classification (MITRE ATT&amp;CK) &bull; Recommended action &bull; Cryptographically signed</div></div>';
+
+    // Fast path
+    html += '<div class="fast-path component" data-member="fast-path"><div class="fp-icon">&#x26A1;</div><div class="fp-text"><strong>FAST PATH (red dashed):</strong> ML confidence &gt;95% + multi-source corroboration &rarr; bypass AI investigation &rarr; direct VERDICT to SOAR.';
+    if (currentEnv === 'aws') html += ' Target: &lt;2 sec. Full AI path via Bedrock: ~10-60 sec.';
+    else if (currentEnv === 'proxmox') html += ' Target: &lt;5 sec (CPU). Full AI path via Phi-3-mini: ~30-120 sec.';
+    else html += ' Target: &lt;2 sec. Full AI path via Foundation-sec-8B: ~10-90 sec.';
+    html += '</div></div>';
+
+    document.getElementById('xdr-body').innerHTML = html;
+  }
+
+  function renderTiers() {
+    var env = ENV[currentEnv];
+    var t = env.tiers;
+    var html = '';
+
+    function tierBlock(cls, label, desc, items) {
+      html += '<div class="ti ' + cls + ' component" data-member="' + (cls==='t1'?'auto-tetragon,auto-wazuh':cls==='t2'?'resp-verdict,resp-net,resp-wazuh,resp-cilium':'') + '">';
+      html += '<div class="ti-l">' + esc(label) + '</div>';
+      html += '<div class="ti-d">' + esc(desc) + '</div>';
+      html += '<ul class="ti-items">';
+      items.forEach(function(it) { html += '<li>' + esc(it) + '</li>'; });
+      html += '</ul></div>';
+    }
+
+    tierBlock('t0','Tier 0 \u2014 Structural','Always active, zero software dependency',t.t0);
+    tierBlock('t1','Tier 1 \u2014 Autonomous','Sub-second, no SOAR dependency',t.t1);
+    tierBlock('t2','Tier 2 \u2014 Orchestrated','Seconds\u2013minutes, SOAR-coordinated',t.t2);
+
+    document.getElementById('tiers-grid').innerHTML = html;
+  }
+
+  function renderEnvironment() {
+    var env = ENV[currentEnv];
+
+    // Set CSS custom property for accent color
+    document.documentElement.style.setProperty('--env-accent', env.accent);
+
+    // Update badge
+    var badge = document.getElementById('env-badge');
+    badge.className = 'env-warn ' + env.badge.cls;
+    badge.textContent = env.badge.text;
+
+    // Update tabs
+    document.querySelectorAll('.env-tab').forEach(function(tab) {
+      tab.classList.toggle('active', tab.getAttribute('data-env') === currentEnv);
+    });
+
+    // Show/hide GuardDuty checkbox
+    document.getElementById('lbl-guardduty').style.display = currentEnv === 'aws' ? '' : 'none';
+    if (currentEnv !== 'aws') {
+      activeFlows.delete('det-guardduty');
+      var gdCb = document.querySelector('[data-flow="det-guardduty"]');
+      if (gdCb) gdCb.checked = false;
+    }
+
+    // Render all sections
+    renderControlPlane();
+    renderZones();
+    renderPipeline();
+    renderTiers();
+
+    // Update SVG labels that change per environment
+    var txtNetPush = document.getElementById('txt-net-push');
+    var txtWanPush = document.getElementById('txt-wan-push');
+    if (txtNetPush) txtNetPush.textContent = env.netPushLabel;
+    if (txtWanPush) txtWanPush.textContent = env.wanPushLabel;
+
+    render();
+  }
+
+  // ============================
+  // FLOW GLOW
+  // ============================
+  function getGlowClass(flowId) {
+    if (flowId.startsWith('det-') || flowId.startsWith('pipe-')) return 'glow-blue';
+    if (flowId.startsWith('resp-')) return 'glow-red';
+    if (flowId.startsWith('auto-')) return 'glow-amber';
+    if (flowId === 'feedback') return 'glow-purple';
+    if (flowId === 'fast-path') return 'glow-red';
+    return 'glow-blue';
+  }
+
+  function render() {
+    // SVG arrows
+    document.querySelectorAll('.flow-arrow').forEach(function(g) {
+      var flows = g.getAttribute('data-flows').split(',');
+      var visible = flows.some(function(f) { return activeFlows.has(f.trim()); });
+      g.classList.toggle('visible', visible);
+    });
+
+    // Checkboxes
+    document.querySelectorAll('[data-flow]').forEach(function(cb) {
+      cb.checked = activeFlows.has(cb.getAttribute('data-flow'));
+    });
+
+    // Component glows
+    document.querySelectorAll('.component').forEach(function(el) {
+      el.classList.remove('glow-blue','glow-red','glow-amber','glow-purple','glow-green');
+      var members = (el.getAttribute('data-member') || '').split(',').filter(Boolean);
+      var glowPriority = ['glow-red','glow-amber','glow-purple','glow-blue'];
+      var bestGlow = null;
+      members.forEach(function(m) {
+        if (activeFlows.has(m.trim())) {
+          var g = getGlowClass(m.trim());
+          if (!bestGlow || glowPriority.indexOf(g) < glowPriority.indexOf(bestGlow)) {
+            bestGlow = g;
+          }
+        }
+      });
+      if (bestGlow) el.classList.add(bestGlow);
+    });
+  }
+
+  // ============================
+  // EVENT HANDLERS
+  // ============================
+
+  // Tab switching
+  document.querySelectorAll('.env-tab').forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      var env = this.getAttribute('data-env');
+      if (env === currentEnv) return;
+      currentEnv = env;
+      // Preserve scenario if active, update step descriptions
+      if (currentScenario) {
+        renderStep();
+      }
+      renderEnvironment();
+    });
+  });
+
+  // Checkboxes
+  document.addEventListener('change', function(e) {
+    if (e.target.matches('[data-flow]')) {
+      var flowId = e.target.getAttribute('data-flow');
+      if (e.target.checked) activeFlows.add(flowId);
+      else activeFlows.delete(flowId);
+      clearScenarioUI();
+      render();
+    }
+  });
+
+  // Show/Clear all
+  document.getElementById('btn-show-all').addEventListener('click', function() {
+    var flows = currentEnv === 'aws' ? ALL_FLOWS_WITH_GD : ALL_FLOWS;
+    flows.forEach(function(f) { activeFlows.add(f); });
+    clearScenarioUI();
+    render();
+  });
+
+  document.getElementById('btn-clear-all').addEventListener('click', function() {
+    activeFlows.clear();
+    clearScenarioUI();
+    render();
+  });
+
+  // Scenarios
+  document.querySelectorAll('.scenario-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var scenarioId = this.getAttribute('data-scenario');
+      if (currentScenario === scenarioId) {
+        activeFlows.clear();
+        clearScenarioUI();
+        render();
+        return;
+      }
+      currentScenario = scenarioId;
+      currentStep = 0;
+      activeFlows.clear();
+      document.querySelectorAll('.scenario-btn').forEach(function(b) { b.classList.remove('active'); });
+      this.classList.add('active');
+      document.getElementById('step-panel').classList.add('visible');
+      renderStep();
+      render();
+    });
+  });
+
+  // Step navigation
+  document.getElementById('step-prev').addEventListener('click', function() {
+    if (currentScenario && currentStep > 0) {
+      currentStep--;
+      renderStep();
+      render();
+    }
+  });
+
+  document.getElementById('step-next').addEventListener('click', function() {
+    if (currentScenario) {
+      var steps = SCENARIOS[currentScenario].steps[currentEnv];
+      if (currentStep < steps.length - 1) {
+        currentStep++;
+        renderStep();
+        render();
+      }
+    }
+  });
+
+  document.getElementById('step-close').addEventListener('click', function() {
+    activeFlows.clear();
+    clearScenarioUI();
+    render();
+  });
+
+  function renderStep() {
+    if (!currentScenario) return;
+    var scenario = SCENARIOS[currentScenario];
+    var steps = scenario.steps[currentEnv];
+
+    // Clamp step index
+    if (currentStep >= steps.length) currentStep = steps.length - 1;
+    if (currentStep < 0) currentStep = 0;
+
+    var step = steps[currentStep];
+
+    document.getElementById('step-title').textContent = scenario.name + ' (' + ENV[currentEnv].label + ')';
+    document.getElementById('step-body').textContent = step.desc;
+    document.getElementById('step-counter').textContent = 'Step ' + (currentStep + 1) + ' of ' + steps.length;
+
+    var progressHTML = '';
+    for (var i = 0; i < steps.length; i++) {
+      var cls = 'step-dot';
+      if (i < currentStep) cls += ' done';
+      else if (i === currentStep) cls += ' current';
+      progressHTML += '<div class="' + cls + '"></div>';
+    }
+    document.getElementById('step-progress').innerHTML = progressHTML;
+
+    document.getElementById('step-prev').disabled = (currentStep === 0);
+    document.getElementById('step-next').disabled = (currentStep >= steps.length - 1);
+
+    activeFlows.clear();
+    step.flows.forEach(function(f) { activeFlows.add(f); });
+  }
+
+  function clearScenarioUI() {
+    currentScenario = null;
+    currentStep = -1;
+    document.querySelectorAll('.scenario-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.getElementById('step-panel').classList.remove('visible');
+  }
+
+  // ============================
+  // INITIAL RENDER
+  // ============================
+  renderEnvironment();
+
+})();
+</script>
+</body>
+</html>

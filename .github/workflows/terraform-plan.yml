@@ -1,0 +1,153 @@
+name: Terraform Plan
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "new-infra/**"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  TF_VERSION: "1.5.7"
+  AWS_REGION: "eu-central-1"
+
+jobs:
+  plan-tgw:
+    name: "Plan — Transit Gateway"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: new-infra/shared/transit-gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - run: terraform init
+      - run: terraform validate
+      - name: Plan
+        id: plan
+        run: terraform plan -no-color 2>&1 | tee plan-tgw.txt
+      - name: Post plan to PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('new-infra/shared/transit-gateway/plan-tgw.txt', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `### Plan: Transit Gateway\n\`\`\`\n${plan.slice(-30000)}\n\`\`\``
+            });
+
+  plan-xdr:
+    name: "Plan — bc-xdr"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: new-infra/environments/bc-xdr/eu-central-1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - run: terraform init
+      - run: terraform validate
+      - name: Plan
+        run: terraform plan -no-color 2>&1 | tee plan-xdr.txt
+      - name: Post plan to PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('new-infra/environments/bc-xdr/eu-central-1/plan-xdr.txt', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `### Plan: bc-xdr\n\`\`\`\n${plan.slice(-30000)}\n\`\`\``
+            });
+
+  plan-ctrl:
+    name: "Plan — bc-ctrl"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: new-infra/environments/bc-ctrl/eu-central-1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - run: terraform init
+      - run: terraform validate
+      - name: Plan
+        run: terraform plan -no-color 2>&1 | tee plan-ctrl.txt
+      - name: Post plan to PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('new-infra/environments/bc-ctrl/eu-central-1/plan-ctrl.txt', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `### Plan: bc-ctrl\n\`\`\`\n${plan.slice(-30000)}\n\`\`\``
+            });
+
+  plan-prd:
+    name: "Plan — bc-prd"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: new-infra/environments/bc-prd/eu-central-1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - run: terraform init
+      - run: terraform validate
+      - name: Plan
+        run: terraform plan -no-color 2>&1 | tee plan-prd.txt
+      - name: Post plan to PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('new-infra/environments/bc-prd/eu-central-1/plan-prd.txt', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `### Plan: bc-prd\n\`\`\`\n${plan.slice(-30000)}\n\`\`\``
+            });
