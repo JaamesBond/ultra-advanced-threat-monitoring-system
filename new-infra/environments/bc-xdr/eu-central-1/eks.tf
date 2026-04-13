@@ -170,19 +170,19 @@ module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 21.0"
 
-  cluster_name    = local.eks_cluster_name
-  cluster_version = local.eks_cluster_version
+  name               = local.eks_cluster_name
+  kubernetes_version = local.eks_cluster_version
 
-  cluster_endpoint_public_access  = local.eks_endpoint_public_access
-  cluster_endpoint_private_access = local.eks_endpoint_private_access
+  endpoint_public_access  = local.eks_endpoint_public_access
+  endpoint_private_access = local.eks_endpoint_private_access
 
-  enable_irsa                 = local.eks_enable_irsa
-  cluster_deletion_protection = local.eks_deletion_protection
+  enable_irsa        = local.eks_enable_irsa
+  deletion_protection = local.eks_deletion_protection
 
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnet_ids
 
-  cluster_addons = {
+  addons = {
     kube-proxy = {
       addon_version               = local.eks_addons["kube-proxy"].addon_version
       resolve_conflicts_on_create = "OVERWRITE"
@@ -228,13 +228,7 @@ module "eks" {
     }
   }
 
-  eks_managed_node_group_defaults = {
-    ami_type       = local.eks_node_group_defaults.ami_type
-    capacity_type  = local.eks_node_group_defaults.capacity_type
-    disk_size      = local.eks_node_group_defaults.disk_size
-    instance_types = local.eks_node_group_defaults.instance_types
-  }
-
+  # eks_managed_node_group_defaults removed in v21 — defaults inlined per node group in locals.tf
   eks_managed_node_groups = local.eks_node_groups
 
   tags = local.common_tags

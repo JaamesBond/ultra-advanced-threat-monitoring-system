@@ -34,6 +34,9 @@ Full rebuild. Do this before anything else in a new session if `graphify-out/gra
 ### 3. Keep CLAUDE.md current — update on every architectural change
 Any change to: VPC CIDRs, module structure, deploy order, EKS state, TGW routing, CI config → update this file immediately. Architecture drift = bug.
 
+### 4. Always use relative paths
+All paths in code, docs, commands, and this file must be relative to the repo root. Never write absolute paths — anyone cloning the repo must be able to use them without modification.
+
 ---
 
 ## What this is

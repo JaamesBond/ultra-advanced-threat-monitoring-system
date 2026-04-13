@@ -99,13 +99,13 @@ locals {
       ami_type       = "AL2023_x86_64_NVIDIA"
       disk_size      = 100
       labels         = { "role" = "ml-inference" }
-      taints = [
-        {
+      taints = {
+        gpu = {
           key    = "nvidia.com/gpu"
           value  = "true"
           effect = "NO_SCHEDULE"
         }
-      ]
+      }
     }
 
     # MISP + OpenCTI (threat intel) + AI investigation (self-hosted LLM fallback)
@@ -116,13 +116,13 @@ locals {
       instance_types = ["m6a.xlarge"]
       disk_size      = 150
       labels         = { "role" = "cti" }
-      taints = [
-        {
+      taints = {
+        dedicated = {
           key    = "dedicated"
           value  = "cti"
           effect = "NO_SCHEDULE"
         }
-      ]
+      }
     }
   }
 
