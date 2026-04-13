@@ -168,7 +168,7 @@ output "xdr_test_private_ip" {
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 20.0"
+  version = "~> 21.0"
 
   cluster_name    = local.eks_cluster_name
   cluster_version = local.eks_cluster_version
