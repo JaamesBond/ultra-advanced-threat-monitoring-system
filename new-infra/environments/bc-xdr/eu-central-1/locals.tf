@@ -60,8 +60,8 @@ locals {
   # AWS managed services (MSK, Flink, OpenSearch) are separate resources.
   #
   # collector (m6a.large  — 2 vCPU/ 8 GB): nProbe + Vector
-  # ml        (g4dn.xlarge — 4 vCPU/16 GB + GPU, SPOT): Triton Inference Server
   # cti       (m6a.xlarge — 4 vCPU/16 GB): MISP + OpenCTI + AI investigation
+  # ml node group removed — Triton/GPU pipeline out of scope for this stage
   #--------------------------------------------------------------
   eks_cluster_name            = "${local.platform_name}-${local.env}-eks"
   eks_cluster_version         = "1.34"
@@ -73,7 +73,6 @@ locals {
   eks_node_group_defaults = {
     ami_type       = "AL2023_x86_64_STANDARD"
     capacity_type  = "ON_DEMAND"
-    disk_size      = 100
     instance_types = ["m6a.large"]
   }
 
@@ -105,44 +104,6 @@ locals {
             encrypted             = true
             delete_on_termination = true
           }
-        }
-      }
-    }
-
-    # Triton Inference Server — T1: LightGBM, T2: CNN-MLP, GNN, Autoencoder, DGA, Behavioral
-    # Spot GPU — scales to 0 when inference queue is empty
-    ml = {
-      min_size       = 0
-      max_size       = 3
-      desired_size   = 0
-      capacity_type  = "SPOT"
-      instance_types = ["g4dn.xlarge", "g4dn.2xlarge"]
-      ami_type       = "AL2023_x86_64_NVIDIA"
-      labels         = { "role" = "ml-inference" }
-      iam_role_additional_policies = {
-        ssm = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-      }
-      metadata_options = {
-        http_endpoint               = "enabled"
-        http_tokens                 = "required"
-        http_put_response_hop_limit = 2
-      }
-      block_device_mappings = {
-        xvda = {
-          device_name = "/dev/xvda"
-          ebs = {
-            volume_size           = 100
-            volume_type           = "gp3"
-            encrypted             = true
-            delete_on_termination = true
-          }
-        }
-      }
-      taints = {
-        gpu = {
-          key    = "nvidia.com/gpu"
-          value  = "true"
-          effect = "NO_SCHEDULE"
         }
       }
     }

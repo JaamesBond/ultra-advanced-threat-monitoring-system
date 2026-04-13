@@ -63,37 +63,37 @@ locals {
   eks_node_group_defaults = {
     ami_type       = "AL2023_x86_64_STANDARD"
     capacity_type  = "ON_DEMAND"
-    disk_size      = 100
     instance_types = ["m6a.large"]
   }
 
   eks_node_groups = {
-    # General application workloads + all security DaemonSets
+    # Application workloads + Cilium/Falco/Tetragon DaemonSets
+    # Spot node group omitted — not in scope for this test stage
     workload = {
       min_size       = 2
       max_size       = 10
       desired_size   = 2
       instance_types = ["m6a.large"]
-      disk_size      = 100
       labels         = { "role" = "workload" }
-    }
-
-    # Fault-tolerant batch / background jobs (Spot, scales to 0 at idle)
-    spot = {
-      min_size       = 0
-      max_size       = 10
-      desired_size   = 0
-      capacity_type  = "SPOT"
-      instance_types = ["m6a.large", "m6a.xlarge", "m5a.large"]
-      disk_size      = 100
-      labels         = { "role" = "batch" }
-      taints = [
-        {
-          key    = "dedicated"
-          value  = "batch"
-          effect = "NO_SCHEDULE"
+      iam_role_additional_policies = {
+        ssm = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      }
+      metadata_options = {
+        http_endpoint               = "enabled"
+        http_tokens                 = "required"
+        http_put_response_hop_limit = 2
+      }
+      block_device_mappings = {
+        xvda = {
+          device_name = "/dev/xvda"
+          ebs = {
+            volume_size           = 100
+            volume_type           = "gp3"
+            encrypted             = true
+            delete_on_termination = true
+          }
         }
-      ]
+      }
     }
   }
 

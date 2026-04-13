@@ -61,37 +61,73 @@ locals {
   eks_node_group_defaults = {
     ami_type       = "AL2023_x86_64_STANDARD"
     capacity_type  = "ON_DEMAND"
-    disk_size      = 100
     instance_types = ["m6a.large"]
   }
 
   eks_node_groups = {
-    # Wazuh Manager 3-node HA (~4-6 GB each), Shuffle SOAR, DFIR-IRIS case management
+    # Wazuh Manager 3-node HA, Shuffle SOAR, DFIR-IRIS
+    # Also hosts Cilium/Falco/Tetragon operator + control-plane components
     security = {
       min_size       = 2
       max_size       = 6
       desired_size   = 2
       instance_types = ["m6a.xlarge"]
-      disk_size      = 100
       labels         = { "role" = "security" }
-      taints = [
-        {
+      iam_role_additional_policies = {
+        ssm = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      }
+      metadata_options = {
+        http_endpoint               = "enabled"
+        http_tokens                 = "required"
+        http_put_response_hop_limit = 2
+      }
+      block_device_mappings = {
+        xvda = {
+          device_name = "/dev/xvda"
+          ebs = {
+            volume_size           = 100
+            volume_type           = "gp3"
+            encrypted             = true
+            delete_on_termination = true
+          }
+        }
+      }
+      taints = {
+        dedicated = {
           key    = "dedicated"
           value  = "security"
           effect = "NO_SCHEDULE"
         }
-      ]
+      }
     }
 
-    # Enforcement API (FastAPI + Celery + boto3/WAF/NFW workers), Cilium Operator,
-    # Grafana, Kibana, Keycloak, Kyverno (3 replicas), Trivy + Sigstore webhooks
+    # Enforcement API, Grafana, Kibana, Keycloak, Kyverno, Trivy
+    # Cilium/Falco/Tetragon DaemonSets run here as well
     platform = {
       min_size       = 2
       max_size       = 6
       desired_size   = 2
       instance_types = ["m6a.large"]
-      disk_size      = 100
       labels         = { "role" = "platform" }
+      iam_role_additional_policies = {
+        ssm = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      }
+      metadata_options = {
+        http_endpoint               = "enabled"
+        http_tokens                 = "required"
+        http_put_response_hop_limit = 2
+      }
+      block_device_mappings = {
+        xvda = {
+          device_name = "/dev/xvda"
+          ebs = {
+            volume_size           = 100
+            volume_type           = "gp3"
+            encrypted             = true
+            delete_on_termination = true
+          }
+        }
+      }
     }
   }
 
