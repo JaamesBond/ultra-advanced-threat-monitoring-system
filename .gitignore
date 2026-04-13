@@ -7,3 +7,4 @@ crash.log
 *.pem
 *.key
 .env
+graphify-out/
