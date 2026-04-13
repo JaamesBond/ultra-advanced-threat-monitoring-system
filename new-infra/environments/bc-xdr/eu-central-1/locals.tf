@@ -85,6 +85,10 @@ locals {
       desired_size   = 1
       instance_types = ["m6a.large"]
       labels         = { "role" = "collector" }
+      # SCP requires AmazonSSMManagedInstanceCore on all instance profiles (same as xdr_test EC2)
+      iam_role_additional_policies = {
+        ssm = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      }
       # IMDSv2 required — SCP denies RunInstances on launch templates without http_tokens=required
       # hop_limit=2: containers need extra hop to reach IMDS (container → host → IMDS)
       metadata_options = {
@@ -115,6 +119,9 @@ locals {
       instance_types = ["g4dn.xlarge", "g4dn.2xlarge"]
       ami_type       = "AL2023_x86_64_NVIDIA"
       labels         = { "role" = "ml-inference" }
+      iam_role_additional_policies = {
+        ssm = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      }
       metadata_options = {
         http_endpoint               = "enabled"
         http_tokens                 = "required"
@@ -147,6 +154,9 @@ locals {
       desired_size   = 1
       instance_types = ["m6a.xlarge"]
       labels         = { "role" = "cti" }
+      iam_role_additional_policies = {
+        ssm = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      }
       metadata_options = {
         http_endpoint               = "enabled"
         http_tokens                 = "required"
