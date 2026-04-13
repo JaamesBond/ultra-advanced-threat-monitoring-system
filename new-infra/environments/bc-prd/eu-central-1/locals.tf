@@ -70,9 +70,9 @@ locals {
     # Application workloads + Cilium/Falco/Tetragon DaemonSets
     # Spot node group omitted — not in scope for this test stage
     workload = {
-      min_size       = 2
-      max_size       = 10
-      desired_size   = 2
+      min_size       = 1
+      max_size       = 3
+      desired_size   = 1
       instance_types = ["m6a.large"]
       labels         = { "role" = "workload" }
       iam_role_additional_policies = {

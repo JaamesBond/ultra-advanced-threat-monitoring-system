@@ -85,7 +85,7 @@ Remote state wiring: each environment reads TGW IDs from `data "terraform_remote
 
 **SCP `p-bg731gel` (org `o-vkd12h7z3c`) blocks ALL `ec2:RunInstances on instance/*` account-wide.** This prevents ALL EKS node group creation across xdr, ctrl, and prd. The SCP is org-level — it cannot be fixed by Terraform config or by switching IAM principals (user vs role). Org admin must modify it before any EKS node groups can be created.
 
-**bc-xdr currently runs an EC2 test instance** (`eks.tf` deploys a t3.medium Ubuntu 24.04 VM accessible via SSM only) instead of the EKS cluster. Switch back to EKS once the SCP is resolved.
+**bc-xdr has no EKS cluster.** `eks.tf` deploys only a t3.medium EC2 test instance (SSM-only) for TGW routing validation. EKS is not planned for XDR VPC.
 
 ```bash
 # Connect to the XDR test instance
@@ -116,30 +116,18 @@ Each environment's `locals.tf` is the single source of truth for CIDRs, node gro
 
 Auth: GitHub OIDC → `arn:aws:iam::286439316079:role/GitHubActionsDeployRole`. No static secrets required. OIDC provider: `token.actions.githubusercontent.com`. Note: OIDC does NOT bypass SCP `p-bg731gel`.
 
-## EKS node groups (target state — all pending SCP `p-bg731gel` fix)
+## EKS clusters
 
-### bc-xdr — security tooling pipeline
+### bc-xdr — no EKS
+XDR VPC runs a single EC2 test instance (t3.medium, SSM only) for TGW/routing validation. No EKS. Security tooling (Wazuh, MISP, nProbe) is future scope, pending SCP resolution.
 
-| Group | Instance | Purpose |
-|-------|----------|---------|
-| `collector` | m6a.large | nProbe + Vector (IPFIX / log collection) |
-| `cti` | m6a.xlarge | MISP + OpenCTI + AI investigation |
+### bc-ctrl — EC2 test instance (EKS future scope)
+Control plane VPC currently runs an EC2 test instance. EKS with `security` + `platform` node groups is defined in `locals.tf` but not yet deployed.
 
-CTI nodes carry `dedicated=cti:NoSchedule`. ML/GPU pipeline removed — out of scope for this stage.
+### bc-prd — EKS for Cilium / Falco / Tetragon (pending SCP fix)
 
-### bc-ctrl — control plane + Cilium/Falco/Tetragon operators
+| Group | Instance | Min/Desired/Max | Purpose |
+|-------|----------|-----------------|---------|
+| `workload` | m6a.large | 1/1/3 | Cilium + Falco + Tetragon DaemonSets + app pods |
 
-| Group | Instance | Purpose |
-|-------|----------|---------|
-| `security` | m6a.xlarge | Wazuh Manager HA, Shuffle SOAR, DFIR-IRIS; Cilium/Falco/Tetragon control-plane |
-| `platform` | m6a.large | Enforcement API, Grafana, Keycloak, Kyverno; all security DaemonSets |
-
-Security nodes carry `dedicated=security:NoSchedule`.
-
-### bc-prd — production spoke + Cilium/Falco/Tetragon DaemonSets
-
-| Group | Instance | Purpose |
-|-------|----------|---------|
-| `workload` | m6a.large | Application pods + Cilium/Falco/Tetragon DaemonSets |
-
-Spot node group removed — not in scope for this test stage.
+Private endpoint only. Helm chart deployment (`helm.tf`) is next step after SCP is resolved.
