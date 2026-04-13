@@ -25,24 +25,14 @@ locals {
   vpc_cidr           = "10.11.0.0/16"
   availability_zones = ["eu-central-1a", "eu-central-1b", "eu-central-1c"]
 
-  # Public Ingress — 2 AZs (NAT GWs + Phase 2 Suricata Ingress IPS)
-  subnet_cidr_public_ingress = ["10.11.0.0/24", "10.11.1.0/24"]
+  # Public Ingress — 1 AZ (NAT GW only; Phase 2 adds second AZ for Suricata Ingress IPS)
+  subnet_cidr_public_ingress = ["10.11.0.0/24"]
 
   # Private App — 3 AZs (EKS: Wazuh, Grafana, Keycloak)
   subnet_cidr_private = ["10.11.5.0/24", "10.11.6.0/24", "10.11.7.0/24"]
 
-  # Data — 3 AZs (Wazuh Indexer / OpenSearch, Loki)
-  subnet_cidr_data = ["10.11.8.0/24", "10.11.9.0/24", "10.11.10.0/24"]
-
   # TGW attachment — /28 per AZ
   subnet_cidr_tgw = ["10.11.240.0/28", "10.11.240.16/28", "10.11.240.32/28"]
-
-  # Inspection — outside vpc module for custom Phase 2 routing
-  # Phase 2: Suricata Egress IPS (HA pair), NAT VM, Zeek, Forwarding Appliance
-  subnet_cidr_inspection = ["10.11.2.0/24", "10.11.3.0/24"]
-
-  # Management — single AZ (MISP, Bastion SSM-only)
-  subnet_cidr_management = ["10.11.4.0/24"]
 
   # NAT: 2 NAT GWs (one per public subnet) for HA — only 2 public subnets so per-az is incompatible
   single_nat_gateway     = true

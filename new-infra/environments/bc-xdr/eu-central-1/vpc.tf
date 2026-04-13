@@ -29,12 +29,10 @@ module "vpc" {
   cidr_block         = local.vpc_cidr
   availability_zones = local.availability_zones
 
-  # Public Ingress — 2 AZs only (Suricata Ingress HA pair in Phase 2)
+  # Public Ingress — 1 AZ (NAT GW; Phase 2 adds second AZ for Suricata Ingress IPS)
   public_subnet_cidrs   = local.subnet_cidr_public_ingress
   # Private App — 3 AZs (EKS: Wazuh, Grafana, Keycloak)
   private_subnet_cidrs  = local.subnet_cidr_private
-  # Data — 3 AZs (OpenSearch/Wazuh Indexer, Loki)
-  database_subnet_cidrs = local.subnet_cidr_data
   # TGW attachment — 3 AZs, /28
   intra_subnet_cidrs    = local.subnet_cidr_tgw
 
@@ -49,101 +47,6 @@ module "vpc" {
   flow_log_retention_in_days        = local.cloudwatch_log_files_retention
 
   tags = local.common_tags
-}
-
-#--------------------------------------------------------------
-# Inspection Subnets — outside vpc module for independent routing
-# Phase 1: route via NAT GW (for appliance package installs)
-# Phase 2: change 0.0.0.0/0 target to Forwarding Appliance ENI
-#--------------------------------------------------------------
-resource "aws_subnet" "inspection" {
-  count = length(local.subnet_cidr_inspection)
-
-  vpc_id            = module.vpc.vpc_id
-  cidr_block        = local.subnet_cidr_inspection[count.index]
-  availability_zone = local.availability_zones[count.index]
-
-  tags = merge(local.common_tags, {
-    Name = "${local.platform_name}-${local.env}-subnet-inspection-${local.availability_zones[count.index]}"
-    Tier = "inspection"
-  })
-}
-
-resource "aws_route_table" "inspection" {
-  vpc_id = module.vpc.vpc_id
-
-  # Phase 1: internet via NAT GW for appliance bootstrap
-  # Phase 2: replace with Forwarding Appliance ENI (inline IPS sandwich)
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = module.vpc.nat_gateway_ids[0]
-  }
-
-  route {
-    cidr_block         = local.ctrl_vpc_cidr
-    transit_gateway_id = local.tgw_id
-  }
-
-  route {
-    cidr_block         = local.prd_vpc_cidr
-    transit_gateway_id = local.tgw_id
-  }
-
-  tags = merge(local.common_tags, {
-    Name = "${local.platform_name}-${local.env}-rt-inspection"
-    Note = "Phase 1: NAT GW default route. Phase 2: replace with Forwarding Appliance ENI."
-  })
-}
-
-resource "aws_route_table_association" "inspection" {
-  count = length(aws_subnet.inspection)
-
-  subnet_id      = aws_subnet.inspection[count.index].id
-  route_table_id = aws_route_table.inspection.id
-}
-
-#--------------------------------------------------------------
-# Management Subnet — single AZ, highly restricted
-# Hosts: MISP (threat intel feed aggregator), Bastion (SSM-only)
-#--------------------------------------------------------------
-resource "aws_subnet" "management" {
-  vpc_id            = module.vpc.vpc_id
-  cidr_block        = local.subnet_cidr_management[0]
-  availability_zone = local.availability_zones[0]
-
-  tags = merge(local.common_tags, {
-    Name = "${local.platform_name}-${local.env}-subnet-management-${local.availability_zones[0]}"
-    Tier = "management"
-  })
-}
-
-resource "aws_route_table" "management" {
-  vpc_id = module.vpc.vpc_id
-
-  # Management subnet uses NAT GW for MISP feed updates, package installs
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = module.vpc.nat_gateway_ids[0]
-  }
-
-  route {
-    cidr_block         = local.ctrl_vpc_cidr
-    transit_gateway_id = local.tgw_id
-  }
-
-  route {
-    cidr_block         = local.prd_vpc_cidr
-    transit_gateway_id = local.tgw_id
-  }
-
-  tags = merge(local.common_tags, {
-    Name = "${local.platform_name}-${local.env}-rt-management"
-  })
-}
-
-resource "aws_route_table_association" "management" {
-  subnet_id      = aws_subnet.management.id
-  route_table_id = aws_route_table.management.id
 }
 
 #--------------------------------------------------------------
@@ -263,20 +166,6 @@ output "private_subnet_ids" {
 
 output "public_subnet_ids" {
   value = module.vpc.public_subnet_ids
-}
-
-output "database_subnet_ids" {
-  value = module.vpc.database_subnet_ids
-}
-
-output "inspection_subnet_ids" {
-  description = "Inspection tier subnet IDs (Suricata Egress, NAT VM, Zeek — Phase 2)"
-  value       = aws_subnet.inspection[*].id
-}
-
-output "management_subnet_id" {
-  description = "Management subnet ID (MISP, Bastion)"
-  value       = aws_subnet.management.id
 }
 
 output "nat_gateway_ids" {

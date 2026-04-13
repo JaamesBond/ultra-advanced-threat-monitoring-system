@@ -31,10 +31,9 @@ module "vpc" {
   availability_zones = local.availability_zones
 
   # No public subnets — zero internet exposure
-  public_subnet_cidrs   = []
-  private_subnet_cidrs  = local.subnet_cidr_private
-  database_subnet_cidrs = local.subnet_cidr_data
-  intra_subnet_cidrs    = local.subnet_cidr_tgw
+  public_subnet_cidrs  = []
+  private_subnet_cidrs = local.subnet_cidr_private
+  intra_subnet_cidrs   = local.subnet_cidr_tgw
 
   # No IGW and no NAT — all egress via TGW
   create_igw         = false
@@ -168,10 +167,6 @@ output "vpc_cidr_block" {
 
 output "private_subnet_ids" {
   value = module.vpc.private_subnet_ids
-}
-
-output "database_subnet_ids" {
-  value = module.vpc.database_subnet_ids
 }
 
 output "tgw_attachment_id" {

@@ -25,7 +25,6 @@ locals {
   availability_zones = ["eu-central-1a", "eu-central-1b", "eu-central-1c"]
 
   subnet_cidr_private = ["10.30.10.0/24", "10.30.11.0/24", "10.30.12.0/24"]
-  subnet_cidr_data    = ["10.30.20.0/24", "10.30.21.0/24", "10.30.22.0/24"]
   subnet_cidr_tgw     = ["10.30.240.0/28", "10.30.240.16/28", "10.30.240.32/28"]
 
   flowlog_traffic_type         = "ALL"

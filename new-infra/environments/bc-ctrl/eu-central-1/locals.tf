@@ -22,9 +22,8 @@ locals {
   vpc_cidr           = "10.0.0.0/16"
   availability_zones = ["eu-central-1a", "eu-central-1b", "eu-central-1c"]
 
-  subnet_cidr_public  = ["10.0.0.0/24", "10.0.1.0/24", "10.0.2.0/24"]
+  subnet_cidr_public  = ["10.0.0.0/24"]
   subnet_cidr_private = ["10.0.10.0/24", "10.0.11.0/24", "10.0.12.0/24"]
-  subnet_cidr_data    = ["10.0.20.0/24", "10.0.21.0/24", "10.0.22.0/24"]
   subnet_cidr_tgw     = ["10.0.240.0/28", "10.0.240.16/28", "10.0.240.32/28"]
 
   single_nat_gateway     = true   # test only — 1 EIP (EIP quota is tight in this account)
