@@ -19,9 +19,25 @@ module "eks" {
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnet_ids
 
-  # Addons deferred — CoreDNS + ebs-csi + cloudwatch require nodes to reach ACTIVE state.
-  # SCP p-bg731gel blocks ec2:RunInstances; restore addons once SCP is resolved.
-  addons = {}
+  addons = {
+    kube-proxy = {
+      addon_version               = local.eks_addons["kube-proxy"].addon_version
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+      before_compute              = true
+    }
+
+    vpc-cni = {
+      addon_version               = local.eks_addons["vpc-cni"].addon_version
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+      before_compute              = true
+    }
+
+    # coredns, aws-ebs-csi-driver, amazon-cloudwatch-observability deferred —
+    # Deployment-based addons go DEGRADED without nodes, stalling apply.
+    # Restore once SCP p-bg731gel is resolved and nodes are available.
+  }
 
   eks_managed_node_groups = {} # blocked by SCP p-bg731gel
 
