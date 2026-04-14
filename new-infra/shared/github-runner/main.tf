@@ -8,7 +8,7 @@
 # Prerequisites:
 #   1. Store a GitHub PAT (repo scope) in Secrets Manager:
 #      aws secretsmanager create-secret \
-#        --name bc/github/runner-pat \
+#        --name bc/github/runnerpat \
 #        --secret-string "ghp_..." \
 #        --region eu-central-1
 #
@@ -63,7 +63,7 @@ data "aws_iam_policy_document" "runner_secrets" {
     sid     = "ReadRunnerPAT"
     actions = ["secretsmanager:GetSecretValue"]
     resources = [
-      "arn:${data.aws_partition.current.partition}:secretsmanager:${local.region}:${data.aws_caller_identity.current.account_id}:secret:bc/github/runner-pat*",
+      "arn:${data.aws_partition.current.partition}:secretsmanager:${local.region}:${data.aws_caller_identity.current.account_id}:secret:bc/github/runnerpat*",
     ]
   }
 }
@@ -182,7 +182,7 @@ resource "aws_instance" "runner" {
     runner_name  = "${local.name_prefix}-${each.key}"
     runner_labels = each.value.labels
     region       = local.region
-    secret_name  = "bc/github/runner-pat"
+    secret_name  = "bc/github/runnerpat"
   }))
 
   tags = merge(local.common_tags, {

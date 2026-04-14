@@ -56,7 +56,7 @@ cd new-infra/shared/transit-gateway && terraform init && terraform apply
 # 1b. GitHub Actions self-hosted runners (parallel with TGW)
 #     Deploys EC2 runners in ctrl + prd VPCs for private K8s API access.
 #     Prerequisite: store GitHub PAT in Secrets Manager:
-#       aws secretsmanager create-secret --name bc/github/runner-pat \
+#       aws secretsmanager create-secret --name bc/github/runnerpat \
 #         --secret-string "ghp_..." --region eu-central-1
 cd new-infra/shared/github-runner && terraform init && terraform apply
 
@@ -124,7 +124,7 @@ Each environment's `locals.tf` is the single source of truth for CIDRs, node gro
 
 Auth: GitHub OIDC → `arn:aws:iam::286439316079:role/GitHubActionsDeployRole`. No static secrets required. OIDC provider: `token.actions.githubusercontent.com`. Note: OIDC does NOT bypass SCP `p-bg731gel`.
 
-Self-hosted runner prerequisite: GitHub PAT in Secrets Manager at `bc/github/runner-pat` (repo scope).
+Self-hosted runner prerequisite: GitHub PAT in Secrets Manager at `bc/github/runnerpat` (repo scope).
 
 ## EKS clusters
 

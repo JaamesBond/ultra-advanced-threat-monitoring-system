@@ -13,7 +13,7 @@ locals {
   # Runner instances — one per VPC that needs K8s API access
   #
   # Each runner registers with GitHub using a PAT stored in
-  # Secrets Manager at bc/github/runner-pat. The user data
+  # Secrets Manager at bc/github/runnerpat. The user data
   # script fetches it at boot, requests a registration token,
   # and installs the runner as a systemd service.
   #--------------------------------------------------------------
