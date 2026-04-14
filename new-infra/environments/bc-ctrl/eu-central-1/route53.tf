@@ -55,6 +55,11 @@ resource "aws_route53_zone" "internal" {
 # role must have cross-account permissions. Since both VPCs live
 # in the same account here, a direct association is sufficient.
 #--------------------------------------------------------------
+import {
+  to = aws_route53_zone_association.prd
+  id = "Z0233517HPLJCOO1NV0L:vpc-05cd97059433a569a"
+}
+
 resource "aws_route53_zone_association" "prd" {
   zone_id    = aws_route53_zone.internal.zone_id
   vpc_id     = data.terraform_remote_state.prd.outputs.vpc_id

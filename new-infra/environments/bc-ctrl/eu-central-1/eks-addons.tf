@@ -40,6 +40,15 @@ provider "helm" {
 }
 
 #--------------------------------------------------------------
+# Import pre-existing IAM resources created before this Terraform
+# workspace managed them.
+#--------------------------------------------------------------
+import {
+  to = module.eks_addons.aws_iam_policy.external_dns[0]
+  id = "arn:aws:iam::286439316079:policy/bc-ctrl-eks-external-dns"
+}
+
+#--------------------------------------------------------------
 # Addons
 #--------------------------------------------------------------
 module "eks_addons" {
