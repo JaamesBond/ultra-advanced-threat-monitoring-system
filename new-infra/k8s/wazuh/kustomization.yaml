@@ -1,0 +1,33 @@
+#--------------------------------------------------------------
+# Wazuh — Kustomize root (bc-ctrl)
+#
+# Flux reconciles this path: new-infra/k8s/wazuh/
+# All resources are listed in dependency order:
+#   1. namespace + StorageClass + ServiceAccounts
+#   2. TLS certificates (cert-manager Issues via certs.yaml)
+#   3. Indexer (OpenSearch) — must be Ready before Manager starts
+#   4. Manager (waits for Indexer in initContainer)
+#   5. Dashboard
+#
+# Flux postBuild substitutes ${AWS_ACCOUNT_ID} before apply.
+#--------------------------------------------------------------
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  # Foundation
+  - namespace.yaml
+  - certs.yaml
+  # Indexer (OpenSearch)
+  - indexer/configmap.yaml
+  - indexer/service.yaml
+  - indexer/statefulset.yaml
+  # Manager (waits for indexer via initContainer)
+  - manager/external-secrets.yaml
+  - manager/configmap-ossec.yaml
+  - manager/service.yaml
+  - manager/statefulset.yaml
+  # Dashboard
+  - dashboard/external-secrets.yaml
+  - dashboard/configmap.yaml
+  - dashboard/service.yaml
+  - dashboard/deployment.yaml

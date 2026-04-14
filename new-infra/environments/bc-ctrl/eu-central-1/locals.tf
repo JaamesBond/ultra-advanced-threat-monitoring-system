@@ -59,6 +59,8 @@ locals {
   eks_deletion_protection     = true
   deploy_security_helm        = false   # requires VPC connectivity — apply from bastion/SSM, not CI
   deploy_cilium_helm          = false   # independent gate — apply from bastion/SSM after nodes are ready
+  deploy_flux                 = false   # FluxCD bootstrap — apply from bastion/SSM (two-phase, see flux.tf)
+  github_repo_url             = "https://github.com/JaamesBond/ultra-advanced-threat-monitoring-system"
 
   eks_node_group_defaults = {
     ami_type       = "AL2023_x86_64_STANDARD"
@@ -69,10 +71,10 @@ locals {
   eks_node_groups = {
     # Wazuh Manager 3-node HA (~4-6 GB each), Shuffle SOAR, DFIR-IRIS case management
     security = {
-      min_size       = 2
+      min_size       = 3
       max_size       = 6
-      desired_size   = 2
-      instance_types = ["t3.small"]
+      desired_size   = 3
+      instance_types = ["m6a.xlarge"]
       labels         = { "role" = "security" }
       iam_role_additional_policies = {
         ssm = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
@@ -108,7 +110,7 @@ locals {
       min_size       = 2
       max_size       = 6
       desired_size   = 2
-      instance_types = ["t3.small"]
+      instance_types = ["m6a.large"]
       labels         = { "role" = "platform" }
       iam_role_additional_policies = {
         ssm = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"

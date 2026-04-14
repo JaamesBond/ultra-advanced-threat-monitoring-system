@@ -295,7 +295,7 @@ data:
 
         <bucket type="cloudtrail">
           <name>bc-cloudtrail-logs</name>
-          <aws_account_id>PLACEHOLDER_AWS_ACCOUNT_ID</aws_account_id>
+          <aws_account_id>${AWS_ACCOUNT_ID}</aws_account_id>
           <aws_account_alias>bc-prod</aws_account_alias>
           <trail_prefix>AWSLogs/</trail_prefix>
           <only_logs_after>2026-JAN-01</only_logs_after>

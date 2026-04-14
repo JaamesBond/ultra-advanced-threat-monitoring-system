@@ -1,0 +1,14 @@
+#--------------------------------------------------------------
+# Wazuh Agent — Kustomize root (bc-prd)
+#
+# Flux reconciles this path: new-infra/k8s/wazuh/agent/
+# Order: namespace first, then secrets, then configmap, then DaemonSet.
+# Flux postBuild substitutes ${AWS_ACCOUNT_ID} in image references.
+#--------------------------------------------------------------
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace-prd.yaml
+  - external-secrets.yaml
+  - configmap-agent.yaml
+  - daemonset.yaml

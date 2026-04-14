@@ -1,8 +1,8 @@
 #--------------------------------------------------------------
 # Suricata — Namespace + ServiceAccount + DaemonSet
 #
-# Deployed to: bc-xdr EKS cluster, namespace "suricata"
-# Nodegroup:   collector (m6a.large — runs alongside nProbe + Vector)
+# Deployed to: bc-prd EKS cluster, namespace "suricata"
+# Nodegroup:   workload
 #
 # Depends on:
 #   - configmap-suricata.yaml       (mounted at /etc/suricata/*)
@@ -88,9 +88,9 @@ spec:
       serviceAccountName: suricata
       terminationGracePeriodSeconds: 60
 
-      # Land on the collector nodegroup in bc-xdr
+      # Land on the workload nodegroup in bc-prd
       nodeSelector:
-        role: collector
+        role: workload
 
       # Collector nodegroup has no taints — no tolerations needed
       tolerations: []
@@ -111,7 +111,7 @@ spec:
       #--------------------------------------------------------------
       initContainers:
         - name: rule-updater
-          image: PLACEHOLDER_AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/jasonish/suricata:7.0.7
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/jasonish/suricata:7.0.7
           command:
             - sh
             - -c
@@ -149,7 +149,7 @@ spec:
         # Main container — Suricata IDS/IPS
         #--------------------------------------------------------------
         - name: suricata
-          image: PLACEHOLDER_AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/jasonish/suricata:7.0.7
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/jasonish/suricata:7.0.7
           imagePullPolicy: IfNotPresent
           command:
             - /usr/bin/suricata
@@ -270,7 +270,7 @@ spec:
         # live reload without dropping packets.
         #--------------------------------------------------------------
         - name: rule-refresher
-          image: PLACEHOLDER_AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/jasonish/suricata:7.0.7
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/jasonish/suricata:7.0.7
           command:
             - sh
             - -c

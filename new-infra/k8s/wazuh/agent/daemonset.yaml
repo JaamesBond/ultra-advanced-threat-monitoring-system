@@ -80,7 +80,7 @@ spec:
         - name: set-node-identity
           # Pull-through cache path — swap to a direct docker.io
           # reference only for testing in a cluster with internet.
-          image: PLACEHOLDER_AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/busybox:1.37.0
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -128,7 +128,7 @@ spec:
         - name: wazuh-agent
           # Via ECR pull-through cache (first pull must come from a
           # host with internet egress — see /new-infra/guide.md).
-          image: PLACEHOLDER_AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/wazuh/wazuh-agent:4.9.2
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/wazuh/wazuh-agent:4.9.2
           imagePullPolicy: IfNotPresent
 
           securityContext:
