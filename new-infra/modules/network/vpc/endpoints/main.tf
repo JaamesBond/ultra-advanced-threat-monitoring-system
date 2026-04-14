@@ -12,6 +12,7 @@ locals {
   # Interface endpoints to create — driven by boolean flags
   interface_endpoints = {
     for k, v in {
+      ec2                = { name = "com.amazonaws.${var.region}.ec2",                enabled = var.enable_ec2 }
       ecr_api            = { name = "com.amazonaws.${var.region}.ecr.api",            enabled = var.enable_ecr_api }
       ecr_dkr            = { name = "com.amazonaws.${var.region}.ecr.dkr",            enabled = var.enable_ecr_dkr }
       ssm                = { name = "com.amazonaws.${var.region}.ssm",                enabled = var.enable_ssm }

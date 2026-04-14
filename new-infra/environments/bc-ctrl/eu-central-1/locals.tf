@@ -47,9 +47,9 @@ locals {
   #
   # This cluster hosts all detection response and orchestration services.
   #
-  # security (t3.xlarge — 4 vCPU/16 GB): Wazuh Manager 3-node HA, Shuffle SOAR, DFIR-IRIS
-  # platform (t3.large  — 2 vCPU/ 8 GB): Enforcement API, Cilium Operator, Grafana,
-  #                                         Kibana, Keycloak, Kyverno, Trivy/Sigstore
+  # security (t3.small — 2 vCPU/2 GB): Wazuh Manager 3-node HA, Shuffle SOAR, DFIR-IRIS
+  # platform (t3.small — 2 vCPU/2 GB): Enforcement API, Cilium Operator, Grafana,
+  #                                      Kibana, Keycloak, Kyverno, Trivy/Sigstore
   #--------------------------------------------------------------
   eks_cluster_name            = "${local.platform_name}-${local.env}-eks"
   eks_cluster_version         = "1.35"
@@ -62,7 +62,7 @@ locals {
   eks_node_group_defaults = {
     ami_type       = "AL2023_x86_64_STANDARD"
     capacity_type  = "ON_DEMAND"
-    instance_types = ["t3.large"]
+    instance_types = ["t3.small"]
   }
 
   eks_node_groups = {
@@ -71,7 +71,7 @@ locals {
       min_size       = 2
       max_size       = 6
       desired_size   = 2
-      instance_types = ["t3.xlarge"]
+      instance_types = ["t3.small"]
       labels         = { "role" = "security" }
       iam_role_additional_policies = {
         ssm = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
@@ -107,7 +107,7 @@ locals {
       min_size       = 2
       max_size       = 6
       desired_size   = 2
-      instance_types = ["t3.large"]
+      instance_types = ["t3.small"]
       labels         = { "role" = "platform" }
       iam_role_additional_policies = {
         ssm = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"

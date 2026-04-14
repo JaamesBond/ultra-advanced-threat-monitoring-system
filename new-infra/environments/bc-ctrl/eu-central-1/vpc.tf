@@ -51,6 +51,7 @@ module "vpc_endpoints" {
   private_route_table_ids = module.vpc.private_route_table_ids
   intra_route_table_ids   = module.vpc.intra_route_table_ids
 
+  enable_ec2             = true   # nodeadm calls EC2:DescribeInstances during EKS node bootstrap
   enable_s3              = true
   enable_ecr_api         = true
   enable_ecr_dkr         = true
