@@ -71,10 +71,10 @@ locals {
   eks_node_groups = {
     # Wazuh Manager 3-node HA (~4-6 GB each), Shuffle SOAR, DFIR-IRIS case management
     security = {
-      min_size       = 3
+      min_size       = 2
       max_size       = 6
-      desired_size   = 3
-      instance_types = ["m6a.xlarge"]
+      desired_size   = 2
+      instance_types = ["t3.small"]
       labels         = { "role" = "security" }
       iam_role_additional_policies = {
         ssm = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
@@ -110,7 +110,7 @@ locals {
       min_size       = 2
       max_size       = 6
       desired_size   = 2
-      instance_types = ["m6a.large"]
+      instance_types = ["t3.small"]
       labels         = { "role" = "platform" }
       iam_role_additional_policies = {
         ssm = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
