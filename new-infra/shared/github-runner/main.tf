@@ -91,7 +91,7 @@ resource "aws_security_group" "runner" {
   for_each = local.runners
 
   name        = "${local.name_prefix}-${each.key}-sg"
-  description = "GitHub Actions runner — outbound HTTPS only"
+  description = "GitHub Actions runner - outbound HTTPS only"
   vpc_id      = data.terraform_remote_state.env[each.key].outputs.vpc_id
 
   tags = merge(local.common_tags, {
