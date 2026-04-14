@@ -84,8 +84,8 @@ metadata:
     service.beta.kubernetes.io/aws-load-balancer-healthcheck-timeout: "6"
     service.beta.kubernetes.io/aws-load-balancer-healthcheck-healthy-threshold: "2"
     service.beta.kubernetes.io/aws-load-balancer-healthcheck-unhealthy-threshold: "2"
-    # Restrict NLB source to bc-prd and bc-ctrl CIDRs (defence in depth on top of SG)
-    service.beta.kubernetes.io/load-balancer-source-ranges: "10.30.0.0/16,10.0.0.0/16"
+    # Restrict NLB source to bc-prd, bc-ctrl, and bc-xdr CIDRs (defence in depth on top of SG)
+    service.beta.kubernetes.io/load-balancer-source-ranges: "10.30.0.0/16,10.0.0.0/16,10.11.0.0/16"
     service.beta.kubernetes.io/aws-load-balancer-attributes: "deletion_protection.enabled=true,load_balancing.cross_zone.enabled=true"
     # Tagging for cost allocation
     service.beta.kubernetes.io/aws-load-balancer-additional-resource-tags: "Customer=Big Chemistry,Environment=ctrl,VPCRole=control-plane,Component=wazuh-manager,Confidential=yes"

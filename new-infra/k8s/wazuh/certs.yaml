@@ -205,7 +205,63 @@ spec:
     group: cert-manager.io
 ---
 #--------------------------------------------------------------
-# Step 4c — Wazuh Filebeat / Manager client certificate
+# Step 4c — Wazuh Dashboard TLS certificate
+#
+# Issued for the internal ALB hostname (wazuh.bc-ctrl.internal).
+# ACM public certs cannot validate .internal domains, so this cert
+# is issued from wazuh-ca-issuer and imported into ACM with:
+#
+#   CERT=$(kubectl get secret wazuh-dashboard-tls -n wazuh -o jsonpath='{.data.tls\.crt}' | base64 -d)
+#   KEY=$(kubectl get secret wazuh-dashboard-tls -n wazuh -o jsonpath='{.data.tls\.key}' | base64 -d)
+#   CA=$(kubectl get secret wazuh-dashboard-tls -n wazuh -o jsonpath='{.data.ca\.crt}' | base64 -d)
+#   ARN=$(aws acm import-certificate \
+#     --certificate "$CERT" --private-key "$KEY" --certificate-chain "$CA" \
+#     --region eu-central-1 --query CertificateArn --output text)
+#
+# Then patch the Ingress:
+#   kubectl annotate ingress wazuh-dashboard -n wazuh \
+#     alb.ingress.kubernetes.io/certificate-arn="$ARN" --overwrite
+# Or update k8s/wazuh/dashboard/service.yaml line 69 and re-apply.
+#
+# cert-manager auto-renews 14 days before expiry. After renewal,
+# re-run the import command (ACM import is idempotent with --certificate-arn).
+#--------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wazuh-dashboard-tls
+  namespace: wazuh
+  labels:
+    app: wazuh-dashboard
+    app.kubernetes.io/part-of: xdr-platform
+spec:
+  commonName: "wazuh.bc-ctrl.internal"
+  subject:
+    organizations: ["big-chemistry"]
+    organizationalUnits: ["wazuh"]
+    localities: ["Frankfurt"]
+    countries: ["DE"]
+  duration: 8760h     # 1 year
+  renewBefore: 336h   # renew 14 days before expiry
+  secretName: wazuh-dashboard-tls
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    rotationPolicy: Always
+  usages:
+    - server auth
+    - digital signature
+    - key encipherment
+  dnsNames:
+    - wazuh.bc-ctrl.internal
+    - wazuh-dashboard.wazuh.svc.cluster.local
+  issuerRef:
+    name: wazuh-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+#--------------------------------------------------------------
+# Step 4d — Wazuh Filebeat / Manager client certificate
 #
 # Used by the Filebeat process inside the Wazuh Manager to
 # authenticate to the Indexer REST API over mTLS.

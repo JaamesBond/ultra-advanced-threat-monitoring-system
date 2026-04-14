@@ -21,6 +21,15 @@ data "terraform_remote_state" "prd" {
   }
 }
 
+data "terraform_remote_state" "xdr" {
+  backend = "s3"
+  config = {
+    bucket = "bc-uatms-terraform-state"
+    key    = "environments/bc-xdr/terraform.tfstate"
+    region = "eu-central-1"
+  }
+}
+
 import {
   to = aws_route53_zone.internal
   id = "Z0233517HPLJCOO1NV0L"
@@ -63,6 +72,14 @@ import {
 resource "aws_route53_zone_association" "prd" {
   zone_id    = aws_route53_zone.internal.zone_id
   vpc_id     = data.terraform_remote_state.prd.outputs.vpc_id
+  vpc_region = local.region
+}
+
+# bc-xdr association — required for the Wazuh Agent on bc-xdr-test EC2
+# to resolve wazuh-manager.bc-ctrl.internal → Manager NLB.
+resource "aws_route53_zone_association" "xdr" {
+  zone_id    = aws_route53_zone.internal.zone_id
+  vpc_id     = data.terraform_remote_state.xdr.outputs.vpc_id
   vpc_region = local.region
 }
 

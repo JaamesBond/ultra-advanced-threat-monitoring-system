@@ -401,13 +401,10 @@ data:
         <label key="event.dataset">kubernetes.audit</label>
       </localfile>
 
-      <!-- Suricata EVE JSON — forwarded from bc-xdr via Vector→Kafka→filebeat -->
-      <localfile>
-        <log_format>json</log_format>
-        <location>/var/log/suricata/eve.json</location>
-        <label key="event.module">suricata</label>
-        <label key="event.dataset">suricata.eve</label>
-      </localfile>
+      <!-- Suricata EVE JSON + Zeek logs are forwarded to this Manager by the
+           Wazuh Agent running on bc-xdr-test EC2 (see bc-xdr/eu-central-1/eks.tf).
+           No localfile block needed here: the Manager receives them over the
+           agent protocol (port 1514) and decodes them with ruleset/decoders. -->
 
       <!--========================================================
            16. INTEGRATION: Shuffle SOAR
