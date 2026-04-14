@@ -77,7 +77,7 @@ locals {
       min_size       = 1
       max_size       = 3
       desired_size   = 1
-      instance_types = ["t3.small"]
+      instance_types = ["t3.large"]
       labels         = { "role" = "workload" }
       iam_role_additional_policies = {
         ssm = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
