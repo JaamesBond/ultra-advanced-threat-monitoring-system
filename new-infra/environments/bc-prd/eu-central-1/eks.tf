@@ -34,12 +34,26 @@ module "eks" {
       before_compute              = true
     }
 
-    # coredns, aws-ebs-csi-driver, amazon-cloudwatch-observability deferred —
-    # Deployment-based addons go DEGRADED without nodes, stalling apply.
-    # Restore once SCP p-bg731gel is resolved and nodes are available.
+    coredns = {
+      addon_version               = local.eks_addons["coredns"].addon_version
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+    }
+
+    aws-ebs-csi-driver = {
+      addon_version               = local.eks_addons["aws-ebs-csi-driver"].addon_version
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+    }
+
+    amazon-cloudwatch-observability = {
+      addon_version               = local.eks_addons["amazon-cloudwatch-observability"].addon_version
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+    }
   }
 
-  eks_managed_node_groups = {} # blocked by SCP p-bg731gel
+  eks_managed_node_groups = local.eks_node_groups
 
   tags = local.common_tags
 }
