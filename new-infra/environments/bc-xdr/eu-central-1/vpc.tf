@@ -129,6 +129,20 @@ resource "aws_ec2_transit_gateway_route" "spoke_default_via_xdr" {
 # Cross-VPC routes on private subnet route tables
 # (vpc module already adds 0.0.0.0/0 → NAT GW for private subnets)
 #--------------------------------------------------------------
+# Phase 1 interim: spoke internet egress via NAT GW (bypasses inspection)
+# Traffic from prd arrives at intra subnets via TGW — needs a default route
+# to NAT GW so it can reach the internet. Phase 2 replaces this with
+# inspection-subnet routing (Suricata/Zeek inline).
+resource "aws_route" "intra_default_via_nat" {
+  count = length(module.vpc.intra_route_table_ids)
+
+  route_table_id         = module.vpc.intra_route_table_ids[count.index]
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = module.vpc.nat_gateway_ids[0]
+
+  depends_on = [module.vpc]
+}
+
 resource "aws_route" "private_to_ctrl" {
   count = length(module.vpc.private_route_table_ids)
 

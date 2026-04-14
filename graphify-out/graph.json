@@ -37,283 +37,158 @@
         "source_file": "new-infra/docs/xdr-aws-explained.pdf"
       },
       {
-        "id": "terraform_deploy_ordering",
-        "label": "Terraform Deployment Ordering: TGW -> XDR VPC -> Ctrl + Prd VPCs",
+        "id": "traffic_mirror_lifecycle",
+        "label": "Traffic Mirror Lifecycle Flow",
         "nodes": [
-          "claude_md_transit_gateway",
-          "claude_md_xdr_vpc",
-          "claude_md_ctrl_vpc",
-          "claude_md_prd_vpc",
-          "claude_md_deploy_order",
-          "claude_md_ci_deploy"
+          "eventbridge_asg_lifecycle",
+          "handler",
+          "create_session",
+          "delete_session",
+          "vpc_traffic_mirroring"
         ],
-        "relation": "participate_in",
-        "confidence": "EXTRACTED",
-        "confidence_score": 1.0,
-        "source_file": "CLAUDE.md"
+        "description": "End-to-end flow: ASG lifecycle events trigger Lambda handler which creates or deletes VPC traffic mirror sessions to maintain full coverage of auto-scaled EKS nodes."
+      },
+      {
+        "id": "suricata_inspection_pipeline",
+        "label": "Suricata Inspection Pipeline",
+        "nodes": [
+          "bc_prd_eks",
+          "auto_mirror_lambda",
+          "mirror_filter",
+          "mirror_target_nlb",
+          "suricata_nids"
+        ],
+        "description": "Traffic from bc-prd EKS node ENIs is mirrored through filter and NLB target to Suricata NIDS for network intrusion detection."
+      },
+      {
+        "id": "idempotent_session_management",
+        "label": "Idempotent Session Management Pattern",
+        "nodes": [
+          "create_session",
+          "find_session_for_eni",
+          "_delete"
+        ],
+        "description": "Both create and delete paths implement idempotency: create checks for existing session before creating, delete handles already-gone sessions gracefully."
       }
     ]
   },
   "nodes": [
     {
-      "label": "Big Chemistry XDR v7 Threat Monitoring System",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 44",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_xdr_v7_system",
-      "community": 0,
-      "norm_label": "big chemistry xdr v7 threat monitoring system"
+      "label": "auto_mirror.py",
+      "file_type": "code",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L1",
+      "id": "new_infra_environments_bc_prd_eu_central_1_lambda_auto_mirror_py",
+      "community": 2,
+      "norm_label": "auto_mirror.py"
     },
     {
-      "label": "Transit Gateway (Shared)",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 71",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_transit_gateway",
-      "community": 0,
-      "norm_label": "transit gateway (shared)"
+      "label": "is_eks_node()",
+      "file_type": "code",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L50",
+      "id": "auto_mirror_is_eks_node",
+      "community": 2,
+      "norm_label": "is_eks_node()"
     },
     {
-      "label": "XDR VPC (bc-xdr, 10.11.0.0/16)",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 75",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_xdr_vpc",
-      "community": 0,
-      "norm_label": "xdr vpc (bc-xdr, 10.11.0.0/16)"
+      "label": "get_primary_eni()",
+      "file_type": "code",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L64",
+      "id": "auto_mirror_get_primary_eni",
+      "community": 2,
+      "norm_label": "get_primary_eni()"
     },
     {
-      "label": "Control Plane VPC (bc-ctrl, 10.0.0.0/16)",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 76",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_ctrl_vpc",
-      "community": 0,
-      "norm_label": "control plane vpc (bc-ctrl, 10.0.0.0/16)"
+      "label": "find_session_for_eni()",
+      "file_type": "code",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L92",
+      "id": "auto_mirror_find_session_for_eni",
+      "community": 2,
+      "norm_label": "find_session_for_eni()"
     },
     {
-      "label": "Production VPC (bc-prd, 10.30.0.0/16)",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 77",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_prd_vpc",
-      "community": 0,
-      "norm_label": "production vpc (bc-prd, 10.30.0.0/16)"
+      "label": "create_session()",
+      "file_type": "code",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L113",
+      "id": "auto_mirror_create_session",
+      "community": 2,
+      "norm_label": "create_session()"
     },
     {
-      "label": "TGW Shared Route Table",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 72",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_shared_rt",
-      "community": 0,
-      "norm_label": "tgw shared route table"
+      "label": "delete_session()",
+      "file_type": "code",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L152",
+      "id": "auto_mirror_delete_session",
+      "community": 2,
+      "norm_label": "delete_session()"
     },
     {
-      "label": "TGW Spoke Route Table",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 73",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_spoke_rt",
-      "community": 0,
-      "norm_label": "tgw spoke route table"
+      "label": "_delete()",
+      "file_type": "code",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L182",
+      "id": "auto_mirror_delete",
+      "community": 2,
+      "norm_label": "_delete()"
     },
     {
-      "label": "TGW Appliance Mode (enable) on XDR Attachment",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 84",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_appliance_mode",
-      "community": 0,
-      "norm_label": "tgw appliance mode (enable) on xdr attachment"
+      "label": "handler()",
+      "file_type": "code",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L197",
+      "id": "auto_mirror_handler",
+      "community": 2,
+      "norm_label": "handler()"
     },
     {
-      "label": "Rationale: Appliance Mode Prevents Asymmetric Routing on IPS",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 84",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_rationale_appliance_mode",
-      "community": 0,
-      "norm_label": "rationale: appliance mode prevents asymmetric routing on ips"
+      "label": "auto_mirror.py \u2014 Dynamic VPC Traffic Mirror Session manager  Triggered by EventB",
+      "file_type": "rationale",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L1",
+      "id": "auto_mirror_rationale_1",
+      "community": 2,
+      "norm_label": "auto_mirror.py \u2014 dynamic vpc traffic mirror session manager  triggered by eventb"
     },
     {
-      "label": "EC2 Test Instance Workaround (SCP blocks eks:CreateCluster)",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 86",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_ec2_workaround",
-      "community": 0,
-      "norm_label": "ec2 test instance workaround (scp blocks eks:createcluster)"
+      "label": "Return True if the instance belongs to EKS_CLUSTER_NAME.",
+      "file_type": "rationale",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L51",
+      "id": "auto_mirror_rationale_51",
+      "community": 2,
+      "norm_label": "return true if the instance belongs to eks_cluster_name."
     },
     {
-      "label": "Terraform Deployment Order (TGW -> XDR -> Ctrl || Prd)",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 49-64",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_deploy_order",
-      "community": 0,
-      "norm_label": "terraform deployment order (tgw -> xdr -> ctrl || prd)"
+      "label": "Return the primary ENI ID (device-index 0) for the instance.     Retries because",
+      "file_type": "rationale",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L65",
+      "id": "auto_mirror_rationale_65",
+      "community": 2,
+      "norm_label": "return the primary eni id (device-index 0) for the instance.     retries because"
     },
     {
-      "label": "Terraform Remote State Wiring (S3 Backend)",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 80",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_remote_state",
-      "community": 0,
-      "norm_label": "terraform remote state wiring (s3 backend)"
+      "label": "Return the TrafficMirrorSessionId for the given ENI, if any.",
+      "file_type": "rationale",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L93",
+      "id": "auto_mirror_rationale_93",
+      "community": 2,
+      "norm_label": "return the trafficmirrorsessionid for the given eni, if any."
     },
     {
-      "label": "VPC Terraform Module (wraps terraform-aws-modules/vpc v6.5.1)",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 103",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_vpc_module",
-      "community": 9,
-      "norm_label": "vpc terraform module (wraps terraform-aws-modules/vpc v6.5.1)"
-    },
-    {
-      "label": "TGW Terraform Module",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 105",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_tgw_module",
-      "community": 10,
-      "norm_label": "tgw terraform module"
-    },
-    {
-      "label": "VPC Interface Endpoints (S3, ECR, SSM, KMS)",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 104",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_vpc_endpoints",
-      "community": 9,
-      "norm_label": "vpc interface endpoints (s3, ecr, ssm, kms)"
-    },
-    {
-      "label": "CI Workflow: terraform-plan.yml (PR)",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 112",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_ci_plan",
-      "community": 0,
-      "norm_label": "ci workflow: terraform-plan.yml (pr)"
-    },
-    {
-      "label": "CI Workflow: terraform-deploy.yml (Push to Main)",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 113",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_ci_deploy",
-      "community": 0,
-      "norm_label": "ci workflow: terraform-deploy.yml (push to main)"
-    },
-    {
-      "label": "EKS Node Group: collector (m6a.large)",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 121",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_collector_nodegroup",
-      "community": 0,
-      "norm_label": "eks node group: collector (m6a.large)"
-    },
-    {
-      "label": "EKS Node Group: ml (g4dn SPOT, GPU taint)",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 122",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_ml_nodegroup",
-      "community": 0,
-      "norm_label": "eks node group: ml (g4dn spot, gpu taint)"
-    },
-    {
-      "label": "EKS Node Group: cti (m6a.xlarge, dedicated taint)",
-      "file_type": "document",
-      "source_file": "CLAUDE.md",
-      "source_location": "line 123",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "claude_md_cti_nodegroup",
-      "community": 0,
-      "norm_label": "eks node group: cti (m6a.xlarge, dedicated taint)"
+      "label": "Delete the mirror session for the terminating instance.     The ENI may already",
+      "file_type": "rationale",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L153",
+      "id": "auto_mirror_rationale_153",
+      "community": 2,
+      "norm_label": "delete the mirror session for the terminating instance.     the eni may already"
     },
     {
       "label": "Guide: Transit Gateway Deploy Step",
@@ -325,7 +200,7 @@
       "author": null,
       "contributor": null,
       "id": "guide_transit_gateway",
-      "community": 7,
+      "community": 8,
       "norm_label": "guide: transit gateway deploy step"
     },
     {
@@ -338,7 +213,7 @@
       "author": null,
       "contributor": null,
       "id": "guide_xdr_vpc",
-      "community": 7,
+      "community": 8,
       "norm_label": "guide: xdr vpc deploy step"
     },
     {
@@ -351,7 +226,7 @@
       "author": null,
       "contributor": null,
       "id": "guide_control_plane_vpc",
-      "community": 7,
+      "community": 8,
       "norm_label": "guide: control plane vpc deploy step"
     },
     {
@@ -364,7 +239,7 @@
       "author": null,
       "contributor": null,
       "id": "guide_production_vpc",
-      "community": 7,
+      "community": 8,
       "norm_label": "guide: production vpc deploy step"
     },
     {
@@ -377,7 +252,7 @@
       "author": null,
       "contributor": null,
       "id": "guide_parallel_constraint",
-      "community": 7,
+      "community": 8,
       "norm_label": "guide: steps 3+4 parallel after step 2"
     },
     {
@@ -390,7 +265,7 @@
       "author": "Fontys University of Applied Sciences",
       "contributor": null,
       "id": "pdf_xdr_architecture",
-      "community": 5,
+      "community": 3,
       "norm_label": "xdr security architecture (aws cloud deployment)"
     },
     {
@@ -403,7 +278,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_multi_vpc_segmentation",
-      "community": 2,
+      "community": 6,
       "norm_label": "multi-vpc network segmentation"
     },
     {
@@ -416,7 +291,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_production_vpc_zone_a",
-      "community": 2,
+      "community": 6,
       "norm_label": "production vpc zone a"
     },
     {
@@ -429,7 +304,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_research_vpc_zone_b",
-      "community": 2,
+      "community": 6,
       "norm_label": "research vpc zone b"
     },
     {
@@ -442,7 +317,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_aws_transit_gateway",
-      "community": 2,
+      "community": 6,
       "norm_label": "aws transit gateway (inter-vpc router)"
     },
     {
@@ -455,7 +330,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_security_groups",
-      "community": 2,
+      "community": 6,
       "norm_label": "security groups (stateful virtual firewalls)"
     },
     {
@@ -468,7 +343,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_network_acls",
-      "community": 2,
+      "community": 6,
       "norm_label": "network acls (stateless subnet filters)"
     },
     {
@@ -520,7 +395,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_wazuh",
-      "community": 3,
+      "community": 5,
       "norm_label": "wazuh hids (host intrusion detection, layer 3)"
     },
     {
@@ -533,7 +408,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_wazuh_manager",
-      "community": 3,
+      "community": 5,
       "norm_label": "wazuh manager (eks, central agent manager)"
     },
     {
@@ -546,7 +421,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_wazuh_standalone_vs_xdr",
-      "community": 3,
+      "community": 5,
       "norm_label": "rationale: wazuh standalone vs xdr source (dual mode)"
     },
     {
@@ -585,7 +460,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_suricata",
-      "community": 6,
+      "community": 7,
       "norm_label": "suricata nids (network layer 5, vpc traffic mirroring)"
     },
     {
@@ -598,7 +473,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_guardduty",
-      "community": 3,
+      "community": 5,
       "norm_label": "aws guardduty (ml threat detection, layer 6)"
     },
     {
@@ -611,7 +486,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_cloudtrail",
-      "community": 3,
+      "community": 5,
       "norm_label": "aws cloudtrail (api audit logging)"
     },
     {
@@ -624,7 +499,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_security_hub",
-      "community": 3,
+      "community": 5,
       "norm_label": "aws security hub (findings aggregator)"
     },
     {
@@ -637,7 +512,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_inspector",
-      "community": 3,
+      "community": 5,
       "norm_label": "aws inspector (vulnerability scanning)"
     },
     {
@@ -650,7 +525,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_macie",
-      "community": 3,
+      "community": 5,
       "norm_label": "aws macie (sensitive data detection)"
     },
     {
@@ -806,7 +681,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_soar_shuffle",
-      "community": 2,
+      "community": 4,
       "norm_label": "soar shuffle (playbook executor, eks)"
     },
     {
@@ -819,7 +694,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_enforcement_api",
-      "community": 2,
+      "community": 6,
       "norm_label": "enforcement api (fastapi + celery, boto3 workers)"
     },
     {
@@ -845,7 +720,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_rationale_sdn",
-      "community": 2,
+      "community": 6,
       "norm_label": "rationale: aws vpc as sdn (no separate controller)"
     },
     {
@@ -858,7 +733,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_tiered_defense",
-      "community": 5,
+      "community": 3,
       "norm_label": "tiered defense model (tier 0/1/2)"
     },
     {
@@ -871,7 +746,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_tier0_prevention",
-      "community": 5,
+      "community": 3,
       "norm_label": "tier 0: prevention (always-on, zero latency)"
     },
     {
@@ -897,7 +772,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_tier2_soar",
-      "community": 2,
+      "community": 3,
       "norm_label": "tier 2: soar-orchestrated response (1-5s)"
     },
     {
@@ -936,7 +811,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_rationale_managed_services",
-      "community": 5,
+      "community": 3,
       "norm_label": "rationale: managed services trade opex for zero operational overhead"
     },
     {
@@ -949,7 +824,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_bedrock_ai",
-      "community": 8,
+      "community": 9,
       "norm_label": "amazon bedrock ai investigation (claude, rag + att&ck)"
     },
     {
@@ -962,7 +837,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_misp_opencti",
-      "community": 8,
+      "community": 9,
       "norm_label": "misp + opencti (threat intelligence / cti)"
     },
     {
@@ -975,7 +850,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_mitre_attack",
-      "community": 8,
+      "community": 9,
       "norm_label": "mitre att&ck framework"
     },
     {
@@ -988,7 +863,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_shield_advanced",
-      "community": 6,
+      "community": 7,
       "norm_label": "aws shield advanced (ddos protection)"
     },
     {
@@ -1001,7 +876,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_aws_waf",
-      "community": 2,
+      "community": 6,
       "norm_label": "aws waf (web application firewall)"
     },
     {
@@ -1014,7 +889,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_kyverno",
-      "community": 5,
+      "community": 3,
       "norm_label": "kyverno (policy engine, admission controller)"
     },
     {
@@ -1027,7 +902,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_trivy",
-      "community": 5,
+      "community": 3,
       "norm_label": "trivy (container image vulnerability scanning)"
     },
     {
@@ -1040,7 +915,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_sigstore",
-      "community": 5,
+      "community": 3,
       "norm_label": "sigstore (container image signing)"
     },
     {
@@ -1053,7 +928,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_eks",
-      "community": 5,
+      "community": 3,
       "norm_label": "eks (elastic kubernetes service)"
     },
     {
@@ -1092,7 +967,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_scenario_brute_force",
-      "community": 3,
+      "community": 5,
       "norm_label": "attack scenario: brute force + credential abuse"
     },
     {
@@ -1105,7 +980,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_scenario_ddos",
-      "community": 6,
+      "community": 7,
       "norm_label": "attack scenario: ddos attack"
     },
     {
@@ -1131,7 +1006,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_gap_encrypted_traffic",
-      "community": 6,
+      "community": 7,
       "norm_label": "gap: no encrypted traffic inspection"
     },
     {
@@ -1144,7 +1019,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_gap_phishing",
-      "community": 11,
+      "community": 10,
       "norm_label": "gap: no email/phishing detection (mitre t1566)"
     },
     {
@@ -1157,7 +1032,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_gap_deception",
-      "community": 12,
+      "community": 11,
       "norm_label": "gap: no deception layer (no honeypots/honeytokens)"
     },
     {
@@ -1170,7 +1045,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_gap_ueba",
-      "community": 13,
+      "community": 12,
       "norm_label": "gap: no ueba (no user entity behaviour analytics)"
     },
     {
@@ -1183,7 +1058,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_gap_flow_log_delay",
-      "community": 6,
+      "community": 7,
       "norm_label": "gap: vpc flow log delay (1-10 min)"
     },
     {
@@ -1196,7 +1071,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_gap_traffic_mirroring_cap",
-      "community": 6,
+      "community": 7,
       "norm_label": "gap: vpc traffic mirroring bandwidth cap and cost"
     },
     {
@@ -1222,7 +1097,7 @@
       "author": null,
       "contributor": null,
       "id": "pdf_gap_supply_chain",
-      "community": 5,
+      "community": 3,
       "norm_label": "gap: supply chain response (no post-deploy soar playbook)"
     },
     {
@@ -1248,395 +1123,379 @@
       "author": null,
       "contributor": null,
       "id": "pdf_gap_guardduty_latency",
-      "community": 3,
+      "community": 5,
       "norm_label": "gap: guardduty latency (1-5 min)"
     },
     {
-      "label": "Graph Report: 68 Nodes, 102 Edges, 10 Communities",
-      "file_type": "document",
-      "source_file": "graphify-out/GRAPH_REPORT.md",
-      "source_location": "line 7",
-      "source_url": null,
-      "captured_at": "2026-04-13",
-      "author": null,
-      "contributor": null,
-      "id": "report_graph_summary",
-      "community": 14,
-      "norm_label": "graph report: 68 nodes, 102 edges, 10 communities"
+      "label": "auto_mirror Lambda",
+      "type": "function",
+      "file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "description": "Lambda function that dynamically manages VPC Traffic Mirror Sessions for auto-scaled EKS nodes in bc-prd. Triggered by EventBridge on ASG lifecycle events.",
+      "id": "auto_mirror_lambda",
+      "community": 0,
+      "norm_label": "auto_mirror lambda"
+    },
+    {
+      "label": "handler()",
+      "type": "function",
+      "file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "description": "Lambda entry point. Routes EventBridge events to create_session or delete_session based on detail-type.",
+      "id": "handler",
+      "community": 0,
+      "norm_label": "handler()"
+    },
+    {
+      "label": "create_session()",
+      "type": "function",
+      "file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "description": "Creates a VPC traffic mirror session for a newly launched EKS node ENI. Idempotent \u2014 skips if session already exists.",
+      "id": "create_session",
+      "community": 0,
+      "norm_label": "create_session()"
+    },
+    {
+      "label": "delete_session()",
+      "type": "function",
+      "file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "description": "Deletes mirror session for a terminating instance. Falls back to tag-based lookup if ENI already detached.",
+      "id": "delete_session",
+      "community": 0,
+      "norm_label": "delete_session()"
+    },
+    {
+      "label": "is_eks_node()",
+      "type": "function",
+      "file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "description": "Checks if instance belongs to EKS_CLUSTER_NAME by inspecting eks:cluster-name tag.",
+      "id": "is_eks_node",
+      "community": 0,
+      "norm_label": "is_eks_node()"
+    },
+    {
+      "label": "get_primary_eni()",
+      "type": "function",
+      "file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "description": "Returns primary ENI (device-index 0) for an instance. Retries with backoff because ENI may not be visible immediately at launch.",
+      "id": "get_primary_eni",
+      "community": 0,
+      "norm_label": "get_primary_eni()"
+    },
+    {
+      "label": "find_session_for_eni()",
+      "type": "function",
+      "file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "description": "Looks up existing TrafficMirrorSession by ENI ID and target ID.",
+      "id": "find_session_for_eni",
+      "community": 0,
+      "norm_label": "find_session_for_eni()"
+    },
+    {
+      "label": "_delete()",
+      "type": "function",
+      "file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "description": "Low-level delete of a mirror session by ID. Idempotent \u2014 ignores InvalidTrafficMirrorSessionId.",
+      "id": "_delete",
+      "community": 0,
+      "norm_label": "_delete()"
+    },
+    {
+      "label": "EventBridge ASG Lifecycle Events",
+      "type": "service",
+      "description": "EventBridge rules matching EC2 Instance Launch Successful and EC2 Instance Terminate Successful events from Auto Scaling.",
+      "id": "eventbridge_asg_lifecycle",
+      "community": 0,
+      "norm_label": "eventbridge asg lifecycle events"
+    },
+    {
+      "label": "VPC Traffic Mirroring",
+      "type": "service",
+      "description": "AWS VPC Traffic Mirroring \u2014 copies network traffic from ENIs to a mirror target (NLB) for inspection by Suricata.",
+      "id": "vpc_traffic_mirroring",
+      "community": 0,
+      "norm_label": "vpc traffic mirroring"
+    },
+    {
+      "label": "Traffic Mirror Filter",
+      "type": "resource",
+      "description": "aws_ec2_traffic_mirror_filter resource managed by Terraform, passed to Lambda via MIRROR_FILTER_ID env var.",
+      "id": "mirror_filter",
+      "community": 0,
+      "norm_label": "traffic mirror filter"
+    },
+    {
+      "label": "Traffic Mirror Target (NLB)",
+      "type": "resource",
+      "description": "aws_ec2_traffic_mirror_target backed by an NLB that routes mirrored traffic to Suricata DaemonSet. Passed via MIRROR_TARGET_ID.",
+      "id": "mirror_target_nlb",
+      "community": 0,
+      "norm_label": "traffic mirror target (nlb)"
+    },
+    {
+      "label": "Suricata NIDS DaemonSet",
+      "type": "workload",
+      "description": "Suricata network IDS running as DaemonSet in bc-prd, receiving mirrored traffic via NLB target.",
+      "id": "suricata_nids",
+      "community": 0,
+      "norm_label": "suricata nids daemonset"
+    },
+    {
+      "label": "bc-prd EKS Cluster",
+      "type": "cluster",
+      "description": "Production EKS cluster. Auto-scaled nodes get traffic mirror sessions via this Lambda.",
+      "id": "bc_prd_eks",
+      "community": 0,
+      "norm_label": "bc-prd eks cluster"
+    },
+    {
+      "label": "traffic-mirroring.tf",
+      "type": "file",
+      "file": "new-infra/environments/bc-prd/eu-central-1/traffic-mirroring.tf",
+      "description": "Terraform config that creates static mirror sessions for existing nodes + the Lambda + EventBridge rule for auto-scaled nodes.",
+      "id": "traffic_mirroring_tf",
+      "community": 0,
+      "norm_label": "traffic-mirroring.tf"
     }
   ],
   "links": [
     {
-      "relation": "references",
+      "relation": "contains",
       "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 44-71",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L50",
       "weight": 1.0,
-      "_src": "claude_md_xdr_v7_system",
-      "_tgt": "claude_md_transit_gateway",
-      "source": "claude_md_xdr_v7_system",
-      "target": "claude_md_transit_gateway"
+      "_src": "new_infra_environments_bc_prd_eu_central_1_lambda_auto_mirror_py",
+      "_tgt": "auto_mirror_is_eks_node",
+      "source": "new_infra_environments_bc_prd_eu_central_1_lambda_auto_mirror_py",
+      "target": "auto_mirror_is_eks_node",
+      "confidence_score": 1.0
     },
     {
-      "relation": "references",
+      "relation": "contains",
       "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 44-75",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L64",
       "weight": 1.0,
-      "_src": "claude_md_xdr_v7_system",
-      "_tgt": "claude_md_xdr_vpc",
-      "source": "claude_md_xdr_v7_system",
-      "target": "claude_md_xdr_vpc"
+      "_src": "new_infra_environments_bc_prd_eu_central_1_lambda_auto_mirror_py",
+      "_tgt": "auto_mirror_get_primary_eni",
+      "source": "new_infra_environments_bc_prd_eu_central_1_lambda_auto_mirror_py",
+      "target": "auto_mirror_get_primary_eni",
+      "confidence_score": 1.0
     },
     {
-      "relation": "references",
+      "relation": "contains",
       "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 44-76",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L92",
       "weight": 1.0,
-      "_src": "claude_md_xdr_v7_system",
-      "_tgt": "claude_md_ctrl_vpc",
-      "source": "claude_md_xdr_v7_system",
-      "target": "claude_md_ctrl_vpc"
+      "_src": "new_infra_environments_bc_prd_eu_central_1_lambda_auto_mirror_py",
+      "_tgt": "auto_mirror_find_session_for_eni",
+      "source": "new_infra_environments_bc_prd_eu_central_1_lambda_auto_mirror_py",
+      "target": "auto_mirror_find_session_for_eni",
+      "confidence_score": 1.0
     },
     {
-      "relation": "references",
+      "relation": "contains",
       "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 44-77",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L113",
       "weight": 1.0,
-      "_src": "claude_md_xdr_v7_system",
-      "_tgt": "claude_md_prd_vpc",
-      "source": "claude_md_xdr_v7_system",
-      "target": "claude_md_prd_vpc"
+      "_src": "new_infra_environments_bc_prd_eu_central_1_lambda_auto_mirror_py",
+      "_tgt": "auto_mirror_create_session",
+      "source": "new_infra_environments_bc_prd_eu_central_1_lambda_auto_mirror_py",
+      "target": "auto_mirror_create_session",
+      "confidence_score": 1.0
     },
     {
-      "relation": "references",
+      "relation": "contains",
       "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 72",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L152",
       "weight": 1.0,
-      "_src": "claude_md_transit_gateway",
-      "_tgt": "claude_md_shared_rt",
-      "source": "claude_md_transit_gateway",
-      "target": "claude_md_shared_rt"
+      "_src": "new_infra_environments_bc_prd_eu_central_1_lambda_auto_mirror_py",
+      "_tgt": "auto_mirror_delete_session",
+      "source": "new_infra_environments_bc_prd_eu_central_1_lambda_auto_mirror_py",
+      "target": "auto_mirror_delete_session",
+      "confidence_score": 1.0
     },
     {
-      "relation": "references",
+      "relation": "contains",
       "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 73",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L182",
       "weight": 1.0,
-      "_src": "claude_md_transit_gateway",
-      "_tgt": "claude_md_spoke_rt",
-      "source": "claude_md_transit_gateway",
-      "target": "claude_md_spoke_rt"
+      "_src": "new_infra_environments_bc_prd_eu_central_1_lambda_auto_mirror_py",
+      "_tgt": "auto_mirror_delete",
+      "source": "new_infra_environments_bc_prd_eu_central_1_lambda_auto_mirror_py",
+      "target": "auto_mirror_delete",
+      "confidence_score": 1.0
     },
     {
-      "relation": "references",
+      "relation": "contains",
       "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 53",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L197",
       "weight": 1.0,
-      "_src": "claude_md_deploy_order",
-      "_tgt": "claude_md_transit_gateway",
-      "source": "claude_md_transit_gateway",
-      "target": "claude_md_deploy_order"
-    },
-    {
-      "relation": "shares_data_with",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 80",
-      "weight": 1.0,
-      "_src": "claude_md_remote_state",
-      "_tgt": "claude_md_transit_gateway",
-      "source": "claude_md_transit_gateway",
-      "target": "claude_md_remote_state"
-    },
-    {
-      "relation": "semantically_similar_to",
-      "confidence": "INFERRED",
-      "confidence_score": 0.9,
-      "source_file": "CLAUDE.md",
-      "source_location": null,
-      "weight": 0.9,
-      "_src": "claude_md_transit_gateway",
-      "_tgt": "pdf_aws_transit_gateway",
-      "source": "claude_md_transit_gateway",
-      "target": "pdf_aws_transit_gateway"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 72",
-      "weight": 1.0,
-      "_src": "claude_md_shared_rt",
-      "_tgt": "claude_md_xdr_vpc",
-      "source": "claude_md_xdr_vpc",
-      "target": "claude_md_shared_rt"
-    },
-    {
-      "relation": "shares_data_with",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 73",
-      "weight": 1.0,
-      "_src": "claude_md_spoke_rt",
-      "_tgt": "claude_md_xdr_vpc",
-      "source": "claude_md_xdr_vpc",
-      "target": "claude_md_spoke_rt"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 84",
-      "weight": 1.0,
-      "_src": "claude_md_appliance_mode",
-      "_tgt": "claude_md_xdr_vpc",
-      "source": "claude_md_xdr_vpc",
-      "target": "claude_md_appliance_mode"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 86",
-      "weight": 1.0,
-      "_src": "claude_md_ec2_workaround",
-      "_tgt": "claude_md_xdr_vpc",
-      "source": "claude_md_xdr_vpc",
-      "target": "claude_md_ec2_workaround"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 56",
-      "weight": 1.0,
-      "_src": "claude_md_deploy_order",
-      "_tgt": "claude_md_xdr_vpc",
-      "source": "claude_md_xdr_vpc",
-      "target": "claude_md_deploy_order"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 117-121",
-      "weight": 1.0,
-      "_src": "claude_md_collector_nodegroup",
-      "_tgt": "claude_md_xdr_vpc",
-      "source": "claude_md_xdr_vpc",
-      "target": "claude_md_collector_nodegroup"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 117-122",
-      "weight": 1.0,
-      "_src": "claude_md_ml_nodegroup",
-      "_tgt": "claude_md_xdr_vpc",
-      "source": "claude_md_xdr_vpc",
-      "target": "claude_md_ml_nodegroup"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 117-123",
-      "weight": 1.0,
-      "_src": "claude_md_cti_nodegroup",
-      "_tgt": "claude_md_xdr_vpc",
-      "source": "claude_md_xdr_vpc",
-      "target": "claude_md_cti_nodegroup"
-    },
-    {
-      "relation": "semantically_similar_to",
-      "confidence": "INFERRED",
-      "confidence_score": 0.85,
-      "source_file": "CLAUDE.md",
-      "source_location": null,
-      "weight": 0.85,
-      "_src": "claude_md_xdr_vpc",
-      "_tgt": "pdf_multi_vpc_segmentation",
-      "source": "claude_md_xdr_vpc",
-      "target": "pdf_multi_vpc_segmentation"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 72",
-      "weight": 1.0,
-      "_src": "claude_md_shared_rt",
-      "_tgt": "claude_md_ctrl_vpc",
-      "source": "claude_md_ctrl_vpc",
-      "target": "claude_md_shared_rt"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 59",
-      "weight": 1.0,
-      "_src": "claude_md_deploy_order",
-      "_tgt": "claude_md_ctrl_vpc",
-      "source": "claude_md_ctrl_vpc",
-      "target": "claude_md_deploy_order"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 73",
-      "weight": 1.0,
-      "_src": "claude_md_spoke_rt",
-      "_tgt": "claude_md_prd_vpc",
-      "source": "claude_md_prd_vpc",
-      "target": "claude_md_spoke_rt"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 62",
-      "weight": 1.0,
-      "_src": "claude_md_deploy_order",
-      "_tgt": "claude_md_prd_vpc",
-      "source": "claude_md_prd_vpc",
-      "target": "claude_md_deploy_order"
-    },
-    {
-      "relation": "semantically_similar_to",
-      "confidence": "INFERRED",
-      "confidence_score": 0.8,
-      "source_file": "CLAUDE.md",
-      "source_location": null,
-      "weight": 0.8,
-      "_src": "claude_md_prd_vpc",
-      "_tgt": "pdf_production_vpc_zone_a",
-      "source": "claude_md_prd_vpc",
-      "target": "pdf_production_vpc_zone_a"
+      "_src": "new_infra_environments_bc_prd_eu_central_1_lambda_auto_mirror_py",
+      "_tgt": "auto_mirror_handler",
+      "source": "new_infra_environments_bc_prd_eu_central_1_lambda_auto_mirror_py",
+      "target": "auto_mirror_handler",
+      "confidence_score": 1.0
     },
     {
       "relation": "rationale_for",
       "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 84",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L1",
       "weight": 1.0,
-      "_src": "claude_md_rationale_appliance_mode",
-      "_tgt": "claude_md_appliance_mode",
-      "source": "claude_md_appliance_mode",
-      "target": "claude_md_rationale_appliance_mode"
+      "_src": "auto_mirror_rationale_1",
+      "_tgt": "new_infra_environments_bc_prd_eu_central_1_lambda_auto_mirror_py",
+      "source": "new_infra_environments_bc_prd_eu_central_1_lambda_auto_mirror_py",
+      "target": "auto_mirror_rationale_1",
+      "confidence_score": 1.0
     },
     {
-      "relation": "implements",
+      "relation": "calls",
       "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 113",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L114",
       "weight": 1.0,
-      "_src": "claude_md_ci_deploy",
-      "_tgt": "claude_md_deploy_order",
-      "source": "claude_md_deploy_order",
-      "target": "claude_md_ci_deploy"
+      "_src": "auto_mirror_create_session",
+      "_tgt": "auto_mirror_is_eks_node",
+      "source": "auto_mirror_is_eks_node",
+      "target": "auto_mirror_create_session",
+      "confidence_score": 1.0
     },
     {
-      "relation": "references",
+      "relation": "rationale_for",
       "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 112",
-      "weight": 0.8,
-      "_src": "claude_md_ci_plan",
-      "_tgt": "claude_md_deploy_order",
-      "source": "claude_md_deploy_order",
-      "target": "claude_md_ci_plan"
-    },
-    {
-      "relation": "semantically_similar_to",
-      "confidence": "INFERRED",
-      "confidence_score": 0.92,
-      "source_file": "CLAUDE.md",
-      "source_location": null,
-      "weight": 0.92,
-      "_src": "claude_md_deploy_order",
-      "_tgt": "guide_transit_gateway",
-      "source": "claude_md_deploy_order",
-      "target": "guide_transit_gateway"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 103-104",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L51",
       "weight": 1.0,
-      "_src": "claude_md_vpc_module",
-      "_tgt": "claude_md_vpc_endpoints",
-      "source": "claude_md_vpc_module",
-      "target": "claude_md_vpc_endpoints"
+      "_src": "auto_mirror_rationale_51",
+      "_tgt": "auto_mirror_is_eks_node",
+      "source": "auto_mirror_is_eks_node",
+      "target": "auto_mirror_rationale_51",
+      "confidence_score": 1.0
     },
     {
-      "relation": "semantically_similar_to",
-      "confidence": "INFERRED",
-      "confidence_score": 0.9,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 121",
-      "weight": 0.9,
-      "_src": "claude_md_collector_nodegroup",
-      "_tgt": "pdf_collector",
-      "source": "claude_md_collector_nodegroup",
-      "target": "pdf_collector"
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L118",
+      "weight": 1.0,
+      "_src": "auto_mirror_create_session",
+      "_tgt": "auto_mirror_get_primary_eni",
+      "source": "auto_mirror_get_primary_eni",
+      "target": "auto_mirror_create_session",
+      "confidence_score": 1.0
     },
     {
-      "relation": "semantically_similar_to",
-      "confidence": "INFERRED",
-      "confidence_score": 0.88,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 122",
-      "weight": 0.88,
-      "_src": "claude_md_ml_nodegroup",
-      "_tgt": "pdf_triton",
-      "source": "claude_md_ml_nodegroup",
-      "target": "pdf_triton"
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L158",
+      "weight": 1.0,
+      "_src": "auto_mirror_delete_session",
+      "_tgt": "auto_mirror_get_primary_eni",
+      "source": "auto_mirror_get_primary_eni",
+      "target": "auto_mirror_delete_session",
+      "confidence_score": 1.0
     },
     {
-      "relation": "semantically_similar_to",
-      "confidence": "INFERRED",
-      "confidence_score": 0.85,
-      "source_file": "CLAUDE.md",
-      "source_location": "line 123",
-      "weight": 0.85,
-      "_src": "claude_md_cti_nodegroup",
-      "_tgt": "pdf_misp_opencti",
-      "source": "claude_md_cti_nodegroup",
-      "target": "pdf_misp_opencti"
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L65",
+      "weight": 1.0,
+      "_src": "auto_mirror_rationale_65",
+      "_tgt": "auto_mirror_get_primary_eni",
+      "source": "auto_mirror_get_primary_eni",
+      "target": "auto_mirror_rationale_65",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L123",
+      "weight": 1.0,
+      "_src": "auto_mirror_create_session",
+      "_tgt": "auto_mirror_find_session_for_eni",
+      "source": "auto_mirror_find_session_for_eni",
+      "target": "auto_mirror_create_session",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L160",
+      "weight": 1.0,
+      "_src": "auto_mirror_delete_session",
+      "_tgt": "auto_mirror_find_session_for_eni",
+      "source": "auto_mirror_find_session_for_eni",
+      "target": "auto_mirror_delete_session",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L93",
+      "weight": 1.0,
+      "_src": "auto_mirror_rationale_93",
+      "_tgt": "auto_mirror_find_session_for_eni",
+      "source": "auto_mirror_find_session_for_eni",
+      "target": "auto_mirror_rationale_93",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L210",
+      "weight": 1.0,
+      "_src": "auto_mirror_handler",
+      "_tgt": "auto_mirror_create_session",
+      "source": "auto_mirror_create_session",
+      "target": "auto_mirror_handler",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L162",
+      "weight": 1.0,
+      "_src": "auto_mirror_delete_session",
+      "_tgt": "auto_mirror_delete",
+      "source": "auto_mirror_delete_session",
+      "target": "auto_mirror_delete",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L214",
+      "weight": 1.0,
+      "_src": "auto_mirror_handler",
+      "_tgt": "auto_mirror_delete_session",
+      "source": "auto_mirror_delete_session",
+      "target": "auto_mirror_handler",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "new-infra/environments/bc-prd/eu-central-1/lambda/auto_mirror.py",
+      "source_location": "L153",
+      "weight": 1.0,
+      "_src": "auto_mirror_rationale_153",
+      "_tgt": "auto_mirror_delete_session",
+      "source": "auto_mirror_delete_session",
+      "target": "auto_mirror_rationale_153",
+      "confidence_score": 1.0
     },
     {
       "relation": "references",
@@ -2753,6 +2612,196 @@
       "_tgt": "pdf_trivy",
       "source": "pdf_trivy",
       "target": "pdf_gap_supply_chain"
+    },
+    {
+      "relation": "manages_mirrors_for",
+      "evidence": "Lambda filters by EKS_CLUSTER_NAME to only mirror nodes in the production EKS cluster",
+      "type": "EXTRACTED",
+      "confidence_score": 1.0,
+      "_src": "auto_mirror_lambda",
+      "_tgt": "bc_prd_eks",
+      "source": "auto_mirror_lambda",
+      "target": "bc_prd_eks"
+    },
+    {
+      "relation": "deploys",
+      "evidence": "Terraform traffic-mirroring.tf creates the Lambda + EventBridge rule, passes env vars (MIRROR_FILTER_ID, MIRROR_TARGET_ID, EKS_CLUSTER_NAME)",
+      "type": "INFERRED",
+      "confidence_score": 0.9,
+      "_src": "traffic_mirroring_tf",
+      "_tgt": "auto_mirror_lambda",
+      "source": "auto_mirror_lambda",
+      "target": "traffic_mirroring_tf"
+    },
+    {
+      "relation": "calls",
+      "evidence": "handler() calls create_session(instance_id) on 'EC2 Instance Launch Successful' events",
+      "type": "EXTRACTED",
+      "confidence_score": 1.0,
+      "_src": "handler",
+      "_tgt": "create_session",
+      "source": "handler",
+      "target": "create_session"
+    },
+    {
+      "relation": "calls",
+      "evidence": "handler() calls delete_session(instance_id) on 'EC2 Instance Terminate Successful' events",
+      "type": "EXTRACTED",
+      "confidence_score": 1.0,
+      "_src": "handler",
+      "_tgt": "delete_session",
+      "source": "handler",
+      "target": "delete_session"
+    },
+    {
+      "relation": "triggers",
+      "evidence": "Docstring states Lambda is triggered by EventBridge on Auto Scaling lifecycle events",
+      "type": "EXTRACTED",
+      "confidence_score": 1.0,
+      "_src": "eventbridge_asg_lifecycle",
+      "_tgt": "handler",
+      "source": "handler",
+      "target": "eventbridge_asg_lifecycle"
+    },
+    {
+      "relation": "calls",
+      "evidence": "create_session checks is_eks_node(instance_id) before creating mirror",
+      "type": "EXTRACTED",
+      "confidence_score": 1.0,
+      "_src": "create_session",
+      "_tgt": "is_eks_node",
+      "source": "create_session",
+      "target": "is_eks_node"
+    },
+    {
+      "relation": "calls",
+      "evidence": "create_session calls get_primary_eni(instance_id) to find the source ENI",
+      "type": "EXTRACTED",
+      "confidence_score": 1.0,
+      "_src": "create_session",
+      "_tgt": "get_primary_eni",
+      "source": "create_session",
+      "target": "get_primary_eni"
+    },
+    {
+      "relation": "calls",
+      "evidence": "create_session calls find_session_for_eni(eni_id) for idempotency check",
+      "type": "EXTRACTED",
+      "confidence_score": 1.0,
+      "_src": "create_session",
+      "_tgt": "find_session_for_eni",
+      "source": "create_session",
+      "target": "find_session_for_eni"
+    },
+    {
+      "relation": "creates_resource",
+      "evidence": "create_session calls ec2.create_traffic_mirror_session() to create mirror sessions",
+      "type": "EXTRACTED",
+      "confidence_score": 1.0,
+      "_src": "create_session",
+      "_tgt": "vpc_traffic_mirroring",
+      "source": "create_session",
+      "target": "vpc_traffic_mirroring"
+    },
+    {
+      "relation": "references",
+      "evidence": "create_traffic_mirror_session uses TrafficMirrorFilterId=MIRROR_FILTER_ID",
+      "type": "EXTRACTED",
+      "confidence_score": 1.0,
+      "_src": "create_session",
+      "_tgt": "mirror_filter",
+      "source": "create_session",
+      "target": "mirror_filter"
+    },
+    {
+      "relation": "references",
+      "evidence": "create_traffic_mirror_session uses TrafficMirrorTargetId=MIRROR_TARGET_ID",
+      "type": "EXTRACTED",
+      "confidence_score": 1.0,
+      "_src": "create_session",
+      "_tgt": "mirror_target_nlb",
+      "source": "create_session",
+      "target": "mirror_target_nlb"
+    },
+    {
+      "relation": "calls",
+      "evidence": "delete_session calls get_primary_eni(instance_id, retries=2, delay=2)",
+      "type": "EXTRACTED",
+      "confidence_score": 1.0,
+      "_src": "delete_session",
+      "_tgt": "get_primary_eni",
+      "source": "delete_session",
+      "target": "get_primary_eni"
+    },
+    {
+      "relation": "calls",
+      "evidence": "delete_session calls find_session_for_eni(eni_id) to locate session to delete",
+      "type": "EXTRACTED",
+      "confidence_score": 1.0,
+      "_src": "delete_session",
+      "_tgt": "find_session_for_eni",
+      "source": "delete_session",
+      "target": "find_session_for_eni"
+    },
+    {
+      "relation": "calls",
+      "evidence": "delete_session calls _delete(session_id, eni_id) to perform actual deletion",
+      "type": "EXTRACTED",
+      "confidence_score": 1.0,
+      "_src": "delete_session",
+      "_tgt": "_delete",
+      "source": "delete_session",
+      "target": "_delete"
+    },
+    {
+      "relation": "validates_membership",
+      "evidence": "Checks eks:cluster-name tag matches EKS_CLUSTER_NAME to confirm node belongs to the cluster",
+      "type": "EXTRACTED",
+      "confidence_score": 1.0,
+      "_src": "is_eks_node",
+      "_tgt": "bc_prd_eks",
+      "source": "is_eks_node",
+      "target": "bc_prd_eks"
+    },
+    {
+      "relation": "deletes_resource",
+      "evidence": "_delete calls ec2.delete_traffic_mirror_session() to remove mirror sessions",
+      "type": "EXTRACTED",
+      "confidence_score": 1.0,
+      "_src": "_delete",
+      "_tgt": "vpc_traffic_mirroring",
+      "source": "_delete",
+      "target": "vpc_traffic_mirroring"
+    },
+    {
+      "relation": "creates",
+      "evidence": "traffic-mirroring.tf creates the mirror filter resource referenced by Lambda env var",
+      "type": "INFERRED",
+      "confidence_score": 0.85,
+      "_src": "traffic_mirroring_tf",
+      "_tgt": "mirror_filter",
+      "source": "mirror_filter",
+      "target": "traffic_mirroring_tf"
+    },
+    {
+      "relation": "routes_traffic_to",
+      "evidence": "NLB target routes mirrored VXLAN traffic to Suricata DaemonSet (inferred from architecture docs and description field)",
+      "type": "INFERRED",
+      "confidence_score": 0.9,
+      "_src": "mirror_target_nlb",
+      "_tgt": "suricata_nids",
+      "source": "mirror_target_nlb",
+      "target": "suricata_nids"
+    },
+    {
+      "relation": "creates",
+      "evidence": "traffic-mirroring.tf creates the mirror target (NLB) resource referenced by Lambda env var",
+      "type": "INFERRED",
+      "confidence_score": 0.85,
+      "_src": "traffic_mirroring_tf",
+      "_tgt": "mirror_target_nlb",
+      "source": "mirror_target_nlb",
+      "target": "traffic_mirroring_tf"
     }
   ],
   "hyperedges": [
@@ -2790,20 +2839,38 @@
       "source_file": "new-infra/docs/xdr-aws-explained.pdf"
     },
     {
-      "id": "terraform_deploy_ordering",
-      "label": "Terraform Deployment Ordering: TGW -> XDR VPC -> Ctrl + Prd VPCs",
+      "id": "traffic_mirror_lifecycle",
+      "label": "Traffic Mirror Lifecycle Flow",
       "nodes": [
-        "claude_md_transit_gateway",
-        "claude_md_xdr_vpc",
-        "claude_md_ctrl_vpc",
-        "claude_md_prd_vpc",
-        "claude_md_deploy_order",
-        "claude_md_ci_deploy"
+        "eventbridge_asg_lifecycle",
+        "handler",
+        "create_session",
+        "delete_session",
+        "vpc_traffic_mirroring"
       ],
-      "relation": "participate_in",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "CLAUDE.md"
+      "description": "End-to-end flow: ASG lifecycle events trigger Lambda handler which creates or deletes VPC traffic mirror sessions to maintain full coverage of auto-scaled EKS nodes."
+    },
+    {
+      "id": "suricata_inspection_pipeline",
+      "label": "Suricata Inspection Pipeline",
+      "nodes": [
+        "bc_prd_eks",
+        "auto_mirror_lambda",
+        "mirror_filter",
+        "mirror_target_nlb",
+        "suricata_nids"
+      ],
+      "description": "Traffic from bc-prd EKS node ENIs is mirrored through filter and NLB target to Suricata NIDS for network intrusion detection."
+    },
+    {
+      "id": "idempotent_session_management",
+      "label": "Idempotent Session Management Pattern",
+      "nodes": [
+        "create_session",
+        "find_session_for_eni",
+        "_delete"
+      ],
+      "description": "Both create and delete paths implement idempotency: create checks for existing session before creating, delete handles already-gone sessions gracefully."
     }
   ]
 }

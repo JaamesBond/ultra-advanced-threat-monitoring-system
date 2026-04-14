@@ -49,9 +49,9 @@ locals {
   eks_endpoint_private_access = true
   eks_enable_irsa             = true
   eks_deletion_protection     = true
-  deploy_security_helm        = false   # requires VPC connectivity — apply from bastion/SSM, not CI
-  deploy_cilium_helm          = false   # independent gate — apply from bastion/SSM after nodes are ready
-  deploy_flux                 = false   # FluxCD bootstrap — apply from bastion/SSM (two-phase, see flux.tf)
+  deploy_security_helm        = true    # Tetragon + Falco + TracingPolicies
+  deploy_cilium_helm          = true    # Cilium CNI chaining + network policies
+  deploy_flux                 = false   # enable after Tetragon/Falco/Cilium confirmed working
   github_repo_url             = "https://github.com/JaamesBond/ultra-advanced-threat-monitoring-system"
 
   #--------------------------------------------------------------

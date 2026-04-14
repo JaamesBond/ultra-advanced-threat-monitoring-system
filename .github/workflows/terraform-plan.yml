@@ -17,6 +17,39 @@ env:
   AWS_ROLE_ARN: "arn:aws:iam::286439316079:role/GitHubActionsDeployRole"
 
 jobs:
+  plan-runner:
+    name: "Plan — GitHub Runner"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: new-infra/shared/github-runner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - run: terraform init
+      - run: terraform validate
+      - name: Plan
+        run: terraform plan -no-color 2>&1 | tee plan-runner.txt
+      - name: Post plan to PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('new-infra/shared/github-runner/plan-runner.txt', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `### Plan: GitHub Runner\n\`\`\`\n${plan.slice(-30000)}\n\`\`\``
+            });
+
   plan-tgw:
     name: "Plan — Transit Gateway"
     runs-on: ubuntu-latest

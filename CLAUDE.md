@@ -47,23 +47,30 @@ Region: `eu-central-1`. S3 state bucket: `bc-uatms-terraform-state`.
 
 ## Deployment order (strict)
 
-Steps 3 and 4 can run in parallel, but step 1 must always be first and step 2 must complete before 3/4.
+Steps 1a and 1b run in parallel. Step 2 depends on 1a. Steps 3+4 depend on both 1b and 2.
 
 ```bash
-# 1. Transit Gateway (shared — must be first)
+# 1a. Transit Gateway (shared — must be first)
 cd new-infra/shared/transit-gateway && terraform init && terraform apply
+
+# 1b. GitHub Actions self-hosted runners (parallel with TGW)
+#     Deploys EC2 runners in ctrl + prd VPCs for private K8s API access.
+#     Prerequisite: store GitHub PAT in Secrets Manager:
+#       aws secretsmanager create-secret --name bc/github/runner-pat \
+#         --secret-string "ghp_..." --region eu-central-1
+cd new-infra/shared/github-runner && terraform init && terraform apply
 
 # 2. XDR VPC (creates the spoke-rt static default route — must precede ctrl/prd)
 cd new-infra/environments/bc-xdr/eu-central-1 && terraform init && terraform apply
 
-# 3. Control Plane VPC (parallel with prd)
+# 3. Control Plane VPC (parallel with prd — runs on self-hosted runner in VPC)
 cd new-infra/environments/bc-ctrl/eu-central-1 && terraform init && terraform apply
 
-# 4. Production VPC (parallel with ctrl)
+# 4. Production VPC (parallel with ctrl — runs on self-hosted runner in VPC)
 cd new-infra/environments/bc-prd/eu-central-1 && terraform init && terraform apply
 ```
 
-To target a single environment via CI, use `workflow_dispatch` with the `environment` input (`tgw` | `xdr` | `ctrl` | `prd` | `all`).
+To target a single environment via CI, use `workflow_dispatch` with the `environment` input (`tgw` | `xdr` | `ctrl` | `prd` | `runner` | `all`).
 
 ## Architecture
 
@@ -91,18 +98,19 @@ Remote state wiring: each environment reads TGW IDs from `data "terraform_remote
 new-infra/
 ├── shared/
 │   ├── transit-gateway/         # TGW + two route tables (shared-rt, spoke-rt)
+│   ├── github-runner/           # Self-hosted GitHub Actions runners (EC2 in ctrl + prd VPCs)
 │   └── ecr-pull-through-cache/  # ECR pull-through for Docker Hub, Quay, ghcr
 ├── environments/
 │   ├── bc-xdr/eu-central-1/     # vpc.tf  eks.tf  locals.tf  global.tf  terraform_config.tf
-│   ├── bc-ctrl/eu-central-1/    # eks.tf  eks-addons.tf  helm-security.tf  tracing-policies.tf  cilium.tf  cilium-policies.tf  route53.tf  wazuh-iam.tf  ...
-│   └── bc-prd/eu-central-1/     # eks.tf  eks-addons.tf  helm-security.tf  tracing-policies.tf  cilium.tf  cilium-policies.tf  traffic-mirroring.tf  ...
+│   ├── bc-ctrl/eu-central-1/    # eks.tf  eks-addons.tf  helm-security.tf  tracing-policies.tf  cilium.tf  cilium-policies.tf  flux.tf  route53.tf  wazuh-iam.tf  ...
+│   └── bc-prd/eu-central-1/     # eks.tf  eks-addons.tf  helm-security.tf  tracing-policies.tf  cilium.tf  cilium-policies.tf  flux.tf  traffic-mirroring.tf  ...
 ├── modules/
 │   ├── eks-addons/              # Reusable: AWS LB Controller, external-secrets, cert-manager, external-dns
 │   └── network/
 │       ├── vpc/                 # wraps terraform-aws-modules/vpc/aws v6.5.1
 │       │   └── endpoints/       # VPC interface endpoints (S3, ECR, SSM, KMS, etc.)
 │       └── transit-gateway/     # wraps the TGW resource
-└── k8s/                         # Raw K8s manifests (applied via kubectl, not Terraform)
+└── k8s/                         # Raw K8s manifests (reconciled by FluxCD, not manual kubectl)
     ├── wazuh/                   # Wazuh Manager + Indexer + Dashboard + Agent DaemonSet
     └── suricata/                # Suricata NIDS DaemonSet + configmap
 ```
@@ -111,10 +119,12 @@ Each environment's `locals.tf` is the single source of truth for CIDRs, node gro
 
 ## CI workflows
 
-- **PR → main**: `terraform-plan.yml` — runs `validate` + `plan` on all four environments in parallel, posts plans as PR comments.
-- **Push → main**: `terraform-deploy.yml` — enforces the deployment order above (tgw → xdr → ctrl ∥ prd).
+- **PR → main**: `terraform-plan.yml` — runs `validate` + `plan` on all five configs in parallel (tgw, runner, xdr, ctrl, prd), posts plans as PR comments.
+- **Push → main**: `terraform-deploy.yml` — enforces: (tgw ∥ runner) → xdr → (ctrl ∥ prd). ctrl/prd run on self-hosted runners inside each VPC for private K8s API access. tgw/xdr/runner run on ubuntu-latest.
 
 Auth: GitHub OIDC → `arn:aws:iam::286439316079:role/GitHubActionsDeployRole`. No static secrets required. OIDC provider: `token.actions.githubusercontent.com`. Note: OIDC does NOT bypass SCP `p-bg731gel`.
+
+Self-hosted runner prerequisite: GitHub PAT in Secrets Manager at `bc/github/runner-pat` (repo scope).
 
 ## EKS clusters
 
