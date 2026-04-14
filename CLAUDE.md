@@ -94,8 +94,8 @@ new-infra/
 │   └── ecr-pull-through-cache/  # ECR pull-through for Docker Hub, Quay, ghcr
 ├── environments/
 │   ├── bc-xdr/eu-central-1/     # vpc.tf  eks.tf  locals.tf  global.tf  terraform_config.tf
-│   ├── bc-ctrl/eu-central-1/    # eks.tf  eks-addons.tf  helm-security.tf  tracing-policies.tf  route53.tf  wazuh-iam.tf  ...
-│   └── bc-prd/eu-central-1/     # eks.tf  eks-addons.tf  helm-security.tf  tracing-policies.tf  traffic-mirroring.tf  ...
+│   ├── bc-ctrl/eu-central-1/    # eks.tf  eks-addons.tf  helm-security.tf  tracing-policies.tf  cilium.tf  cilium-policies.tf  route53.tf  wazuh-iam.tf  ...
+│   └── bc-prd/eu-central-1/     # eks.tf  eks-addons.tf  helm-security.tf  tracing-policies.tf  cilium.tf  cilium-policies.tf  traffic-mirroring.tf  ...
 ├── modules/
 │   ├── eks-addons/              # Reusable: AWS LB Controller, external-secrets, cert-manager, external-dns
 │   └── network/
@@ -124,7 +124,10 @@ EC2 inline inspection appliance only: `bc-xdr-test` (t3.medium, SSM-only, Zeek +
 ### bc-ctrl — EKS (K8s 1.35, clusters UP)
 Control plane. EKS cluster `bc-ctrl-eks` with `security` + `platform` node groups (node groups blocked by SCP `p-bg731gel`).
 
-Security stack: Tetragon (Layer 1 SIGKILL) + Falco (Layer 2 detection) in `helm-security.tf`, 6 TracingPolicies in `tracing-policies.tf`. Gated by `local.deploy_security_helm` (default false for CI).
+Security stack:
+- **Cilium CNI** (`cilium.tf`): aws-cni chaining mode on top of vpc-cni. Adds eBPF network policy enforcement + Hubble L3-L7 observability. Gated by `local.deploy_cilium_helm` (default false for CI). operator on `platform` nodes.
+- **CiliumClusterwideNetworkPolicies** (`cilium-policies.tf`): default-deny with 3 exceptions (kube-system unrestricted, DNS egress, same-namespace). Gated by same flag.
+- **Tetragon** (Layer 1 SIGKILL) + **Falco** (Layer 2 detection) in `helm-security.tf`, 6 TracingPolicies in `tracing-policies.tf`. Gated by `local.deploy_security_helm` (default false for CI).
 
 Addons: AWS LB Controller, external-secrets, cert-manager, external-dns via `eks-addons` module.
 
@@ -138,10 +141,16 @@ Private endpoint only.
 ### bc-prd — EKS for workloads (K8s 1.35, clusters UP)
 Production spoke. EKS cluster `bc-prd-eks` with `workload` node group (blocked by SCP `p-bg731gel`).
 
-Security stack: same Tetragon + Falco + 6 TracingPolicies as ctrl. Traffic mirroring (VPC mirror → NLB → Suricata DaemonSet) in `traffic-mirroring.tf` + Lambda auto-mirror for ASG scaling.
+Security stack:
+- **Cilium CNI** (`cilium.tf`): same aws-cni chaining as ctrl. operator on `workload` nodes (replicas=1 at desired_size=1). Images via ECR quay/ pull-through (no internet egress). Gated by `local.deploy_cilium_helm`.
+- **CiliumClusterwideNetworkPolicies** (`cilium-policies.tf`): same 3 base policies as ctrl + Wazuh Agent egress to `10.11.0.0/16` TCP 1514/1515 (Wazuh Manager in bc-xdr via TGW).
+- Traffic mirroring (VPC mirror → NLB → Suricata DaemonSet) in `traffic-mirroring.tf` + Lambda auto-mirror for ASG scaling.
+- Same Tetragon + Falco + 6 TracingPolicies as ctrl.
 
 | Group | Instance | Min/Desired/Max | Purpose |
 |-------|----------|-----------------|---------|
 | `workload` | m6a.large | 1/1/3 | App pods + Cilium/Falco/Tetragon/Wazuh Agent DaemonSets |
 
 Private endpoint only. No internet egress — all traffic routes via TGW → XDR for inspection.
+
+**Cilium image pre-seed required for bc-prd** before setting `deploy_cilium_helm = true`: pull from quay.io and push to ECR `286439316079.dkr.ecr.eu-central-1.amazonaws.com/quay/cilium/*` from a host with internet access (bc-ctrl bastion). See plan file for exact commands.

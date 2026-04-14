@@ -58,6 +58,7 @@ locals {
   eks_enable_irsa             = true
   eks_deletion_protection     = true
   deploy_security_helm        = false   # requires VPC connectivity — apply from bastion/SSM, not CI
+  deploy_cilium_helm          = false   # independent gate — apply from bastion/SSM after nodes are ready
 
   eks_node_group_defaults = {
     ami_type       = "AL2023_x86_64_STANDARD"
