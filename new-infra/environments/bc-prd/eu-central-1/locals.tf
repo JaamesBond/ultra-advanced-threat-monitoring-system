@@ -58,13 +58,13 @@ locals {
   # Tetragon, Cilium, Fluent Bit) all run as DaemonSets on every
   # node — no dedicated node groups required for them.
   #
-  # workload (m6a.large  — 2 vCPU/ 8 GB): general application pods
-  # spot     (m6a.large  — 2 vCPU/ 8 GB, SPOT): fault-tolerant batch
+  # workload (t3.large  — 2 vCPU/ 8 GB): general application pods
+  # spot     (t3.large  — 2 vCPU/ 8 GB, SPOT): fault-tolerant batch
   #--------------------------------------------------------------
   eks_node_group_defaults = {
     ami_type       = "AL2023_x86_64_STANDARD"
     capacity_type  = "ON_DEMAND"
-    instance_types = ["m6a.large"]
+    instance_types = ["t3.large"]
   }
 
   eks_node_groups = {
@@ -74,7 +74,7 @@ locals {
       min_size       = 1
       max_size       = 3
       desired_size   = 1
-      instance_types = ["m6a.large"]
+      instance_types = ["t3.large"]
       labels         = { "role" = "workload" }
       iam_role_additional_policies = {
         ssm = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
