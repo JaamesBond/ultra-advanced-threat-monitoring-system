@@ -89,15 +89,22 @@ Remote state wiring: each environment reads TGW IDs from `data "terraform_remote
 
 ```
 new-infra/
-├── shared/transit-gateway/      # TGW + two route tables (shared-rt, spoke-rt)
+├── shared/
+│   ├── transit-gateway/         # TGW + two route tables (shared-rt, spoke-rt)
+│   └── ecr-pull-through-cache/  # ECR pull-through for Docker Hub, Quay, ghcr
 ├── environments/
 │   ├── bc-xdr/eu-central-1/     # vpc.tf  eks.tf  locals.tf  global.tf  terraform_config.tf
-│   ├── bc-ctrl/eu-central-1/    # same structure
-│   └── bc-prd/eu-central-1/     # same structure
-└── modules/network/
-    ├── vpc/                     # wraps terraform-aws-modules/vpc/aws v6.5.1
-    │   └── endpoints/           # VPC interface endpoints (S3, ECR, SSM, KMS, etc.)
-    └── transit-gateway/         # wraps the TGW resource
+│   ├── bc-ctrl/eu-central-1/    # eks.tf  eks-addons.tf  helm-security.tf  tracing-policies.tf  route53.tf  wazuh-iam.tf  ...
+│   └── bc-prd/eu-central-1/     # eks.tf  eks-addons.tf  helm-security.tf  tracing-policies.tf  traffic-mirroring.tf  ...
+├── modules/
+│   ├── eks-addons/              # Reusable: AWS LB Controller, external-secrets, cert-manager, external-dns
+│   └── network/
+│       ├── vpc/                 # wraps terraform-aws-modules/vpc/aws v6.5.1
+│       │   └── endpoints/       # VPC interface endpoints (S3, ECR, SSM, KMS, etc.)
+│       └── transit-gateway/     # wraps the TGW resource
+└── k8s/                         # Raw K8s manifests (applied via kubectl, not Terraform)
+    ├── wazuh/                   # Wazuh Manager + Indexer + Dashboard + Agent DaemonSet
+    └── suricata/                # Suricata NIDS DaemonSet + configmap
 ```
 
 Each environment's `locals.tf` is the single source of truth for CIDRs, node group sizing, EKS addon versions, and TGW remote state config.
@@ -114,20 +121,27 @@ Auth: GitHub OIDC → `arn:aws:iam::286439316079:role/GitHubActionsDeployRole`. 
 ### bc-xdr — no EKS
 EC2 inline inspection appliance only: `bc-xdr-test` (t3.medium, SSM-only, Zeek + Vector via Docker). No EKS. Security pipeline workloads run in bc-ctrl and bc-prd clusters.
 
-### bc-ctrl — EKS (pending SCP fix)
-Control plane VPC runs an EC2 test instance (t3.large, SSM only) + EKS cluster with `security` + `platform` node groups. Node group creation blocked by SCP `p-bg731gel`.
+### bc-ctrl — EKS (K8s 1.35, clusters UP)
+Control plane. EKS cluster `bc-ctrl-eks` with `security` + `platform` node groups (node groups blocked by SCP `p-bg731gel`).
+
+Security stack: Tetragon (Layer 1 SIGKILL) + Falco (Layer 2 detection) in `helm-security.tf`, 6 TracingPolicies in `tracing-policies.tf`. Gated by `local.deploy_security_helm` (default false for CI).
+
+Addons: AWS LB Controller, external-secrets, cert-manager, external-dns via `eks-addons` module.
 
 | Group | Instance | Min/Desired/Max | Purpose |
 |-------|----------|-----------------|---------|
-| `security` | m6a.xlarge | 2/2/6 | Cilium/Falco/Tetragon DaemonSets; taint `dedicated=security:NoSchedule` |
-| `platform` | m6a.large | 2/2/6 | Enforcement API (FastAPI + Celery + boto3/WAF/NFW workers), Cilium Operator, Grafana, Kibana, Keycloak, Kyverno (3 replicas), Trivy + Sigstore webhooks |
+| `security` | m6a.xlarge | 2/2/6 | Wazuh Manager HA, Shuffle SOAR, DFIR-IRIS; taint `dedicated=security:NoSchedule` |
+| `platform` | m6a.large | 2/2/6 | Enforcement API, Cilium Operator, Grafana, Kibana, Keycloak, Kyverno, Trivy + Sigstore |
 
 Private endpoint only.
 
-### bc-prd — EKS for workloads
+### bc-prd — EKS for workloads (K8s 1.35, clusters UP)
+Production spoke. EKS cluster `bc-prd-eks` with `workload` node group (blocked by SCP `p-bg731gel`).
+
+Security stack: same Tetragon + Falco + 6 TracingPolicies as ctrl. Traffic mirroring (VPC mirror → NLB → Suricata DaemonSet) in `traffic-mirroring.tf` + Lambda auto-mirror for ASG scaling.
 
 | Group | Instance | Min/Desired/Max | Purpose |
 |-------|----------|-----------------|---------|
-| `workload` | m6a.large | 1/1/3 | Cilium + Falco + Tetragon DaemonSets + app pods |
+| `workload` | m6a.large | 1/1/3 | App pods + Cilium/Falco/Tetragon/Wazuh Agent DaemonSets |
 
-Private endpoint only.
+Private endpoint only. No internet egress — all traffic routes via TGW → XDR for inspection.
