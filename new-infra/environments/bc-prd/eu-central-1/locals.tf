@@ -49,7 +49,7 @@ locals {
   eks_endpoint_private_access = true
   eks_enable_irsa             = true
   eks_deletion_protection     = true
-  deploy_security_helm        = false # set true when applying from within VPC
+  deploy_security_helm        = true
 
   #--------------------------------------------------------------
   # EKS Node Groups — Production Spoke

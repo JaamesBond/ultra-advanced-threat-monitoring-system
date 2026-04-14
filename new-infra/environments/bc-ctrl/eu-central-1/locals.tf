@@ -57,7 +57,7 @@ locals {
   eks_endpoint_private_access = true
   eks_enable_irsa             = true
   eks_deletion_protection     = true
-  deploy_security_helm        = false # set true when applying from within VPC
+  deploy_security_helm        = true
 
   eks_node_group_defaults = {
     ami_type       = "AL2023_x86_64_STANDARD"
