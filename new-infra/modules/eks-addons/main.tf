@@ -93,7 +93,7 @@ resource "aws_eks_pod_identity_association" "aws_lb_controller" {
 }
 
 resource "helm_release" "aws_lb_controller" {
-  count = var.install_load_balancer_controller ? 1 : 0
+  count = var.deploy_helm_releases && var.install_load_balancer_controller ? 1 : 0
 
   name             = "aws-load-balancer-controller"
   repository       = "https://aws.github.io/eks-charts"
@@ -219,7 +219,7 @@ resource "aws_eks_pod_identity_association" "external_secrets" {
 }
 
 resource "helm_release" "external_secrets" {
-  count = var.install_external_secrets ? 1 : 0
+  count = var.deploy_helm_releases && var.install_external_secrets ? 1 : 0
 
   name             = "external-secrets"
   repository       = "https://charts.external-secrets.io"
@@ -352,7 +352,7 @@ resource "aws_eks_pod_identity_association" "external_dns" {
 }
 
 resource "helm_release" "external_dns" {
-  count = var.install_external_dns ? 1 : 0
+  count = var.deploy_helm_releases && var.install_external_dns ? 1 : 0
 
   name             = "external-dns"
   repository       = "https://kubernetes-sigs.github.io/external-dns/"
@@ -406,7 +406,7 @@ resource "helm_release" "external_dns" {
 # 3. cert-manager
 #--------------------------------------------------------------
 resource "helm_release" "cert_manager" {
-  count = var.install_cert_manager ? 1 : 0
+  count = var.deploy_helm_releases && var.install_cert_manager ? 1 : 0
 
   name             = "cert-manager"
   repository       = "https://charts.jetstack.io"

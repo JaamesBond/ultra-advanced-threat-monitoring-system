@@ -32,6 +32,21 @@ variable "region" {
 }
 
 #--------------------------------------------------------------
+# Helm deployment gate
+#
+# Set to true only when running from a host with direct connectivity
+# to the private EKS API endpoint (e.g. self-hosted runner, bastion,
+# or manual apply from within the VPC).
+# Leave false (default) for CI runs from the public internet so that
+# the helm/kubernetes providers never attempt to connect.
+#--------------------------------------------------------------
+variable "deploy_helm_releases" {
+  description = "Actually install Helm charts. Requires connectivity to the private EKS API endpoint. Set false for public CI runners."
+  type        = bool
+  default     = false
+}
+
+#--------------------------------------------------------------
 # Addon toggles
 #--------------------------------------------------------------
 variable "install_load_balancer_controller" {
