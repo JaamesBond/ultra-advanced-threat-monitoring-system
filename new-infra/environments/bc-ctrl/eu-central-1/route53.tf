@@ -21,6 +21,11 @@ data "terraform_remote_state" "prd" {
   }
 }
 
+import {
+  to = aws_route53_zone.internal
+  id = "Z0233517HPLJCOO1NV0L"
+}
+
 resource "aws_route53_zone" "internal" {
   name          = "bc-ctrl.internal"
   comment       = "Private zone for Control Plane services (Wazuh NLB, etc.)"
