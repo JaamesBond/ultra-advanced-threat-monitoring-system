@@ -50,6 +50,7 @@ locals {
   eks_enable_irsa             = true
   eks_deletion_protection     = true
   deploy_security_helm        = false   # requires VPC connectivity — apply from bastion/SSM, not CI
+  deploy_cilium_helm          = false   # independent gate — apply from bastion/SSM after nodes are ready
 
   #--------------------------------------------------------------
   # EKS Node Groups — Production Spoke
