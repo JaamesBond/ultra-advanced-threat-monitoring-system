@@ -123,7 +123,7 @@ resource "aws_security_group" "xdr_test" {
 
 resource "aws_instance" "xdr_test" {
   ami                    = data.aws_ami.ubuntu_xdr.id
-  instance_type          = "t3.medium"
+  instance_type          = "t2.medium"
   subnet_id              = module.vpc.private_subnet_ids[0]
   vpc_security_group_ids = [aws_security_group.xdr_test.id]
   iam_instance_profile   = aws_iam_instance_profile.xdr_test.name

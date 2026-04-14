@@ -37,6 +37,12 @@ variable "intra_route_table_ids" {
 
 # ---- Endpoint toggles ----
 
+variable "enable_ec2" {
+  description = "Create EC2 Interface endpoint (required for nodeadm EC2:DescribeInstances during EKS node bootstrap)"
+  type        = bool
+  default     = false
+}
+
 variable "enable_s3" {
   description = "Create S3 Gateway endpoint (free — always recommended)"
   type        = bool

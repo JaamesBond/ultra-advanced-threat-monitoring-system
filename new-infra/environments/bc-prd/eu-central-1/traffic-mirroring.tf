@@ -207,28 +207,31 @@ resource "aws_ec2_traffic_mirror_target" "suricata_nlb" {
 # group. Suricata does not filter on VNI — all VXLAN on port
 # 4789 is decapsulated regardless of VNI.
 #
-# session_number must be unique per source ENI. count.index + 1
-# ensures uniqueness for the current set of nodes. If you run
-# multiple mirror sessions on the same ENI (e.g. mirroring to
-# both Suricata and another tool), use higher session numbers
-# for the second session (e.g. 1001+).
+# Session number assignment:
+#   session 1 — owned by the Lambda auto-mirror (traffic-mirroring-lambda.tf)
+#   session 2 — owned by Terraform (this resource)
+#
+# Using for_each keyed on ENI ID rather than count avoids index-
+# shift conflicts when the node list changes between applies.
+# If you need a third session (e.g. mirror to a second tool),
+# use session_number = 3 in a separate resource.
 #--------------------------------------------------------------
 locals {
   suricata_vxlan_vni = 100
 }
 
 resource "aws_ec2_traffic_mirror_session" "eks_nodes" {
-  count = length(data.aws_network_interfaces.eks_primary_enis.ids)
+  for_each = toset(data.aws_network_interfaces.eks_primary_enis.ids)
 
-  description              = "bc-prd ENI ${data.aws_network_interfaces.eks_primary_enis.ids[count.index]} → Suricata"
-  network_interface_id     = data.aws_network_interfaces.eks_primary_enis.ids[count.index]
+  description              = "bc-prd ENI ${each.value} → Suricata"
+  network_interface_id     = each.value
   traffic_mirror_filter_id = aws_ec2_traffic_mirror_filter.suricata.id
   traffic_mirror_target_id = aws_ec2_traffic_mirror_target.suricata_nlb.id
-  session_number           = count.index + 1
+  session_number           = 2   # Lambda owns session 1; Terraform owns session 2
   virtual_network_id       = local.suricata_vxlan_vni
 
   tags = merge(local.common_tags, {
-    Name      = "${local.platform_name}-${local.env}-suricata-session-${count.index + 1}"
+    Name      = "${local.platform_name}-${local.env}-suricata-session-${each.value}"
     Component = "suricata-mirror"
   })
 
@@ -257,6 +260,6 @@ output "suricata_mirror_target_id" {
 }
 
 output "suricata_mirror_session_count" {
-  description = "Number of active mirror sessions (= running EKS nodes at last apply)"
+  description = "Number of active Terraform-managed mirror sessions (= running EKS nodes at last apply)"
   value       = length(aws_ec2_traffic_mirror_session.eks_nodes)
 }
