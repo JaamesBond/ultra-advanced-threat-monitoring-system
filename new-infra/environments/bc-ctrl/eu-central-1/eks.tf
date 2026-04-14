@@ -3,6 +3,19 @@
 # Access: private endpoint only
 #==============================================================
 
+# Import pre-existing addons into state (EKS auto-creates coredns;
+# ebs-csi-driver was installed outside Terraform). Safe to leave
+# after first apply — Terraform skips already-imported resources.
+import {
+  to = module.eks.aws_eks_addon.this["coredns"]
+  id = "bc-ctrl-eks:coredns"
+}
+
+import {
+  to = module.eks.aws_eks_addon.this["aws-ebs-csi-driver"]
+  id = "bc-ctrl-eks:aws-ebs-csi-driver"
+}
+
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 21.0"
