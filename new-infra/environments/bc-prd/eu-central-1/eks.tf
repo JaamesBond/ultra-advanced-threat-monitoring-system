@@ -3,12 +3,17 @@
 # Private endpoint only — no public subnets in prd VPC.
 #==============================================================
 
-# Import coredns — EKS auto-creates it but it's not in Terraform state.
-# ebs-csi-driver and cloudwatch-observability don't exist yet on bc-prd;
-# Terraform will create them fresh.
+# Import pre-existing addons into state.
+# EKS auto-creates coredns; ebs-csi-driver exists in CREATE_FAILED (IAM issue fixed by
+# pod identity association below — import so Terraform updates rather than re-creates).
 import {
   to = module.eks.aws_eks_addon.this["coredns"]
   id = "bc-prd-eks:coredns"
+}
+
+import {
+  to = module.eks.aws_eks_addon.this["aws-ebs-csi-driver"]
+  id = "bc-prd-eks:aws-ebs-csi-driver"
 }
 
 module "eks" {
@@ -30,6 +35,13 @@ module "eks" {
   addons = {
     kube-proxy = {
       addon_version               = local.eks_addons["kube-proxy"].addon_version
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+      before_compute              = true
+    }
+
+    eks-pod-identity-agent = {
+      addon_version               = local.eks_addons["eks-pod-identity-agent"].addon_version
       resolve_conflicts_on_create = "OVERWRITE"
       resolve_conflicts_on_update = "OVERWRITE"
       before_compute              = true

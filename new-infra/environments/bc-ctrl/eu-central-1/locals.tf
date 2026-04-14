@@ -136,6 +136,10 @@ locals {
       addon_version  = "v1.35.3-eksbuild.2"
       before_compute = true
     }
+    eks-pod-identity-agent = {
+      addon_version  = "v1.3.10-eksbuild.3"
+      before_compute = true
+    }
     vpc-cni = {
       addon_version             = "v1.21.1-eksbuild.7"
       before_compute            = true
