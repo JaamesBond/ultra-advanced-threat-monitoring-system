@@ -40,6 +40,13 @@ module "eks" {
       before_compute              = true
     }
 
+    eks-pod-identity-agent = {
+      addon_version               = local.eks_addons["eks-pod-identity-agent"].addon_version
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+      before_compute              = true
+    }
+
     vpc-cni = {
       addon_version               = local.eks_addons["vpc-cni"].addon_version
       resolve_conflicts_on_create = "OVERWRITE"

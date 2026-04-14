@@ -68,6 +68,42 @@ module "eks_addons" {
 }
 
 #--------------------------------------------------------------
+# EBS CSI Driver IAM — Pod Identity for ebs-csi-controller-sa
+#
+# Without this, the controller pod falls back to node role which
+# lacks ec2:DescribeAvailabilityZones → addon stays CREATE_FAILED.
+#--------------------------------------------------------------
+resource "aws_iam_role" "ebs_csi" {
+  name        = "${local.platform_name}-${local.env}-ebs-csi-driver"
+  description = "Pod Identity role for EBS CSI Driver controller in ${local.env} EKS"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "pods.eks.amazonaws.com" }
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+    }]
+  })
+
+  tags = merge(local.common_tags, { Component = "ebs-csi-driver" })
+}
+
+resource "aws_iam_role_policy_attachment" "ebs_csi" {
+  role       = aws_iam_role.ebs_csi.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+}
+
+resource "aws_eks_pod_identity_association" "ebs_csi" {
+  cluster_name    = local.eks_cluster_name
+  namespace       = "kube-system"
+  service_account = "ebs-csi-controller-sa"
+  role_arn        = aws_iam_role.ebs_csi.arn
+
+  tags = merge(local.common_tags, { Component = "ebs-csi-driver" })
+}
+
+#--------------------------------------------------------------
 # Wazuh Agent IAM — Pod Identity for the DaemonSet in bc-prd
 #
 # The Agent DaemonSet needs:
@@ -167,4 +203,9 @@ output "external_secrets_role_arn" {
 output "wazuh_agent_role_arn" {
   description = "IAM role ARN assumed by the Wazuh Agent DaemonSet pods via Pod Identity"
   value       = aws_iam_role.wazuh_agent.arn
+}
+
+output "ebs_csi_role_arn" {
+  description = "IAM role ARN assumed by the EBS CSI Driver controller via Pod Identity"
+  value       = aws_iam_role.ebs_csi.arn
 }
