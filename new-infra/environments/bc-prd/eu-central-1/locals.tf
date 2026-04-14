@@ -49,7 +49,7 @@ locals {
   eks_endpoint_private_access = true
   eks_enable_irsa             = true
   eks_deletion_protection     = true
-  deploy_security_helm        = true
+  deploy_security_helm        = false   # requires VPC connectivity — apply from bastion/SSM, not CI
 
   #--------------------------------------------------------------
   # EKS Node Groups — Production Spoke

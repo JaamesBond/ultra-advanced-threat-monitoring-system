@@ -57,7 +57,7 @@ locals {
   eks_endpoint_private_access = true
   eks_enable_irsa             = true
   eks_deletion_protection     = true
-  deploy_security_helm        = true
+  deploy_security_helm        = false   # requires VPC connectivity — apply from bastion/SSM, not CI
 
   eks_node_group_defaults = {
     ami_type       = "AL2023_x86_64_STANDARD"
