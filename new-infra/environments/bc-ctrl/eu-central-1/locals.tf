@@ -152,14 +152,6 @@ locals {
     coredns = {
       addon_version = "v1.13.2-eksbuild.4"
     }
-    aws-ebs-csi-driver = {
-      addon_version             = "v1.54.0-eksbuild.1"
-      use_pod_identity          = true
-      iam_policy_type           = "managed"
-      iam_policy_arn            = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
-      service_account_namespace = "kube-system"
-      service_account_name      = "ebs-csi-controller-sa"
-    }
     amazon-cloudwatch-observability = {
       addon_version             = "v4.8.0-eksbuild.1"
       use_pod_identity          = true

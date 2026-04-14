@@ -11,11 +11,6 @@ import {
   id = "bc-prd-eks:coredns"
 }
 
-import {
-  to = module.eks.aws_eks_addon.this["aws-ebs-csi-driver"]
-  id = "bc-prd-eks:aws-ebs-csi-driver"
-}
-
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 21.0"
@@ -56,12 +51,6 @@ module "eks" {
 
     coredns = {
       addon_version               = local.eks_addons["coredns"].addon_version
-      resolve_conflicts_on_create = "OVERWRITE"
-      resolve_conflicts_on_update = "OVERWRITE"
-    }
-
-    aws-ebs-csi-driver = {
-      addon_version               = local.eks_addons["aws-ebs-csi-driver"].addon_version
       resolve_conflicts_on_create = "OVERWRITE"
       resolve_conflicts_on_update = "OVERWRITE"
     }
