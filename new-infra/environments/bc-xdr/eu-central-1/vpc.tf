@@ -126,6 +126,22 @@ resource "aws_ec2_transit_gateway_route" "spoke_default_via_xdr" {
 }
 
 #--------------------------------------------------------------
+# Return routes on PUBLIC subnet route table
+# NAT GW lives in the public subnet. After de-NAT, response packets
+# have a spoke destination (10.30.x.x). Without this route the
+# packet hits 0.0.0.0/0 → IGW, which drops private IPs.
+#--------------------------------------------------------------
+resource "aws_route" "public_to_prd" {
+  count = length(module.vpc.public_route_table_ids)
+
+  route_table_id         = module.vpc.public_route_table_ids[count.index]
+  destination_cidr_block = local.prd_vpc_cidr
+  transit_gateway_id     = local.tgw_id
+
+  depends_on = [aws_ec2_transit_gateway_vpc_attachment.this]
+}
+
+#--------------------------------------------------------------
 # Cross-VPC routes on private subnet route tables
 # (vpc module already adds 0.0.0.0/0 → NAT GW for private subnets)
 #--------------------------------------------------------------
