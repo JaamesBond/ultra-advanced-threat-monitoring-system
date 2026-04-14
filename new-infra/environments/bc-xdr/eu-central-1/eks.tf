@@ -7,7 +7,7 @@
 # No EKS in XDR VPC. Security pipeline runs in bc-ctrl + bc-prd.
 #
 # Access: SSM Session Manager only (no SSH key, no public IP)
-# Zeek + Vector (CloudWatch) deployed via Docker in user_data.
+# Zeek + Suricata + Vector (CloudWatch) + Wazuh Agent deployed via Docker/apt in user_data.
 #--------------------------------------------------------------
 
 data "aws_ami" "ubuntu_xdr" {
