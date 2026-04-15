@@ -17,27 +17,18 @@ locals {
   }
 
   #--------------------------------------------------------------
-  # Networking — Production Spoke VPC
-  # ZERO public subnets. No IGW. No NAT Gateway.
-  # All egress routes via TGW → XDR Infrastructure VPC.
+  # Networking — Production VPC
+  # Private subnets only. No IGW, no NAT.
+  # AWS API access via VPC endpoints. Cross-VPC via peering to bc-ctrl.
   #--------------------------------------------------------------
   vpc_cidr           = "10.30.0.0/16"
-  availability_zones = ["eu-central-1a", "eu-central-1b", "eu-central-1c"]
+  availability_zones = ["eu-central-1a"]
 
-  subnet_cidr_private = ["10.30.10.0/24", "10.30.11.0/24", "10.30.12.0/24"]
-  subnet_cidr_tgw     = ["10.30.240.0/28", "10.30.240.16/28", "10.30.240.32/28"]
+  subnet_cidr_private = ["10.30.10.0/24"]
 
   flowlog_traffic_type         = "ALL"
   flowlog_aggregation_interval = 60
 
-  #--------------------------------------------------------------
-  # Transit Gateway — Production goes on spoke-rt
-  #--------------------------------------------------------------
-  tgw_id        = data.terraform_remote_state.tgw.outputs.tgw_id
-  tgw_rt_id     = data.terraform_remote_state.tgw.outputs.spoke_rt_id
-  tgw_shared_rt = data.terraform_remote_state.tgw.outputs.shared_rt_id
-
-  xdr_vpc_cidr  = "10.11.0.0/16"
   ctrl_vpc_cidr = "10.0.0.0/16"
 
   #--------------------------------------------------------------
@@ -74,9 +65,9 @@ locals {
     # Application workloads + Cilium/Falco/Tetragon DaemonSets
     # Spot node group omitted — not in scope for this test stage
     workload = {
-      min_size       = 1
+      min_size       = 2
       max_size       = 3
-      desired_size   = 1
+      desired_size   = 2
       instance_types = ["t3.large"]
       labels         = { "role" = "workload" }
       iam_role_additional_policies = {
@@ -133,11 +124,11 @@ locals {
   }
 }
 
-data "terraform_remote_state" "tgw" {
+data "terraform_remote_state" "ctrl" {
   backend = "s3"
   config = {
     bucket = "bc-uatms-terraform-state"
-    key    = "shared/transit-gateway/terraform.tfstate"
+    key    = "environments/bc-ctrl/terraform.tfstate"
     region = "eu-central-1"
   }
 }

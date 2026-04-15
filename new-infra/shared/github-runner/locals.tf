@@ -10,25 +10,17 @@ locals {
   }
 
   #--------------------------------------------------------------
-  # Runner instances — one per VPC that needs K8s API access
-  #
-  # Each runner registers with GitHub using a PAT stored in
-  # Secrets Manager at bc/github/runnerpat. The user data
-  # script fetches it at boot, requests a registration token,
-  # and installs the runner as a systemd service.
+  # Single runner in bc-ctrl VPC.
+  # Labels include bc-prd so this runner handles both ctrl and prd
+  # Terraform jobs. It reaches bc-prd EKS via VPC peering.
   #--------------------------------------------------------------
   runners = {
     ctrl = {
       vpc_state_key = "environments/bc-ctrl/terraform.tfstate"
-      labels        = "self-hosted,linux,bc-ctrl"
-    }
-    prd = {
-      vpc_state_key = "environments/bc-prd/terraform.tfstate"
-      labels        = "self-hosted,linux,bc-prd"
+      labels        = "self-hosted,linux,bc-ctrl,bc-prd"
     }
   }
 
-  # GitHub repo where the runner registers
   github_owner = "JaamesBond"
   github_repo  = "ultra-advanced-threat-monitoring-system"
 }

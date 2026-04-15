@@ -12,7 +12,7 @@ on:
         required: false
         default: "all"
         type: choice
-        options: [all, tgw, xdr, ctrl, prd, runner]
+        options: [all, ctrl, prd]
 
 permissions:
   contents: read
@@ -26,110 +26,13 @@ env:
 
 jobs:
   # ---------------------------------------------------------------
-  # Step 1a: Transit Gateway (must run first)
-  # ---------------------------------------------------------------
-  deploy-tgw:
-    name: "Deploy — Transit Gateway"
-    runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.environment == 'all' || github.event.inputs.environment == 'tgw' || github.event_name == 'push' }}
-    defaults:
-      run:
-        working-directory: new-infra/shared/transit-gateway
-    steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      - run: terraform init
-      - run: terraform validate
-      - run: terraform plan -out=tfplan -no-color
-      - run: terraform apply -auto-approve tfplan
-
-  # ---------------------------------------------------------------
-  # Step 1b: GitHub Actions runners (parallel with TGW)
-  # Pure AWS API — runs on ubuntu-latest, no K8s access needed.
-  # ---------------------------------------------------------------
-  deploy-runner:
-    name: "Deploy — GitHub Runner"
-    runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.environment == 'all' || github.event.inputs.environment == 'runner' || github.event_name == 'push' }}
-    defaults:
-      run:
-        working-directory: new-infra/shared/github-runner
-    steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      - run: terraform init
-      - run: terraform validate
-      - run: terraform plan -out=tfplan -no-color
-      - run: terraform apply -auto-approve tfplan
-
-  # ---------------------------------------------------------------
-  # Step 2: XDR VPC (depends on TGW — creates spoke default route)
-  # No EKS, no K8s API — runs on ubuntu-latest.
-  # ---------------------------------------------------------------
-  deploy-xdr:
-    name: "Deploy — bc-xdr"
-    runs-on: ubuntu-latest
-    needs: deploy-tgw
-    if: ${{ always() && !failure() && !cancelled() && (github.event.inputs.environment == 'all' || github.event.inputs.environment == 'xdr' || github.event_name == 'push') }}
-    defaults:
-      run:
-        working-directory: new-infra/environments/bc-xdr/eu-central-1
-    steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      - run: terraform init
-      - run: terraform validate
-      - run: terraform plan -out=tfplan -no-color
-      - run: terraform apply -auto-approve tfplan
-
-  # ---------------------------------------------------------------
-  # Step 2.5: Wait for self-hosted runners to register
-  # deploy-runner creates/replaces EC2 instances via Terraform but
-  # returns before the runner agent finishes booting. Sleep 90s to
-  # give the runner agent time to start and register with GitHub.
-  # Note: GITHUB_TOKEN cannot call the runners list API (requires
-  # repo admin), so a fixed sleep is used instead of polling.
-  # ---------------------------------------------------------------
-  wait-for-runners:
-    name: "Wait — self-hosted runners online"
-    runs-on: ubuntu-latest
-    needs: deploy-runner
-    if: ${{ always() && !failure() && !cancelled() && (github.event.inputs.environment == 'all' || github.event.inputs.environment == 'ctrl' || github.event.inputs.environment == 'prd' || github.event_name == 'push') }}
-    steps:
-      - name: Wait for runner agents to boot and register
-        run: sleep 240
-
-  # ---------------------------------------------------------------
-  # Steps 3 + 4: ctrl and prd in parallel
-  # Runs on self-hosted runners inside each VPC — can reach
-  # private EKS endpoints for Helm + Kubernetes resources.
+  # Step 1a: bc-ctrl infrastructure (VPC + peering + IAM)
+  # Pure AWS API — no K8s, runs on ubuntu-latest.
   # ---------------------------------------------------------------
   deploy-ctrl:
     name: "Deploy — bc-ctrl"
-    runs-on: [self-hosted, linux, bc-ctrl]
-    needs: [deploy-xdr, wait-for-runners]
-    if: ${{ always() && !failure() && !cancelled() && (github.event.inputs.environment == 'all' || github.event.inputs.environment == 'ctrl' || github.event_name == 'push') }}
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.environment == 'all' || github.event.inputs.environment == 'ctrl' || github.event_name == 'push' }}
     defaults:
       run:
         working-directory: new-infra/environments/bc-ctrl/eu-central-1
@@ -145,27 +48,31 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
       - run: terraform init
       - run: terraform validate
-      # Bootstrap CRDs: install Helm charts before full plan so that
-      # kubernetes_manifest resources (CiliumClusterwideNetworkPolicy,
-      # TracingPolicy) can be validated against the live API in the
-      # next step. No-op when deploy_*_helm = false (count = 0).
-      - name: Bootstrap CRDs (Helm charts only)
-        run: |
-          terraform apply -auto-approve -no-color \
-            -target=helm_release.cilium \
-            -target=helm_release.tetragon \
-            -target=helm_release.falco
-      # Allow 30s for new CRDs to propagate in K8s API before plan
-      # validates kubernetes_manifest resources against the live API.
-      - name: Wait for CRDs to propagate
-        run: sleep 60
       - run: terraform plan -out=tfplan -no-color
       - run: terraform apply -auto-approve tfplan
 
+  # ---------------------------------------------------------------
+  # Step 2: Wait for runner VM (created by deploy-ctrl) to boot
+  # and register with GitHub Actions.
+  # ---------------------------------------------------------------
+  wait-for-runners:
+    name: "Wait — runner online"
+    runs-on: ubuntu-latest
+    needs: deploy-ctrl
+    if: ${{ always() && !failure() && !cancelled() && (github.event.inputs.environment == 'all' || github.event.inputs.environment == 'prd' || github.event_name == 'push') }}
+    steps:
+      - name: Wait for runner agent to boot and register
+        run: sleep 240
+
+  # ---------------------------------------------------------------
+  # Step 3: bc-prd (EKS + Cilium + policies)
+  # Runs on self-hosted runner in bc-ctrl VPC.
+  # Reaches bc-prd EKS private endpoint via VPC peering.
+  # ---------------------------------------------------------------
   deploy-prd:
     name: "Deploy — bc-prd"
     runs-on: [self-hosted, linux, bc-prd]
-    needs: [deploy-xdr, wait-for-runners]
+    needs: [deploy-ctrl, wait-for-runners]
     if: ${{ always() && !failure() && !cancelled() && (github.event.inputs.environment == 'all' || github.event.inputs.environment == 'prd' || github.event_name == 'push') }}
     defaults:
       run:
@@ -182,9 +89,9 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
       - run: terraform init
       - run: terraform validate
-      # Bootstrap CRDs: same two-step pattern as deploy-ctrl.
-      # bc-prd images are pulled through ECR pull-through cache
-      # (quay/ prefix) — no direct internet egress required.
+      # Bootstrap CRDs: install Helm charts before full plan so that
+      # kubernetes_manifest resources (CiliumClusterwideNetworkPolicy,
+      # TracingPolicy) can be validated against the live API.
       - name: Bootstrap CRDs (Helm charts only)
         run: |
           terraform apply -auto-approve -no-color \
