@@ -155,6 +155,10 @@ jobs:
             -target=helm_release.cilium \
             -target=helm_release.tetragon \
             -target=helm_release.falco
+      # Allow 30s for new CRDs to propagate in K8s API before plan
+      # validates kubernetes_manifest resources against the live API.
+      - name: Wait for CRDs to propagate
+        run: sleep 30
       - run: terraform plan -out=tfplan -no-color
       - run: terraform apply -auto-approve tfplan
 
@@ -187,5 +191,7 @@ jobs:
             -target=helm_release.cilium \
             -target=helm_release.tetragon \
             -target=helm_release.falco
+      - name: Wait for CRDs to propagate
+        run: sleep 30
       - run: terraform plan -out=tfplan -no-color
       - run: terraform apply -auto-approve tfplan

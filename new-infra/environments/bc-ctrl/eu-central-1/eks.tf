@@ -87,7 +87,7 @@ resource "aws_eks_access_entry" "ci_deploy" {
 
 import {
   to = aws_eks_access_policy_association.ci_deploy_admin
-  id = "bc-ctrl-eks,arn:aws:iam::286439316079:role/GitHubActionsDeployRole,arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+  id = "bc-ctrl-eks#arn:aws:iam::286439316079:role/GitHubActionsDeployRole#arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
 }
 
 resource "aws_eks_access_policy_association" "ci_deploy_admin" {
