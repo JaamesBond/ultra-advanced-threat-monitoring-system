@@ -7,9 +7,25 @@
 # NLB defined in bc-prd/eu-central-1/traffic-mirroring.tf.
 #
 # Flux postBuild substitutes ${AWS_ACCOUNT_ID} in image references.
+#
+# configMapGenerator hashes all three config files (suricata.engine.yaml,
+# classification.config, threshold.config). Any change triggers a
+# DaemonSet rolling restart automatically.
 #--------------------------------------------------------------
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - configmap-suricata.yaml
+  - external-secrets.yaml
   - daemonset.yaml
+
+configMapGenerator:
+  - name: suricata-config
+    files:
+      - suricata.yaml=suricata.engine.yaml
+      - classification.config=classification.config
+      - threshold.config=threshold.config
+
+generatorOptions:
+  disableNameSuffixHash: false
+  annotations:
+    app.kubernetes.io/managed-by: kustomize

@@ -1,0 +1,71 @@
+#--------------------------------------------------------------
+# MISP — Redis 7 Deployment
+#
+# Used by MISP for session storage, caching, and job queues.
+# Single replica; data is ephemeral (no PVC needed — MISP
+# rebuilds its Redis cache on restart without data loss).
+#
+# Deployed to: bc-ctrl EKS cluster, namespace "misp"
+# Nodegroup:   security (taint: dedicated=security:NoSchedule)
+#--------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: misp-redis
+  namespace: misp
+  labels:
+    app: misp-redis
+    app.kubernetes.io/component: threat-intel-cache
+    app.kubernetes.io/part-of: xdr-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: misp-redis
+  template:
+    metadata:
+      labels:
+        app: misp-redis
+        app.kubernetes.io/component: threat-intel-cache
+    spec:
+      nodeSelector:
+        role: security
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: security
+          effect: NoSchedule
+
+      containers:
+        - name: redis
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/redis:7-alpine
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: redis
+              containerPort: 6379
+
+          command:
+            - redis-server
+            - --save ""          # disable RDB persistence (MISP cache — no need to persist)
+            - --appendonly no
+
+          livenessProbe:
+            exec:
+              command: [redis-cli, ping]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          readinessProbe:
+            exec:
+              command: [redis-cli, ping]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

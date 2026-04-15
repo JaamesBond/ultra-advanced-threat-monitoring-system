@@ -1,0 +1,176 @@
+#--------------------------------------------------------------
+# MISP Core — Deployment
+#
+# DEPLOYED TO: bc-ctrl EKS cluster, namespace "misp"
+# Nodegroup:   security (m6a.xlarge, taint: dedicated=security)
+#
+# Image: ghcr.io/misp/misp-docker/misp-core (via ECR ghcr/ pull-through)
+# Runs HTTPS on port 443 with a self-generated certificate.
+#
+# First boot takes 3-5 minutes while MISP initialises its DB schema.
+# After first login (admin@bigchemistry.internal / MISP_ADMIN_PASSPHRASE):
+#   Administration → List Auth Keys → add key → copy to update-fill-in-secrets.sh
+#
+# MISP_URL for consumers: https://misp.bc-ctrl.internal
+#   Wazuh manager sidecar  — in-cluster → same URL, curl -k
+#   Suricata misp-rule-sync — bc-prd, via TGW → curl -k
+#   Zeek intel sync         — bc-xdr EC2, via TGW → curl -k
+#--------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: misp-core
+  namespace: misp
+  labels:
+    app: misp-core
+    app.kubernetes.io/component: threat-intel
+    app.kubernetes.io/part-of: xdr-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: misp-core
+  # Recreate instead of RollingUpdate — MISP has a single writer to its
+  # files volume; two pods running simultaneously can corrupt the DB.
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: misp-core
+        app.kubernetes.io/component: threat-intel
+    spec:
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 60
+
+      nodeSelector:
+        role: security
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: security
+          effect: NoSchedule
+
+      #------------------------------------------------------------
+      # Wait for MySQL to be ready before starting MISP
+      #------------------------------------------------------------
+      initContainers:
+        - name: wait-for-mysql
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for misp-mysql:3306..."
+              until nc -z misp-mysql.misp.svc.cluster.local 3306 2>/dev/null; do
+                sleep 3
+              done
+              echo "MySQL ready"
+
+      #------------------------------------------------------------
+      # Main container
+      #------------------------------------------------------------
+      containers:
+        - name: misp-core
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/ghcr/misp/misp-docker/misp-core:latest
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: https
+              containerPort: 443
+
+          env:
+            # Database
+            - name: MYSQL_HOST
+              value: "misp-mysql.misp.svc.cluster.local"
+            - name: MYSQL_PORT
+              value: "3306"
+            - name: MYSQL_USER
+              value: "misp"
+            - name: MYSQL_DATABASE
+              value: "misp"
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: misp-secrets
+                  key: MYSQL_PASSWORD
+
+            # Redis
+            - name: REDIS_HOST
+              value: "misp-redis.misp.svc.cluster.local"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_FQDN
+              value: "misp-redis.misp.svc.cluster.local"
+
+            # MISP identity
+            - name: MISP_BASEURL
+              value: "https://misp.bc-ctrl.internal"
+            - name: MISP_ORG
+              value: "BigChemistry"
+            - name: TIMEZONE
+              value: "Europe/Berlin"
+
+            # Admin credentials (used on first-boot database init only)
+            - name: MISP_ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: misp-secrets
+                  key: MISP_ADMIN_EMAIL
+            - name: MISP_ADMIN_PASSPHRASE
+              valueFrom:
+                secretKeyRef:
+                  name: misp-secrets
+                  key: MISP_ADMIN_PASSPHRASE
+
+            # Security salt — required for session security
+            - name: SECURITY_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: misp-secrets
+                  key: SECURITY_SALT
+
+          # First boot schema init takes 3-5 min; generous startup probe
+          startupProbe:
+            httpGet:
+              path: /users/login
+              port: 443
+              scheme: HTTPS
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 20     # 60s + 20×15s = ~5 min total window
+
+          livenessProbe:
+            httpGet:
+              path: /users/login
+              port: 443
+              scheme: HTTPS
+            initialDelaySeconds: 0
+            periodSeconds: 30
+            failureThreshold: 4
+
+          readinessProbe:
+            httpGet:
+              path: /users/login
+              port: 443
+              scheme: HTTPS
+            initialDelaySeconds: 0
+            periodSeconds: 15
+            failureThreshold: 3
+
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+
+          volumeMounts:
+            - name: misp-files
+              mountPath: /var/www/MISP/app/files
+
+      volumes:
+        - name: misp-files
+          persistentVolumeClaim:
+            claimName: misp-files

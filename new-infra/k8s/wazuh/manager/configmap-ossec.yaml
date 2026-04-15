@@ -420,30 +420,7 @@ data:
       </integration>
 
       <!--========================================================
-           17. INTEGRATION: MISP (Threat Intel)
-           Reachable via TGW shared-rt → bc-xdr.
-           Posts matched IOCs back to MISP for correlation.
-      =========================================================-->
-      <integration>
-        <name>custom-misp</name>
-        <hook_url>https://misp.bc-xdr.internal/events/restSearch</hook_url>
-        <api_key>PLACEHOLDER_MISP_API_KEY</api_key>
-        <alert_format>json</alert_format>
-        <level>5</level>
-      </integration>
-
-      <!--========================================================
-           18. INTEGRATION: Slack (critical alerts only)
-      =========================================================-->
-      <integration>
-        <name>slack</name>
-        <hook_url>PLACEHOLDER_SLACK_WEBHOOK_URL</hook_url>
-        <alert_format>json</alert_format>
-        <level>12</level>
-      </integration>
-
-      <!--========================================================
-           19. ACTIVE RESPONSE — automated containment
+           17. ACTIVE RESPONSE — automated containment
       =========================================================-->
       <active-response>
         <disabled>no</disabled>

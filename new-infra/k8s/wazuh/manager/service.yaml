@@ -76,7 +76,9 @@ metadata:
     service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
     service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
     service.beta.kubernetes.io/aws-load-balancer-ip-address-type: ipv4
-    service.beta.kubernetes.io/aws-load-balancer-proxy-protocol: "*"
+    # PROXY protocol intentionally OMITTED — Wazuh agentd does not speak
+    # PROXY protocol on ports 1514/1515. Enabling it causes agents to receive
+    # a PROXY header they cannot parse, breaking all agent connections.
     service.beta.kubernetes.io/aws-load-balancer-backend-protocol: tcp
     service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: tcp
     service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: "1514"

@@ -81,7 +81,7 @@ spec:
         app: suricata
         app.kubernetes.io/component: nids
       annotations:
-        checksum/config: "PLACEHOLDER_CONFIGMAP_SHA"
+        # Rolling restart on config change handled by configMapGenerator.
         # Scrape Suricata stats via promtail/prometheus if later added
         prometheus.io/scrape: "false"
     spec:
@@ -126,6 +126,15 @@ spec:
                 --output /var/lib/suricata/rules \
                 --no-test \
                 --force
+              # Stub files — Suricata will error on startup if any
+              # rule-file listed in suricata.yaml is missing.
+              # misp.rules is populated by the misp-rule-sync sidecar.
+              # bc-custom.rules and bc-k8s.rules are managed manually.
+              for f in misp.rules bc-custom.rules bc-k8s.rules; do
+                [ -f /var/lib/suricata/rules/$f ] || \
+                  touch /var/lib/suricata/rules/$f && \
+                  echo "Created stub: $f"
+              done
               echo "Rules loaded:"
               ls -la /var/lib/suricata/rules/
           volumeMounts:
@@ -263,6 +272,134 @@ spec:
                   - |
                     suricatasc -c shutdown /var/run/suricata/suricata-command.socket 2>/dev/null || \
                     kill -TERM 1
+
+        #--------------------------------------------------------------
+        # Sidecar — MISP IOC → Suricata rules (every 1h)
+        #
+        # Queries MISP for published network IOCs (ip-dst, domain,
+        # url, md5, sha1, sha256) and converts them to Suricata rules
+        # written to /var/lib/suricata/rules/misp.rules.
+        # After writing, sends reload-rules via suricatasc so the new
+        # rules are active without restarting the engine.
+        #
+        # SID block 9000000–9999999 is reserved for MISP-generated
+        # rules so they never collide with ET Open (1–2999999) or
+        # custom bc rules (10000000+).
+        #--------------------------------------------------------------
+        - name: misp-rule-sync
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/alpine:3.20
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              apk add --no-cache curl jq >/dev/null
+
+              echo "MISP rule sync sidecar started (interval: 1h)"
+              RULES_FILE=/var/lib/suricata/rules/misp.rules
+              SOCKET=/var/run/suricata/suricata-command.socket
+
+              # Install suricatasc if not present in this image
+              # (shared rules volume; suricatasc binary from main container not available here)
+              # Use socket directly with a raw JSON command instead.
+              reload_rules() {
+                if [ -S "$SOCKET" ]; then
+                  # suricatasc protocol: send JSON command, read response
+                  echo '{"command":"reload-rules"}' | \
+                    nc -U "$SOCKET" 2>/dev/null | grep -q '"return":"OK"' && \
+                    echo "Suricata rules reloaded" || \
+                    echo "reload-rules command failed (non-fatal)"
+                else
+                  echo "Suricata command socket not found, skipping reload"
+                fi
+              }
+
+              generate_rules() {
+                SID=9000001
+                TMP=$(mktemp)
+
+                # ip-dst → drop/alert rule
+                curl -sfk \
+                  -H "Authorization: ${MISP_API_KEY}" \
+                  -H "Accept: application/json" \
+                  -H "Content-Type: application/json" \
+                  -d '{"returnFormat":"values","type":"ip-dst","to_ids":1,"published":1}' \
+                  "${MISP_URL}/attributes/restSearch" \
+                | jq -r '.response.Attribute[]?.value // empty' \
+                | sort -u \
+                | while read -r ip; do
+                    echo "alert ip any any -> ${ip} any (msg:\"MISP IOC match - dst IP ${ip}\"; sid:${SID}; rev:1; classtype:domain-c2;)"
+                    SID=$((SID+1))
+                  done >> "$TMP"
+
+                # domain → DNS query rule
+                curl -sfk \
+                  -H "Authorization: ${MISP_API_KEY}" \
+                  -H "Accept: application/json" \
+                  -H "Content-Type: application/json" \
+                  -d '{"returnFormat":"values","type":"domain","to_ids":1,"published":1}' \
+                  "${MISP_URL}/attributes/restSearch" \
+                | jq -r '.response.Attribute[]?.value // empty' \
+                | sort -u \
+                | while read -r dom; do
+                    safe=$(echo "$dom" | sed 's/\./\\./g')
+                    echo "alert dns any any -> any 53 (msg:\"MISP IOC match - domain ${dom}\"; dns.query; content:\"${dom}\"; nocase; sid:${SID}; rev:1; classtype:domain-c2;)"
+                    SID=$((SID+1))
+                  done >> "$TMP"
+
+                # file hashes → filedata rules
+                for htype in md5 sha1 sha256; do
+                  curl -sfk \
+                    -H "Authorization: ${MISP_API_KEY}" \
+                    -H "Accept: application/json" \
+                    -H "Content-Type: application/json" \
+                    -d "{\"returnFormat\":\"values\",\"type\":\"${htype}\",\"to_ids\":1,\"published\":1}" \
+                    "${MISP_URL}/attributes/restSearch" \
+                  | jq -r '.response.Attribute[]?.value // empty' \
+                  | sort -u \
+                  | while read -r hash; do
+                      echo "alert http any any -> any any (msg:\"MISP IOC match - ${htype} ${hash}\"; filemd5:${hash}; sid:${SID}; rev:1; classtype:credential-theft;)"
+                      SID=$((SID+1))
+                    done >> "$TMP"
+                done
+
+                mv "$TMP" "$RULES_FILE"
+                echo "[$(date -Iseconds)] MISP rules written: $(wc -l < "$RULES_FILE") rules"
+              }
+
+              # Initial generation at startup
+              generate_rules || echo "Initial MISP rule generation failed, empty file retained"
+              reload_rules
+
+              while true; do
+                sleep 3600  # 1h
+                generate_rules || echo "MISP rule generation failed, keeping previous rules"
+                reload_rules
+              done
+
+          env:
+            - name: MISP_URL
+              value: "https://misp.bc-ctrl.internal"
+            - name: MISP_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: suricata-misp-secret
+                  key: MISP_API_KEY
+
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+
+          volumeMounts:
+            - name: rules
+              mountPath: /var/lib/suricata
+            - name: run
+              mountPath: /var/run/suricata
 
         #--------------------------------------------------------------
         # Sidecar — rule refresher

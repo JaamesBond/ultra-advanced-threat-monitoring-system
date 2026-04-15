@@ -1,0 +1,185 @@
+#--------------------------------------------------------------
+# Wazuh Manager — Active-Response scripts ConfigMap
+#
+# DEPLOYED TO: bc-ctrl EKS cluster, namespace "wazuh"
+#
+# Two custom scripts that extend Wazuh's built-in active response:
+#
+#   enforcement-api-isolate.sh   — Level 12+ alerts
+#     Calls the Enforcement API (FastAPI, bc-ctrl/platform nodegroup)
+#     to quarantine a host by modifying AWS SGs / NACLs / WAF rules
+#     via boto3. Permanent (timeout=0 in ossec.conf means no undo).
+#
+#   enforcement-api-block-ioc.sh — MISP IOC hit (rules 100200-100202)
+#     Calls the Enforcement API to block a specific IP/domain at the
+#     AWS WAF + NACL level. Automatically reverses after 24h (86400s).
+#
+# Both scripts are copied into /var/ossec/active-response/bin/ by
+# the copy-ar-scripts initContainer in the manager StatefulSet.
+# They must be executable (chmod 0750) — handled by the initContainer.
+#
+# Enforcement API endpoint:
+#   http://enforcement-api.platform.svc.cluster.local:8080
+#   Auth: Bearer token from wazuh-manager-secrets (ENFORCEMENT_API_TOKEN)
+#--------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wazuh-active-response-scripts
+  namespace: wazuh
+  labels:
+    app: wazuh-manager
+    app.kubernetes.io/component: siem-manager
+    app.kubernetes.io/part-of: xdr-platform
+data:
+  enforcement-api-isolate.sh: |
+    #!/bin/bash
+    # Wazuh active-response: isolate a host via the Enforcement API.
+    #
+    # Called by Wazuh Manager for level 12+ alerts.
+    # Input (stdin): JSON alert document from Wazuh.
+    # The script extracts srcip from the alert and calls the
+    # Enforcement API to quarantine it at the AWS network layer.
+    #
+    # Exit codes: 0 = success, 1 = failure (Wazuh will log the error).
+    set -euo pipefail
+
+    ENFORCEMENT_API="http://enforcement-api.platform.svc.cluster.local:8080"
+    TOKEN_FILE="/var/ossec/etc/enforcement-api-token"
+
+    log() { logger -t wazuh-ar-isolate "$*"; }
+
+    # Read the full alert JSON from stdin (Wazuh passes it via pipe)
+    ALERT=$(cat)
+
+    # Extract source IP — prefer data.srcip, fall back to agent.ip
+    SRC_IP=$(echo "$ALERT" | python3 -c "
+    import sys, json
+    a = json.load(sys.stdin)
+    print(
+        a.get('data', {}).get('srcip')
+        or a.get('data', {}).get('src_ip')
+        or a.get('agent', {}).get('ip')
+        or ''
+    )
+    " 2>/dev/null || echo "")
+
+    AGENT_ID=$(echo "$ALERT" | python3 -c "
+    import sys, json
+    a = json.load(sys.stdin)
+    print(a.get('agent', {}).get('id', ''))
+    " 2>/dev/null || echo "")
+
+    RULE_ID=$(echo "$ALERT" | python3 -c "
+    import sys, json
+    a = json.load(sys.stdin)
+    print(a.get('rule', {}).get('id', ''))
+    " 2>/dev/null || echo "")
+
+    if [ -z "$SRC_IP" ]; then
+      log "ERROR: could not extract source IP from alert, aborting"
+      exit 1
+    fi
+
+    TOKEN=$(cat "$TOKEN_FILE" 2>/dev/null || echo "")
+    if [ -z "$TOKEN" ]; then
+      log "ERROR: Enforcement API token not found at $TOKEN_FILE"
+      exit 1
+    fi
+
+    log "Isolating $SRC_IP (agent=$AGENT_ID rule=$RULE_ID)"
+
+    HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" \
+      -X POST "${ENFORCEMENT_API}/v1/isolate" \
+      -H "Authorization: Bearer ${TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"ip\": \"${SRC_IP}\",
+        \"agent_id\": \"${AGENT_ID}\",
+        \"rule_id\": \"${RULE_ID}\",
+        \"reason\": \"wazuh-active-response-level12\"
+      }" 2>/dev/null || echo "000")
+
+    if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+      log "SUCCESS: $SRC_IP isolated (HTTP $HTTP_CODE)"
+      exit 0
+    else
+      log "ERROR: Enforcement API returned HTTP $HTTP_CODE for $SRC_IP"
+      exit 1
+    fi
+
+  enforcement-api-block-ioc.sh: |
+    #!/bin/bash
+    # Wazuh active-response: block a MISP IOC match via Enforcement API.
+    #
+    # Triggered for rules 100200 (IP IOC), 100201 (domain IOC),
+    # 100202 (hash IOC). Timeout = 86400s (24h auto-reversal).
+    #
+    # Exit codes: 0 = success, 1 = failure.
+    set -euo pipefail
+
+    ENFORCEMENT_API="http://enforcement-api.platform.svc.cluster.local:8080"
+    TOKEN_FILE="/var/ossec/etc/enforcement-api-token"
+
+    log() { logger -t wazuh-ar-block-ioc "$*"; }
+
+    ALERT=$(cat)
+
+    IOC_VALUE=$(echo "$ALERT" | python3 -c "
+    import sys, json
+    a = json.load(sys.stdin)
+    # MISP IOC decoder puts the matched IOC in data.ioc or data.srcip
+    print(
+        a.get('data', {}).get('ioc')
+        or a.get('data', {}).get('srcip')
+        or a.get('data', {}).get('domain')
+        or ''
+    )
+    " 2>/dev/null || echo "")
+
+    RULE_ID=$(echo "$ALERT" | python3 -c "
+    import sys, json
+    a = json.load(sys.stdin)
+    print(a.get('rule', {}).get('id', ''))
+    " 2>/dev/null || echo "")
+
+    # Map rule to IOC type
+    case "$RULE_ID" in
+      100200) IOC_TYPE="ip" ;;
+      100201) IOC_TYPE="domain" ;;
+      100202) IOC_TYPE="hash" ;;
+      *)      IOC_TYPE="unknown" ;;
+    esac
+
+    if [ -z "$IOC_VALUE" ]; then
+      log "ERROR: could not extract IOC value from alert (rule=$RULE_ID)"
+      exit 1
+    fi
+
+    TOKEN=$(cat "$TOKEN_FILE" 2>/dev/null || echo "")
+    if [ -z "$TOKEN" ]; then
+      log "ERROR: Enforcement API token not found at $TOKEN_FILE"
+      exit 1
+    fi
+
+    log "Blocking IOC type=$IOC_TYPE value=$IOC_VALUE (rule=$RULE_ID)"
+
+    HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" \
+      -X POST "${ENFORCEMENT_API}/v1/block-ioc" \
+      -H "Authorization: Bearer ${TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"ioc_type\": \"${IOC_TYPE}\",
+        \"ioc_value\": \"${IOC_VALUE}\",
+        \"rule_id\": \"${RULE_ID}\",
+        \"ttl_seconds\": 86400,
+        \"reason\": \"wazuh-misp-ioc-match\"
+      }" 2>/dev/null || echo "000")
+
+    if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+      log "SUCCESS: IOC $IOC_VALUE blocked (HTTP $HTTP_CODE)"
+      exit 0
+    else
+      log "ERROR: Enforcement API returned HTTP $HTTP_CODE for IOC $IOC_VALUE"
+      exit 1
+    fi

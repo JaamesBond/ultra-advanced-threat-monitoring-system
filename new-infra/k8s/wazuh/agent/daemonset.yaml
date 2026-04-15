@@ -47,7 +47,7 @@ spec:
         app: wazuh-agent
         app.kubernetes.io/component: siem-agent
       annotations:
-        checksum/config: "PLACEHOLDER_CONFIGMAP_SHA"
+        # Rolling restart on config change handled by configMapGenerator.
     spec:
       serviceAccountName: wazuh-agent
       terminationGracePeriodSeconds: 60
