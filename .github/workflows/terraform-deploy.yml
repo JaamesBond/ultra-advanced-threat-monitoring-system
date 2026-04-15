@@ -145,6 +145,16 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
       - run: terraform init
       - run: terraform validate
+      # Bootstrap CRDs: install Helm charts before full plan so that
+      # kubernetes_manifest resources (CiliumClusterwideNetworkPolicy,
+      # TracingPolicy) can be validated against the live API in the
+      # next step. No-op when deploy_*_helm = false (count = 0).
+      - name: Bootstrap CRDs (Helm charts only)
+        run: |
+          terraform apply -auto-approve -no-color \
+            -target=helm_release.cilium \
+            -target=helm_release.tetragon \
+            -target=helm_release.falco
       - run: terraform plan -out=tfplan -no-color
       - run: terraform apply -auto-approve tfplan
 
@@ -168,5 +178,14 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
       - run: terraform init
       - run: terraform validate
+      # Bootstrap CRDs: same two-step pattern as deploy-ctrl.
+      # bc-prd images are pulled through ECR pull-through cache
+      # (quay/ prefix) — no direct internet egress required.
+      - name: Bootstrap CRDs (Helm charts only)
+        run: |
+          terraform apply -auto-approve -no-color \
+            -target=helm_release.cilium \
+            -target=helm_release.tetragon \
+            -target=helm_release.falco
       - run: terraform plan -out=tfplan -no-color
       - run: terraform apply -auto-approve tfplan
