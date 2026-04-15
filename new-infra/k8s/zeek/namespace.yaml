@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: zeek
+  labels:
+    name: zeek
+    app.kubernetes.io/part-of: xdr-platform
+    customer: big-chemistry
+    environment: prd
