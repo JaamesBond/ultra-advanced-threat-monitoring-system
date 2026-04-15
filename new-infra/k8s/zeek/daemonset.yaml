@@ -1,0 +1,244 @@
+#--------------------------------------------------------------
+# Zeek — Network Security Monitor DaemonSet
+#
+# Deployed to: bc-prd EKS cluster, namespace "zeek"
+# Nodegroup:   workload (no taints — no tolerations needed)
+#
+# Pod structure:
+#   initContainer  init-intel      — seeds empty intel file so Zeek starts clean
+#   main           zeek            — network sensor, JSON logs → /var/log/zeek
+#   sidecar        misp-intel-sync — pulls MISP IOCs every 1h, writes Zeek Intel format
+#
+# Requires hostNetwork + NET_RAW/NET_ADMIN to capture eth0 traffic.
+# Logs written to /var/log/zeek hostPath — Wazuh agent DaemonSet
+# reads them via its existing /var/log → /hostfs/var/log hostPath mount.
+#--------------------------------------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: zeek
+  namespace: zeek
+  labels:
+    app: zeek
+    app.kubernetes.io/part-of: xdr-platform
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: zeek
+  namespace: zeek
+  labels:
+    app: zeek
+    app.kubernetes.io/component: network-sensor
+    app.kubernetes.io/part-of: xdr-platform
+spec:
+  selector:
+    matchLabels:
+      app: zeek
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: zeek
+        app.kubernetes.io/component: network-sensor
+    spec:
+      serviceAccountName: zeek
+      terminationGracePeriodSeconds: 30
+
+      nodeSelector:
+        role: workload
+
+      tolerations: []
+
+      #--------------------------------------------------------------
+      # Host namespace — required for raw packet capture on eth0
+      #--------------------------------------------------------------
+      hostNetwork: true
+      hostPID: false
+      dnsPolicy: ClusterFirstWithHostNet
+
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+
+      #--------------------------------------------------------------
+      # Init: seed empty intel file so Zeek starts without error
+      #--------------------------------------------------------------
+      initContainers:
+        - name: init-intel
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /var/log/zeek/intel
+              if [ ! -f /var/log/zeek/intel/indicators.intel ]; then
+                printf '#fields\tindicator\tindicator_type\tmeta.source\tmeta.desc\n' \
+                  > /var/log/zeek/intel/indicators.intel
+                echo "Seeded empty intel file"
+              fi
+          volumeMounts:
+            - name: zeek-logs
+              mountPath: /var/log/zeek
+
+      containers:
+        #--------------------------------------------------------------
+        # Main — Zeek network sensor
+        #--------------------------------------------------------------
+        - name: zeek
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/zeek/zeek:7.0.5
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              # Detect primary interface (first non-loopback UP interface)
+              IFACE=$(ip -o link show up | awk -F': ' '!/lo/{print $2; exit}')
+              echo "Starting Zeek on interface: $IFACE"
+              exec zeek -i "$IFACE" -C local
+
+          securityContext:
+            runAsUser: 0
+            capabilities:
+              drop: [ALL]
+              add:
+                - NET_RAW    # raw packet capture
+                - NET_ADMIN  # promisc mode
+
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+
+          volumeMounts:
+            - name: config
+              mountPath: /usr/local/zeek/share/zeek/site/local.zeek
+              subPath: local.zeek
+              readOnly: true
+            - name: zeek-logs
+              mountPath: /var/log/zeek
+
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - test -f /var/log/zeek/conn.log || test -f /var/log/zeek/conn.00:00:00-*.log
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            failureThreshold: 3
+
+        #--------------------------------------------------------------
+        # Sidecar — MISP → Zeek Intel feed (every 1h)
+        #
+        # Queries MISP for published network IOCs and writes them in
+        # Zeek Intel format to /var/log/zeek/intel/indicators.intel.
+        # Zeek re-reads the file via the Intel framework automatically.
+        #--------------------------------------------------------------
+        - name: misp-intel-sync
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/alpine:3.20
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              apk add --no-cache curl python3 >/dev/null
+
+              INTEL_FILE="/var/log/zeek/intel/indicators.intel"
+              mkdir -p "$(dirname $INTEL_FILE)"
+
+              sync_once() {
+                echo "[$(date -Iseconds)] Syncing MISP IOCs to Zeek intel..."
+                TMP=$(mktemp)
+                printf '#fields\tindicator\tindicator_type\tmeta.source\tmeta.desc\n' > "$TMP"
+
+                # ip-dst → Intel::ADDR  (-k: MISP self-signed cert)
+                curl -sfk -H "Authorization: ${MISP_API_KEY}" \
+                  -H "Accept: application/json" -H "Content-Type: application/json" \
+                  -d '{"returnFormat":"values","type":"ip-dst","to_ids":1,"published":1}' \
+                  "${MISP_URL}/attributes/restSearch" \
+                | python3 -c "
+                import sys,json
+                for a in json.load(sys.stdin).get('response',{}).get('Attribute',[]):
+                    v=a.get('value','')
+                    if v: print(f'{v}\tIntel::ADDR\tMISP\tmisp-ip-dst')
+                " >> "$TMP"
+
+                # domain → Intel::DOMAIN
+                curl -sfk -H "Authorization: ${MISP_API_KEY}" \
+                  -H "Accept: application/json" -H "Content-Type: application/json" \
+                  -d '{"returnFormat":"values","type":"domain","to_ids":1,"published":1}' \
+                  "${MISP_URL}/attributes/restSearch" \
+                | python3 -c "
+                import sys,json
+                for a in json.load(sys.stdin).get('response',{}).get('Attribute',[]):
+                    v=a.get('value','')
+                    if v: print(f'{v}\tIntel::DOMAIN\tMISP\tmisp-domain')
+                " >> "$TMP"
+
+                # md5 → Intel::FILE_HASH
+                curl -sfk -H "Authorization: ${MISP_API_KEY}" \
+                  -H "Accept: application/json" -H "Content-Type: application/json" \
+                  -d '{"returnFormat":"values","type":"md5","to_ids":1,"published":1}' \
+                  "${MISP_URL}/attributes/restSearch" \
+                | python3 -c "
+                import sys,json
+                for a in json.load(sys.stdin).get('response',{}).get('Attribute',[]):
+                    v=a.get('value','')
+                    if v: print(f'{v}\tIntel::FILE_HASH\tMISP\tmisp-md5')
+                " >> "$TMP"
+
+                mv "$TMP" "$INTEL_FILE"
+                echo "[$(date -Iseconds)] Intel updated: $(wc -l < $INTEL_FILE) entries"
+              }
+
+              # Run once at startup
+              sync_once || echo "Initial sync failed, will retry at next interval"
+
+              while true; do
+                sleep 3600
+                sync_once || echo "Sync failed, will retry next hour"
+              done
+
+          env:
+            - name: MISP_URL
+              value: "https://misp.bc-ctrl.internal"
+            - name: MISP_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: zeek-misp-secret
+                  key: MISP_API_KEY
+
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+
+          volumeMounts:
+            - name: zeek-logs
+              mountPath: /var/log/zeek
+
+      #--------------------------------------------------------------
+      # Volumes
+      #--------------------------------------------------------------
+      volumes:
+        - name: config
+          configMap:
+            name: zeek-config
+
+        # hostPath logs — Wazuh agent DaemonSet reads via /hostfs/var/log/zeek
+        - name: zeek-logs
+          hostPath:
+            path: /var/log/zeek
+            type: DirectoryOrCreate
