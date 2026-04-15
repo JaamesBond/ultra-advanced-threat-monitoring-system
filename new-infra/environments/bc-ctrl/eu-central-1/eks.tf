@@ -64,23 +64,40 @@ module "eks" {
 
   eks_managed_node_groups = local.eks_node_groups
 
-  # Grant the GitHub Actions deploy role cluster-admin so CI can run
-  # Helm + kubernetes_manifest resources against the private API endpoint.
-  # Cluster was created by a human user — CI role has no access by default.
-  access_entries = {
-    ci_deploy = {
-      principal_arn = "arn:aws:iam::286439316079:role/GitHubActionsDeployRole"
-      type          = "STANDARD"
-      policy_associations = {
-        admin = {
-          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-          access_scope = { type = "cluster" }
-        }
-      }
-    }
-  }
-
   tags = local.common_tags
+}
+
+# Grant the GitHub Actions deploy role cluster-admin so CI can run
+# Helm + kubernetes_manifest resources against the private API endpoint.
+# Managed as standalone resources (not inside the EKS module) so we can
+# import the manually-created entry without knowing module-internal addresses.
+#
+# Import blocks bring the existing AWS resources into state on first apply.
+# Safe to leave — Terraform skips already-imported resources on subsequent runs.
+import {
+  to = aws_eks_access_entry.ci_deploy
+  id = "bc-ctrl-eks:arn:aws:iam::286439316079:role/GitHubActionsDeployRole"
+}
+
+resource "aws_eks_access_entry" "ci_deploy" {
+  cluster_name  = module.eks.cluster_name
+  principal_arn = "arn:aws:iam::286439316079:role/GitHubActionsDeployRole"
+  type          = "STANDARD"
+}
+
+import {
+  to = aws_eks_access_policy_association.ci_deploy_admin
+  id = "bc-ctrl-eks,arn:aws:iam::286439316079:role/GitHubActionsDeployRole,arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+}
+
+resource "aws_eks_access_policy_association" "ci_deploy_admin" {
+  cluster_name  = module.eks.cluster_name
+  principal_arn = aws_eks_access_entry.ci_deploy.principal_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
 }
 
 # Allow the self-hosted GitHub Actions runner (in this VPC) to reach the

@@ -64,22 +64,34 @@ module "eks" {
 
   eks_managed_node_groups = local.eks_node_groups
 
-  # Grant the GitHub Actions deploy role cluster-admin so CI can run
-  # Helm + kubernetes_manifest resources against the private API endpoint.
-  access_entries = {
-    ci_deploy = {
-      principal_arn = "arn:aws:iam::286439316079:role/GitHubActionsDeployRole"
-      type          = "STANDARD"
-      policy_associations = {
-        admin = {
-          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-          access_scope = { type = "cluster" }
-        }
-      }
-    }
-  }
-
   tags = local.common_tags
+}
+
+# Same pattern as bc-ctrl — standalone access entry with import blocks.
+import {
+  to = aws_eks_access_entry.ci_deploy
+  id = "bc-prd-eks:arn:aws:iam::286439316079:role/GitHubActionsDeployRole"
+}
+
+resource "aws_eks_access_entry" "ci_deploy" {
+  cluster_name  = module.eks.cluster_name
+  principal_arn = "arn:aws:iam::286439316079:role/GitHubActionsDeployRole"
+  type          = "STANDARD"
+}
+
+import {
+  to = aws_eks_access_policy_association.ci_deploy_admin
+  id = "bc-prd-eks,arn:aws:iam::286439316079:role/GitHubActionsDeployRole,arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+}
+
+resource "aws_eks_access_policy_association" "ci_deploy_admin" {
+  cluster_name  = module.eks.cluster_name
+  principal_arn = aws_eks_access_entry.ci_deploy.principal_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
 }
 
 # Allow the self-hosted GitHub Actions runner (in this VPC) to reach the
