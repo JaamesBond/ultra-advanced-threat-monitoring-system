@@ -118,7 +118,7 @@ jobs:
     if: ${{ always() && !failure() && !cancelled() && (github.event.inputs.environment == 'all' || github.event.inputs.environment == 'ctrl' || github.event.inputs.environment == 'prd' || github.event_name == 'push') }}
     steps:
       - name: Wait for runner agents to boot and register
-        run: sleep 90
+        run: sleep 240
 
   # ---------------------------------------------------------------
   # Steps 3 + 4: ctrl and prd in parallel
