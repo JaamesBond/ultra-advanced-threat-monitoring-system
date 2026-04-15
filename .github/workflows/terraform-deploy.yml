@@ -89,16 +89,38 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
       - run: terraform init
       - run: terraform validate
-      # Step 1: Apply SG ingress rule that allows the runner (bc-ctrl VPC,
-      # 10.0.0.0/16) to reach the EKS private API endpoint over VPC peering.
-      # Must run BEFORE the Helm provider attempts to dial the cluster —
-      # otherwise the provider init times out and the whole step exits 1.
-      - name: Open runner to EKS API security group rule
+      # Step 1: Remove any stale TGW routes that conflict with VPC peering routes.
+      # The old Transit Gateway attachments were destroyed; these orphaned routes
+      # prevent Terraform from creating the replacement peering routes (duplicate CIDR).
+      - name: Remove stale TGW routes from bc-prd private route tables
+        run: |
+          RTB_IDS=$(aws ec2 describe-route-tables \
+            --region ${{ env.AWS_REGION }} \
+            --filters \
+              "Name=vpc-id,Values=$(terraform output -raw vpc_id)" \
+              "Name=route.destination-cidr-block,Values=10.0.0.0/16" \
+            --query 'RouteTables[?Routes[?TransitGatewayId!=null && DestinationCidrBlock==`10.0.0.0/16`]].RouteTableId' \
+            --output text)
+          for RTB in $RTB_IDS; do
+            aws ec2 delete-route \
+              --route-table-id "$RTB" \
+              --destination-cidr-block 10.0.0.0/16 \
+              --region ${{ env.AWS_REGION }} \
+              && echo "Removed stale TGW route from $RTB" \
+              || echo "No stale route in $RTB"
+          done
+
+      # Step 2: Accept VPC peering from bc-ctrl and wire up return routes + SG rule.
+      # Peering must be ACTIVE before the Helm/k8s provider can dial the private
+      # EKS endpoint. Routes must exist so return traffic from EKS ENIs reaches runner.
+      - name: Accept VPC peering and apply connectivity prerequisites
         run: |
           terraform apply -auto-approve -no-color \
+            -target=aws_vpc_peering_connection_accepter.prd_accepts_ctrl \
+            -target=aws_route.private_to_ctrl \
             -target=aws_vpc_security_group_ingress_rule.eks_runner_api
 
-      # Step 2: Bootstrap CRDs — install Helm charts so that
+      # Step 3: Bootstrap CRDs — install Helm charts so that
       # kubernetes_manifest resources (CiliumClusterwideNetworkPolicy,
       # TracingPolicy) can be validated against the live API.
       - name: Bootstrap CRDs (Helm charts only)
