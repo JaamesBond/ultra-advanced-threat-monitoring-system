@@ -6,7 +6,15 @@ RUNNER_USER="runner"
 RUNNER_DIR="/opt/actions-runner"
 
 # Install dependencies
-dnf install -y jq libicu tar gzip
+dnf install -y jq libicu tar gzip unzip
+
+# Install Terraform (must match TF_VERSION in terraform-deploy.yml)
+TERRAFORM_VERSION="1.5.7"
+curl -sL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
+  -o /tmp/terraform.zip
+unzip -q /tmp/terraform.zip -d /usr/local/bin/
+chmod +x /usr/local/bin/terraform
+rm /tmp/terraform.zip
 
 # Create runner user
 useradd -m -s /bin/bash "$RUNNER_USER"
