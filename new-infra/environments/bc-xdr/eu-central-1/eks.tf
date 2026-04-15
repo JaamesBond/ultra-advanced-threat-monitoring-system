@@ -291,7 +291,7 @@ resource "aws_instance" "xdr_test" {
       -e "MISP_API_KEY=$MISP_API_KEY" \
       -v /opt/zeek/intel:/opt/zeek/intel \
       -v /opt/misp-intel-refresh.sh:/opt/misp-intel-refresh.sh:ro \
-      ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/alpine:3.20 \
+      $${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/alpine:3.20 \
       sh -c 'apk add --no-cache curl python3 >/dev/null; while true; do sleep 3600; /opt/misp-intel-refresh.sh; done'
 
     # ── Vector: ship Zeek logs to CloudWatch ────────────────────
