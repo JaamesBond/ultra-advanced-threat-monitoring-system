@@ -106,9 +106,10 @@ jobs:
   # ---------------------------------------------------------------
   # Step 2.5: Wait for self-hosted runners to register
   # deploy-runner creates/replaces EC2 instances via Terraform but
-  # returns before the runner agent finishes booting. This job
-  # polls the GitHub API (up to 10 min) until bc-ctrl and bc-prd
-  # runners report as online so deploy-ctrl/prd don't queue forever.
+  # returns before the runner agent finishes booting. Sleep 90s to
+  # give the runner agent time to start and register with GitHub.
+  # Note: GITHUB_TOKEN cannot call the runners list API (requires
+  # repo admin), so a fixed sleep is used instead of polling.
   # ---------------------------------------------------------------
   wait-for-runners:
     name: "Wait — self-hosted runners online"
@@ -116,36 +117,8 @@ jobs:
     needs: deploy-runner
     if: ${{ always() && !failure() && !cancelled() && (github.event.inputs.environment == 'all' || github.event.inputs.environment == 'ctrl' || github.event.inputs.environment == 'prd' || github.event_name == 'push') }}
     steps:
-      - name: Poll until bc-ctrl + bc-prd runners are online
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const required = ['bc-ctrl', 'bc-prd'];
-            const maxSeconds = 600;
-            const pollInterval = 15;
-
-            for (let elapsed = 0; elapsed < maxSeconds; elapsed += pollInterval) {
-              const { data } = await github.rest.actions.listSelfHostedRunnersForRepo({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                per_page: 100,
-              });
-
-              const onlineLabels = data.runners
-                .filter(r => r.status === 'online')
-                .flatMap(r => r.labels.map(l => l.name));
-
-              const missing = required.filter(l => !onlineLabels.includes(l));
-              if (missing.length === 0) {
-                core.info('All runners online: ' + required.join(', '));
-                return;
-              }
-
-              core.info(`[${elapsed}s] Still waiting for: ${missing.join(', ')}`);
-              await new Promise(r => setTimeout(r, pollInterval * 1000));
-            }
-
-            core.setFailed('Self-hosted runners did not come online within 10 minutes');
+      - name: Wait for runner agents to boot and register
+        run: sleep 90
 
   # ---------------------------------------------------------------
   # Steps 3 + 4: ctrl and prd in parallel
