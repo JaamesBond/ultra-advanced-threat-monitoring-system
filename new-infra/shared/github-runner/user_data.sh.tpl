@@ -6,7 +6,7 @@ RUNNER_USER="runner"
 RUNNER_DIR="/opt/actions-runner"
 
 # Install dependencies
-dnf install -y jq libicu tar gzip unzip
+dnf install -y jq libicu tar gzip unzip nodejs
 
 # Install Terraform (must match TF_VERSION in terraform-deploy.yml)
 TERRAFORM_VERSION="1.5.7"
