@@ -122,6 +122,8 @@ Each environment's `locals.tf` is the single source of truth for CIDRs, node gro
 - **PR → main**: `terraform-plan.yml` — runs `validate` + `plan` on all five configs in parallel (tgw, runner, xdr, ctrl, prd), posts plans as PR comments.
 - **Push → main**: `terraform-deploy.yml` — enforces: (tgw ∥ runner) → xdr → (ctrl ∥ prd). ctrl/prd run on self-hosted runners inside each VPC for private K8s API access. tgw/xdr/runner run on ubuntu-latest.
 
+**CRD bootstrap pattern** (`deploy-ctrl` + `deploy-prd`): Two-step apply to solve the chicken-and-egg between Helm charts (which install CRDs) and `kubernetes_manifest` resources (which require those CRDs at plan time). Step 1 targets only `helm_release.{cilium,tetragon,falco}` to install CRDs. Step 2 runs the full plan + apply (CRDs now exist). No-op when `deploy_*_helm = false`.
+
 Auth: GitHub OIDC → `arn:aws:iam::286439316079:role/GitHubActionsDeployRole`. No static secrets required. OIDC provider: `token.actions.githubusercontent.com`. Note: OIDC does NOT bypass SCP `p-bg731gel`.
 
 Self-hosted runner prerequisite: GitHub PAT in Secrets Manager at `bc/github/runnerpat` (repo scope).
@@ -135,7 +137,7 @@ EC2 inline inspection appliance only: `bc-xdr-test` (t3.medium, SSM-only, Zeek +
 Control plane. EKS cluster `bc-ctrl-eks` with `security` + `platform` node groups (node groups blocked by SCP `p-bg731gel`).
 
 Security stack:
-- **Cilium CNI** (`cilium.tf`): aws-cni chaining mode on top of vpc-cni. Adds eBPF network policy enforcement + Hubble L3-L7 observability. Gated by `local.deploy_cilium_helm` (default false for CI). operator on `platform` nodes.
+- **Cilium CNI** (`cilium.tf`): aws-cni chaining mode on top of vpc-cni. Adds eBPF network policy enforcement + Hubble L3-L7 observability. Gated by `local.deploy_cilium_helm`. operator on `platform` nodes.
 - **CiliumClusterwideNetworkPolicies** (`cilium-policies.tf`): default-deny with 3 exceptions (kube-system unrestricted, DNS egress, same-namespace). Gated by same flag.
 - **Tetragon** (Layer 1 SIGKILL) + **Falco** (Layer 2 detection) in `helm-security.tf`, 6 TracingPolicies in `tracing-policies.tf`. Gated by `local.deploy_security_helm` (default false for CI).
 
