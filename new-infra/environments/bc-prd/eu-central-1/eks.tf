@@ -64,20 +64,20 @@ module "eks" {
 
   eks_managed_node_groups = local.eks_node_groups
 
-  # Allow the self-hosted GitHub Actions runner (in this VPC) to reach the
-  # private EKS API endpoint for Helm + kubernetes_manifest resources.
-  cluster_security_group_additional_rules = {
-    runner_https = {
-      description = "GitHub Actions runner to EKS API"
-      protocol    = "tcp"
-      from_port   = 443
-      to_port     = 443
-      type        = "ingress"
-      cidr_blocks = [local.vpc_cidr]
-    }
-  }
-
   tags = local.common_tags
+}
+
+# Allow the self-hosted GitHub Actions runner (in this VPC) to reach the
+# private EKS API endpoint for Helm + kubernetes_manifest resources.
+resource "aws_vpc_security_group_ingress_rule" "eks_runner_api" {
+  security_group_id = module.eks.cluster_security_group_id
+  description       = "GitHub Actions runner to EKS API"
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+  cidr_ipv4         = local.vpc_cidr
+
+  tags = merge(local.common_tags, { Name = "${local.platform_name}-${local.env}-eks-runner-api" })
 }
 
 #--------------------------------------------------------------
