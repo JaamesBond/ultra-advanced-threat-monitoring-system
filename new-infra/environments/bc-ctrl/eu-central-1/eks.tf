@@ -64,6 +64,22 @@ module "eks" {
 
   eks_managed_node_groups = local.eks_node_groups
 
+  # Grant the GitHub Actions deploy role cluster-admin so CI can run
+  # Helm + kubernetes_manifest resources against the private API endpoint.
+  # Cluster was created by a human user — CI role has no access by default.
+  access_entries = {
+    ci_deploy = {
+      principal_arn = "arn:aws:iam::286439316079:role/GitHubActionsDeployRole"
+      type          = "STANDARD"
+      policy_associations = {
+        admin = {
+          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = { type = "cluster" }
+        }
+      }
+    }
+  }
+
   tags = local.common_tags
 }
 
