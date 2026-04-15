@@ -36,9 +36,10 @@ resource "helm_release" "cilium" {
   chart            = "cilium"
   version          = "1.16.6"
   create_namespace = false
-  atomic           = true
-  cleanup_on_fail  = true
-  timeout          = 1200
+  atomic           = false
+  wait             = false
+  cleanup_on_fail  = false
+  timeout          = 300
 
   # ---- CNI chaining -----------------------------------------------
   set {
