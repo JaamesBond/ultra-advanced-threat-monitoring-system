@@ -189,6 +189,10 @@ resource "aws_instance" "runner" {
     Name = "${local.name_prefix}-${each.key}"
   })
 
+  # Force destroy+create when user_data changes — avoids stop/start which
+  # times out under SCP restrictions. Available since AWS provider v4.14.
+  user_data_replace_on_change = true
+
   lifecycle {
     ignore_changes = [ami]
   }
