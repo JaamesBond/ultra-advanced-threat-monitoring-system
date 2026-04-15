@@ -98,11 +98,11 @@ resource "aws_eks_access_policy_association" "ci_deploy_admin" {
 # private EKS API endpoint for Helm + kubernetes_manifest resources.
 resource "aws_vpc_security_group_ingress_rule" "eks_runner_api" {
   security_group_id = module.eks.cluster_security_group_id
-  description       = "GitHub Actions runner to EKS API"
+  description       = "GitHub Actions runner (bc-ctrl VPC) to EKS API via peering"
   ip_protocol       = "tcp"
   from_port         = 443
   to_port           = 443
-  cidr_ipv4         = local.vpc_cidr
+  cidr_ipv4         = local.ctrl_vpc_cidr
 
   tags = merge(local.common_tags, { Name = "${local.platform_name}-${local.env}-eks-runner-api" })
 }

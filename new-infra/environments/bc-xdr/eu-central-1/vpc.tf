@@ -145,19 +145,6 @@ resource "aws_route" "public_to_prd" {
 # Cross-VPC routes on private subnet route tables
 # (0.0.0.0/0 → fck-nat ENI is managed in fck-nat.tf)
 #--------------------------------------------------------------
-# Phase 1 interim: spoke internet egress via fck-nat (replaces NAT GW)
-# Traffic from prd arrives at intra subnets via TGW — needs a default route
-# to fck-nat ENI so it can reach the internet. Phase 2 replaces this with
-# inspection-subnet routing (Suricata/Zeek inline).
-resource "aws_route" "intra_default_via_nat" {
-  count = length(module.vpc.intra_route_table_ids)
-
-  route_table_id         = module.vpc.intra_route_table_ids[count.index]
-  destination_cidr_block = "0.0.0.0/0"
-  network_interface_id   = aws_instance.fck_nat.primary_network_interface_id
-
-  depends_on = [module.vpc]
-}
 
 resource "aws_route" "private_to_ctrl" {
   count = length(module.vpc.private_route_table_ids)
