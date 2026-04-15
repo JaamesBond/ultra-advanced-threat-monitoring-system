@@ -22,9 +22,10 @@ resource "helm_release" "tetragon" {
   chart            = "tetragon"
   version          = "1.4.0"
   create_namespace = false
-  atomic           = true
-  cleanup_on_fail  = true
-  timeout          = 600
+  atomic           = false
+  wait             = false
+  cleanup_on_fail  = false
+  timeout          = 300
 
   set {
     name  = "tetragon.grpc.address"
@@ -49,9 +50,10 @@ resource "helm_release" "falco" {
   chart            = "falco"
   version          = "8.0.2"
   create_namespace = true
-  atomic           = true
-  cleanup_on_fail  = true
-  timeout          = 600
+  atomic           = false
+  wait             = false
+  cleanup_on_fail  = false
+  timeout          = 300
 
   # eBPF driver — no kernel module needed
   set {
