@@ -22,9 +22,11 @@ locals {
   # AWS API access via VPC endpoints. Cross-VPC via peering to bc-ctrl.
   #--------------------------------------------------------------
   vpc_cidr           = "10.30.0.0/16"
-  availability_zones = ["eu-central-1a"]
+  # EKS control plane requires subnets in at least 2 AZs — 1 AZ is rejected
+  # by AWS with InvalidRequestException. Keep 2 AZs as the minimum viable config.
+  availability_zones = ["eu-central-1a", "eu-central-1b"]
 
-  subnet_cidr_private = ["10.30.10.0/24"]
+  subnet_cidr_private = ["10.30.10.0/24", "10.30.11.0/24"]
 
   flowlog_traffic_type         = "ALL"
   flowlog_aggregation_interval = 60
