@@ -81,7 +81,7 @@ resource "aws_iam_instance_profile" "runner" {
 #--------------------------------------------------------------
 resource "aws_security_group" "runner" {
   name        = "${local.platform_name}-${local.env}-runner-sg"
-  description = "GitHub Actions runner — outbound only"
+  description = "GitHub Actions runner - outbound only"
   vpc_id      = module.vpc.vpc_id
 
   egress {
