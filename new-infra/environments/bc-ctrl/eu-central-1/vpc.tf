@@ -24,7 +24,7 @@ module "vpc" {
   intra_subnet_cidrs    = local.subnet_cidr_tgw
 
   create_igw             = true
-  enable_nat_gateway     = true
+  enable_nat_gateway     = false
   single_nat_gateway     = local.single_nat_gateway
   one_nat_gateway_per_az = local.one_nat_gateway_per_az
 
@@ -103,7 +103,7 @@ resource "aws_ec2_transit_gateway_route_table_propagation" "to_spoke" {
 
 #--------------------------------------------------------------
 # Cross-VPC routes on private subnet route tables
-# (private subnets already have 0.0.0.0/0 → NAT GW from the vpc module)
+# (0.0.0.0/0 → fck-nat ENI is managed in fck-nat.tf)
 #--------------------------------------------------------------
 resource "aws_route" "private_to_xdr" {
   count = length(module.vpc.private_route_table_ids)

@@ -37,7 +37,7 @@ module "vpc" {
   intra_subnet_cidrs    = local.subnet_cidr_tgw
 
   create_igw             = true
-  enable_nat_gateway     = true
+  enable_nat_gateway     = false
   single_nat_gateway     = local.single_nat_gateway
   one_nat_gateway_per_az = local.one_nat_gateway_per_az
 
@@ -143,18 +143,18 @@ resource "aws_route" "public_to_prd" {
 
 #--------------------------------------------------------------
 # Cross-VPC routes on private subnet route tables
-# (vpc module already adds 0.0.0.0/0 → NAT GW for private subnets)
+# (0.0.0.0/0 → fck-nat ENI is managed in fck-nat.tf)
 #--------------------------------------------------------------
-# Phase 1 interim: spoke internet egress via NAT GW (bypasses inspection)
+# Phase 1 interim: spoke internet egress via fck-nat (replaces NAT GW)
 # Traffic from prd arrives at intra subnets via TGW — needs a default route
-# to NAT GW so it can reach the internet. Phase 2 replaces this with
+# to fck-nat ENI so it can reach the internet. Phase 2 replaces this with
 # inspection-subnet routing (Suricata/Zeek inline).
 resource "aws_route" "intra_default_via_nat" {
   count = length(module.vpc.intra_route_table_ids)
 
   route_table_id         = module.vpc.intra_route_table_ids[count.index]
   destination_cidr_block = "0.0.0.0/0"
-  nat_gateway_id         = module.vpc.nat_gateway_ids[0]
+  network_interface_id   = aws_instance.fck_nat.primary_network_interface_id
 
   depends_on = [module.vpc]
 }
@@ -196,10 +196,6 @@ output "private_subnet_ids" {
 
 output "public_subnet_ids" {
   value = module.vpc.public_subnet_ids
-}
-
-output "nat_gateway_ids" {
-  value = module.vpc.nat_gateway_ids
 }
 
 output "tgw_attachment_id" {
