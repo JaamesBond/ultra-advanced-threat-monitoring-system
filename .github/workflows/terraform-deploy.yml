@@ -89,7 +89,16 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
       - run: terraform init
       - run: terraform validate
-      # Bootstrap CRDs: install Helm charts before full plan so that
+      # Step 1: Apply SG ingress rule that allows the runner (bc-ctrl VPC,
+      # 10.0.0.0/16) to reach the EKS private API endpoint over VPC peering.
+      # Must run BEFORE the Helm provider attempts to dial the cluster —
+      # otherwise the provider init times out and the whole step exits 1.
+      - name: Open runner to EKS API security group rule
+        run: |
+          terraform apply -auto-approve -no-color \
+            -target=aws_vpc_security_group_ingress_rule.eks_runner_api
+
+      # Step 2: Bootstrap CRDs — install Helm charts so that
       # kubernetes_manifest resources (CiliumClusterwideNetworkPolicy,
       # TracingPolicy) can be validated against the live API.
       - name: Bootstrap CRDs (Helm charts only)
