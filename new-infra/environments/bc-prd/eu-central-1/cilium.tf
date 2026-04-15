@@ -40,7 +40,7 @@ resource "helm_release" "cilium" {
   create_namespace = false
   atomic           = true
   cleanup_on_fail  = true
-  timeout          = 600
+  timeout          = 1200
 
   # ---- CNI chaining -----------------------------------------------
   set {

@@ -69,11 +69,11 @@ locals {
   }
 
   eks_node_groups = {
-    # Wazuh Manager 3-node HA (~4-6 GB each), Shuffle SOAR, DFIR-IRIS case management
+    # Wazuh Manager + Shuffle SOAR + DFIR-IRIS (2-node minimum)
     security = {
-      min_size       = 3
+      min_size       = 2
       max_size       = 6
-      desired_size   = 3
+      desired_size   = 2
       instance_types = ["t3.xlarge"]
       labels         = { "role" = "security" }
       iam_role_additional_policies = {
