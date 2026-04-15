@@ -47,7 +47,7 @@ resource "helm_release" "falco" {
   namespace        = "falco"
   repository       = "https://falcosecurity.github.io/charts"
   chart            = "falco"
-  version          = "4.25.2"
+  version          = "8.0.2"
   create_namespace = true
   atomic           = true
   cleanup_on_fail  = true
@@ -63,11 +63,6 @@ resource "helm_release" "falco" {
   set {
     name  = "falcosidekick.enabled"
     value = "true"
-  }
-
-  set {
-    name  = "falcosidekick.config.customfields"
-    value = "environment:bc-ctrl\\,cluster:bc-ctrl-eks"
   }
 
   depends_on = [module.eks]
