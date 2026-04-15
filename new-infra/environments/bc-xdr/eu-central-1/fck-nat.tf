@@ -33,11 +33,11 @@ resource "aws_security_group" "fck_nat" {
   vpc_id      = module.vpc.vpc_id
 
   ingress {
-    description = "All traffic from VPC"
+    description = "All traffic from XDR VPC and spoke VPCs routing through this NAT"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = [local.vpc_cidr]
+    cidr_blocks = [local.vpc_cidr, local.prd_vpc_cidr, local.ctrl_vpc_cidr]
   }
 
   egress {
