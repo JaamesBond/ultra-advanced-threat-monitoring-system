@@ -42,8 +42,8 @@ spec:
         app: wazuh-manager
         app.kubernetes.io/component: siem-manager
       annotations:
-        # Force pod restart when configmap-ossec.yaml changes
-        checksum/config: "PLACEHOLDER_CONFIGMAP_SHA"
+        # Rolling restart on config change is handled automatically by
+        # configMapGenerator (content-hash suffix in the ConfigMap name).
     spec:
       serviceAccountName: wazuh-manager
       terminationGracePeriodSeconds: 120
@@ -96,7 +96,7 @@ spec:
       #--------------------------------------------------------------
       initContainers:
         - name: set-node-identity
-          image: busybox:1.37.0
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -124,7 +124,7 @@ spec:
               mountPath: /workdir
 
         - name: inject-secrets
-          image: alpine:3.20
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/alpine:3.20
           command:
             - sh
             - -c
@@ -142,7 +142,7 @@ spec:
               mountPath: /workdir
 
         - name: wait-for-indexer
-          image: busybox:1.37.0
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -159,12 +159,43 @@ spec:
               done
               echo "Indexer reachable"
 
+        #--------------------------------------------------------------
+        # initContainer 4: copy-ar-scripts
+        # Copies active-response scripts from the ConfigMap into the
+        # persistent /var/ossec volume and sets correct permissions.
+        # Must run as root (UID 0) then the main container drops to
+        # UID 101 (wazuh). Scripts are owned 0:0 mode 0750 so that
+        # ossec-execd (runs as root) can execute them.
+        #--------------------------------------------------------------
+        - name: copy-ar-scripts
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              AR_BIN=/var/ossec/active-response/bin
+              mkdir -p "$AR_BIN"
+              for script in enforcement-api-isolate.sh enforcement-api-block-ioc.sh; do
+                cp /ar-scripts-src/${script} ${AR_BIN}/${script}
+                chmod 0750 ${AR_BIN}/${script}
+                echo "Installed: ${AR_BIN}/${script}"
+              done
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: wazuh-storage
+              mountPath: /var/ossec
+            - name: ar-scripts-src
+              mountPath: /ar-scripts-src
+              readOnly: true
+
       #--------------------------------------------------------------
       # Main container — Wazuh Manager
       #--------------------------------------------------------------
       containers:
         - name: wazuh-manager
-          image: wazuh/wazuh-manager:4.9.2
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/wazuh/wazuh-manager:4.9.2
           imagePullPolicy: IfNotPresent
 
           ports:
@@ -278,6 +309,139 @@ spec:
                   - -c
                   - /var/ossec/bin/wazuh-control stop
 
+        #--------------------------------------------------------------
+        # Sidecar — MISP IOC list refresher (master pod only)
+        #
+        # Every 15 min: queries MISP REST API for all published
+        # network-type attributes (ip-dst, domain, url, md5, sha1,
+        # sha256) and writes them as Wazuh CDB lists under
+        # /var/ossec/etc/lists/. After writing, triggers a Manager
+        # API reload so the new lists are active immediately.
+        #
+        # Runs only on wazuh-manager-0 (MASTER_ONLY guard) to avoid
+        # N concurrent API calls and concurrent list file writes.
+        # Workers pick up the updated lists via cluster sync.
+        #--------------------------------------------------------------
+        - name: misp-ioc-sync
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/alpine:3.20
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              apk add --no-cache curl jq >/dev/null
+
+              # Only run the sync loop on the master pod (-0).
+              # Worker pods just sleep so the container stays running
+              # (K8s requires all containers to be healthy).
+              POD_ORDINAL=$(echo "$POD_NAME" | awk -F'-' '{print $NF}')
+              if [ "$POD_ORDINAL" != "0" ]; then
+                echo "Worker pod $POD_NAME — MISP sync disabled, sleeping"
+                exec sleep infinity
+              fi
+
+              echo "Master pod $POD_NAME — MISP IOC sync starting (interval: 15m)"
+              LISTS_DIR=/var/ossec/etc/lists
+              mkdir -p "$LISTS_DIR"
+
+              sync_once() {
+                echo "[$(date -Iseconds)] Syncing MISP IOCs..."
+
+                # Wazuh CDB format: value:
+                # MISP REST /attributes/restSearch returns JSON array of values.
+                for type in ip-dst domain url; do
+                  out_file="$LISTS_DIR/misp-ioc-$(echo $type | tr '-' '')"
+                  curl -sfk \
+                    -H "Authorization: ${PLACEHOLDER_MISP_API_KEY}" \
+                    -H "Accept: application/json" \
+                    -H "Content-Type: application/json" \
+                    -d "{\"returnFormat\":\"values\",\"type\":\"${type}\",\"to_ids\":1,\"published\":1}" \
+                    "${MISP_URL}/attributes/restSearch" \
+                  | jq -r '.response.Attribute[]?.value // empty' \
+                  | sort -u \
+                  | awk '{print $1":"}' \
+                  > "${out_file}.tmp" && mv "${out_file}.tmp" "$out_file" || {
+                    echo "MISP query failed for type=${type}, skipping"
+                  }
+                done
+
+                for hash_type in md5 sha1 sha256; do
+                  out_file="$LISTS_DIR/misp-ioc-hash-${hash_type}"
+                  curl -sfk \
+                    -H "Authorization: ${PLACEHOLDER_MISP_API_KEY}" \
+                    -H "Accept: application/json" \
+                    -H "Content-Type: application/json" \
+                    -d "{\"returnFormat\":\"values\",\"type\":\"${hash_type}\",\"to_ids\":1,\"published\":1}" \
+                    "${MISP_URL}/attributes/restSearch" \
+                  | jq -r '.response.Attribute[]?.value // empty' \
+                  | sort -u \
+                  | awk '{print $1":"}' \
+                  > "${out_file}.tmp" && mv "${out_file}.tmp" "$out_file" || {
+                    echo "MISP query failed for type=${hash_type}, skipping"
+                  }
+                done
+
+                # Reload Manager via API so new lists are active immediately.
+                # Uses the wazuh-wui API credentials (read-write role).
+                TOKEN=$(curl -sf -u "${API_USERNAME}:${API_PASSWORD}" \
+                  -X GET "https://localhost:55000/security/user/authenticate?raw=true" \
+                  -k 2>/dev/null || echo "")
+                if [ -n "$TOKEN" ]; then
+                  curl -sf -k -H "Authorization: Bearer ${TOKEN}" \
+                    -X PUT "https://localhost:55000/manager/configuration?wait_for_complete=false" \
+                    >/dev/null && echo "Manager reload triggered" || \
+                    echo "Manager reload request failed (non-fatal)"
+                else
+                  echo "Could not obtain API token for reload (non-fatal)"
+                fi
+
+                echo "[$(date -Iseconds)] MISP IOC sync complete"
+              }
+
+              # Run once at startup so lists are populated before first alert
+              sync_once || echo "Initial sync failed, will retry at next interval"
+
+              while true; do
+                sleep 900   # 15 minutes
+                sync_once || echo "Sync cycle failed, will retry"
+              done
+
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: MISP_URL
+              value: "https://misp.bc-ctrl.internal"
+            - name: PLACEHOLDER_MISP_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: wazuh-manager-secrets
+                  key: PLACEHOLDER_MISP_API_KEY
+            - name: API_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: wazuh-manager-secrets
+                  key: API_USERNAME
+            - name: API_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: wazuh-manager-secrets
+                  key: API_PASSWORD
+
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+
+          volumeMounts:
+            - name: wazuh-storage
+              mountPath: /var/ossec
+
       #--------------------------------------------------------------
       # Volumes
       #--------------------------------------------------------------
@@ -314,6 +478,11 @@ spec:
           hostPath:
             path: /var/log/kubernetes/audit
             type: DirectoryOrCreate
+        # Active-response scripts — installed by copy-ar-scripts initContainer
+        - name: ar-scripts-src
+          configMap:
+            name: wazuh-active-response-scripts
+            defaultMode: 0550
 
   #--------------------------------------------------------------
   # Persistent volume claims (one per replica)

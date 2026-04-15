@@ -1,0 +1,38 @@
+#--------------------------------------------------------------
+# MISP — Internal NLB Service
+#
+# Exposes MISP (HTTPS/443) as an internal AWS Network Load Balancer.
+# external-dns writes "misp.bc-ctrl.internal" into the bc-ctrl.internal
+# Route53 private zone, which is already associated with bc-prd and
+# bc-xdr VPCs.  All three VPCs can reach MISP via TGW.
+#
+# MISP serves HTTPS with a self-generated certificate inside the
+# container.  Consumers (Wazuh manager sidecar, Suricata sidecar,
+# Zeek) use curl -k (ignore cert) since it is a known-internal host.
+#--------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: misp
+  namespace: misp
+  labels:
+    app: misp-core
+    app.kubernetes.io/component: threat-intel
+    app.kubernetes.io/part-of: xdr-platform
+  annotations:
+    # AWS Load Balancer Controller — internal NLB
+    service.beta.kubernetes.io/aws-load-balancer-type: "external"
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internal"
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+    # external-dns registers this in the bc-ctrl.internal Route53 zone
+    external-dns.alpha.kubernetes.io/hostname: "misp.bc-ctrl.internal"
+spec:
+  type: LoadBalancer
+  selector:
+    app: misp-core
+  ports:
+    - name: https
+      port: 443
+      targetPort: 443
+      protocol: TCP

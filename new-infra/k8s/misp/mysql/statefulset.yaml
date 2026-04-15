@@ -1,0 +1,111 @@
+#--------------------------------------------------------------
+# MISP — MySQL 8.0 StatefulSet
+#
+# Single-replica MySQL for MISP.  Data persists on a 20Gi gp3 EBS
+# volume.  Credentials come from the misp-secrets K8s Secret.
+#
+# Deployed to: bc-ctrl EKS cluster, namespace "misp"
+# Nodegroup:   security (taint: dedicated=security:NoSchedule)
+#--------------------------------------------------------------
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: misp-mysql
+  namespace: misp
+  labels:
+    app: misp-mysql
+    app.kubernetes.io/component: threat-intel-db
+    app.kubernetes.io/part-of: xdr-platform
+spec:
+  serviceName: misp-mysql
+  replicas: 1
+  selector:
+    matchLabels:
+      app: misp-mysql
+  template:
+    metadata:
+      labels:
+        app: misp-mysql
+        app.kubernetes.io/component: threat-intel-db
+    spec:
+      nodeSelector:
+        role: security
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: security
+          effect: NoSchedule
+
+      containers:
+        - name: mysql
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/mysql:8.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: mysql
+              containerPort: 3306
+
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: misp-secrets
+                  key: MYSQL_ROOT_PASSWORD
+            - name: MYSQL_DATABASE
+              value: "misp"
+            - name: MYSQL_USER
+              value: "misp"
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: misp-secrets
+                  key: MYSQL_PASSWORD
+
+          args:
+            - --default-authentication-plugin=mysql_native_password
+            - --character-set-server=utf8mb4
+            - --collation-server=utf8mb4_unicode_ci
+
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -u root -p"${MYSQL_ROOT_PASSWORD}" --silent
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -u root -p"${MYSQL_ROOT_PASSWORD}" --silent
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 6
+
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+
+  volumeClaimTemplates:
+    - metadata:
+        name: mysql-data
+        labels:
+          app: misp-mysql
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: gp3-encrypted
+        resources:
+          requests:
+            storage: 20Gi

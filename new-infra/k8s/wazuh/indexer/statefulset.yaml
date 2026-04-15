@@ -36,7 +36,7 @@ spec:
         app: wazuh-indexer
         app.kubernetes.io/component: siem-indexer
       annotations:
-        checksum/config: "PLACEHOLDER_CONFIGMAP_SHA"
+        # Rolling restart on config change handled by configMapGenerator.
     spec:
       serviceAccountName: wazuh-indexer
       terminationGracePeriodSeconds: 180
@@ -82,7 +82,7 @@ spec:
       #--------------------------------------------------------------
       initContainers:
         - name: set-sysctl
-          image: busybox:1.37.0
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/busybox:1.37.0
           securityContext:
             privileged: true
             runAsUser: 0
@@ -95,7 +95,7 @@ spec:
               ulimit -n 65536 || true
 
         - name: fix-permissions
-          image: busybox:1.37.0
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/busybox:1.37.0
           securityContext:
             runAsUser: 0
           command:
@@ -111,7 +111,7 @@ spec:
               mountPath: /var/log/wazuh-indexer
 
         - name: wait-dns
-          image: busybox:1.37.0
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -120,12 +120,45 @@ spec:
               sleep 5
               nslookup wazuh-indexer-headless.wazuh.svc.cluster.local || true
 
+        #--------------------------------------------------------------
+        # inject-secrets — substitutes PLACEHOLDER_*_BCRYPT_HASH in
+        # internal_users.yml with hashed passwords from Secrets Manager.
+        #
+        # The wazuh-indexer-secrets Secret (created by ExternalSecret
+        # indexer/external-secrets.yaml) must contain pre-hashed bcrypt
+        # values for each user. Generate them once with:
+        #   python3 -c "import bcrypt; print(bcrypt.hashpw(b'<password>',bcrypt.gensalt(12)).decode())"
+        # and store in bc/wazuh/indexer in Secrets Manager.
+        #
+        # The rendered internal_users.yml is written to an emptyDir
+        # (/workdir/internal_users.yml) and then bind-mounted by the
+        # main container at the OpenSearch security config path.
+        #--------------------------------------------------------------
+        - name: inject-secrets
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/alpine:3.20
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              apk add --no-cache gettext >/dev/null
+              envsubst < /configmap-src/internal_users.yml > /workdir/internal_users.yml
+              echo "internal_users.yml rendered"
+          envFrom:
+            - secretRef:
+                name: wazuh-indexer-secrets
+          volumeMounts:
+            - name: config
+              mountPath: /configmap-src
+            - name: config-rendered
+              mountPath: /workdir
+
       #--------------------------------------------------------------
       # Main container — Wazuh Indexer (OpenSearch fork)
       #--------------------------------------------------------------
       containers:
         - name: wazuh-indexer
-          image: wazuh/wazuh-indexer:4.9.2
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/wazuh/wazuh-indexer:4.9.2
           imagePullPolicy: IfNotPresent
 
           ports:
@@ -147,6 +180,21 @@ spec:
               value: /usr/share/wazuh-indexer/config
             - name: DISABLE_INSTALL_DEMO_CONFIG
               value: "true"
+            # OPENSEARCH_INITIAL_ADMIN_PASSWORD is read by the Wazuh 4.9
+            # indexer entrypoint on first boot to set the admin user's
+            # password (hashed automatically). Must match INDEXER_PASSWORD
+            # in bc/wazuh/manager and bc/wazuh/dashboard.
+            - name: OPENSEARCH_INITIAL_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: wazuh-indexer-secrets
+                  key: INDEXER_PASSWORD
+            # ADMIN_PASSWORD is consumed by the readinessProbe curl command.
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: wazuh-indexer-secrets
+                  key: INDEXER_PASSWORD
 
           resources:
             requests:
@@ -172,7 +220,10 @@ spec:
             - name: config
               mountPath: /usr/share/wazuh-indexer/config/jvm.options
               subPath: jvm.options
-            - name: config
+            # Rendered internal_users.yml (PLACEHOLDER hashes substituted by
+            # inject-secrets initContainer). The ConfigMap version is
+            # source-only; the rendered one contains real bcrypt hashes.
+            - name: config-rendered
               mountPath: /usr/share/wazuh-indexer/opensearch-security/internal_users.yml
               subPath: internal_users.yml
             - name: certs
@@ -210,6 +261,9 @@ spec:
         - name: config
           configMap:
             name: wazuh-indexer-config
+        # emptyDir receives the rendered internal_users.yml from inject-secrets
+        - name: config-rendered
+          emptyDir: {}
         # Projected volume merges two cert-manager Secrets into one
         # directory, remapping cert-manager's standard key names to
         # the paths opensearch.yml expects under /usr/share/wazuh-indexer/certs/.

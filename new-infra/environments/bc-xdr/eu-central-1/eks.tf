@@ -137,7 +137,7 @@ resource "aws_security_group" "xdr_test" {
 
 resource "aws_instance" "xdr_test" {
   ami                    = data.aws_ami.ubuntu_xdr.id
-  instance_type          = "t2.medium"
+  instance_type          = "t3.medium"
   subnet_id              = module.vpc.private_subnet_ids[0]
   vpc_security_group_ids = [aws_security_group.xdr_test.id]
   iam_instance_profile   = aws_iam_instance_profile.xdr_test.name
@@ -178,12 +178,34 @@ resource "aws_instance" "xdr_test" {
     @load base/protocols/dns
     @load base/protocols/http
     @load base/protocols/ssl
+    @load base/protocols/ssh
+    @load base/protocols/smtp
+    @load base/protocols/ftp
+    @load base/protocols/smb
     @load frameworks/files/hash-all-files
+    @load frameworks/intel/main
+    @load frameworks/intel/seen
+    @load frameworks/intel/do_notice
     @load policy/frameworks/notice/community-id
     @load policy/protocols/ssl/validate-certs
+    @load policy/protocols/ssh/geo-data
     @load policy/tuning/json-logs
+    @load policy/tuning/defaults
+
     redef LogAscii::use_json = T;
+
+    # Intel framework: read MISP IOC feeds published to /opt/zeek/intel/
+    # Populate by running the misp-to-zeek-intel.sh script (see below).
+    redef Intel::read_files += {
+      "/opt/zeek/intel/indicators.intel"
+    };
     ZEEKCONF
+
+    # Create empty intel file so Zeek starts cleanly before first sync
+    mkdir -p /opt/zeek/intel
+    cat > /opt/zeek/intel/indicators.intel <<'INTELHEADER'
+    #fields	indicator	indicator_type	meta.source	meta.desc
+    INTELHEADER
 
     # Detect primary interface
     PRIMARY_IF=$(ip -o link show up | awk -F': ' '!/lo/{print $2; exit}')
@@ -197,8 +219,80 @@ resource "aws_instance" "xdr_test" {
       --workdir /zeek/logs \
       -v /opt/zeek/logs:/zeek/logs \
       -v /opt/zeek/config/local.zeek:/usr/local/zeek/share/zeek/site/local.zeek:ro \
-      zeek/zeek:latest \
+      -v /opt/zeek/intel:/opt/zeek/intel:ro \
+      zeek/zeek:7.0.5 \
       zeek -i "$PRIMARY_IF" local
+
+    # ── MISP → Zeek Intel feed refresh (every 1h) ───────────────
+    # Pulls MISP network IOCs and converts them to Zeek Intel format.
+    # Zeek re-reads the file via the Intel framework without restart.
+    MISP_API_KEY=$(aws secretsmanager get-secret-value \
+      --region ${local.region} \
+      --secret-id bc/wazuh/manager \
+      --query 'SecretString' \
+      --output text | python3 -c "import sys,json; print(json.load(sys.stdin)['PLACEHOLDER_MISP_API_KEY'])")
+
+    cat > /opt/misp-intel-refresh.sh <<'MISPSCRIPT'
+    #!/bin/bash
+    set -euo pipefail
+    MISP_URL="https://misp.bc-ctrl.internal"
+    INTEL_FILE="/opt/zeek/intel/indicators.intel"
+    TMP=$(mktemp)
+
+    echo -e "#fields\tindicator\tindicator_type\tmeta.source\tmeta.desc" > "$TMP"
+
+    # ip-dst → Intel::ADDR  (-k: MISP uses self-signed cert, internal-only)
+    curl -sfk -H "Authorization: $MISP_API_KEY" \
+      -H "Accept: application/json" -H "Content-Type: application/json" \
+      -d '{"returnFormat":"values","type":"ip-dst","to_ids":1,"published":1}' \
+      "$MISP_URL/attributes/restSearch" \
+    | python3 -c "
+    import sys,json
+    for a in json.load(sys.stdin).get('response',{}).get('Attribute',[]):
+        v = a.get('value','')
+        if v: print(f'{v}\tIntel::ADDR\tMISP\tmisp-ip-dst')
+    " >> "$TMP"
+
+    # domain → Intel::DOMAIN
+    curl -sfk -H "Authorization: $MISP_API_KEY" \
+      -H "Accept: application/json" -H "Content-Type: application/json" \
+      -d '{"returnFormat":"values","type":"domain","to_ids":1,"published":1}' \
+      "$MISP_URL/attributes/restSearch" \
+    | python3 -c "
+    import sys,json
+    for a in json.load(sys.stdin).get('response',{}).get('Attribute',[]):
+        v = a.get('value','')
+        if v: print(f'{v}\tIntel::DOMAIN\tMISP\tmisp-domain')
+    " >> "$TMP"
+
+    # md5 → Intel::FILE_HASH
+    curl -sfk -H "Authorization: $MISP_API_KEY" \
+      -H "Accept: application/json" -H "Content-Type: application/json" \
+      -d '{"returnFormat":"values","type":"md5","to_ids":1,"published":1}' \
+      "$MISP_URL/attributes/restSearch" \
+    | python3 -c "
+    import sys,json
+    for a in json.load(sys.stdin).get('response',{}).get('Attribute',[]):
+        v = a.get('value','')
+        if v: print(f'{v}\tIntel::FILE_HASH\tMISP\tmisp-md5')
+    " >> "$TMP"
+
+    mv "$TMP" "$INTEL_FILE"
+    echo "[$(date -Iseconds)] Zeek intel updated: $(wc -l < "$INTEL_FILE") entries"
+    MISPSCRIPT
+    chmod +x /opt/misp-intel-refresh.sh
+
+    # Run the intel refresh once now, then every hour via a Docker container
+    MISP_API_KEY="$MISP_API_KEY" /opt/misp-intel-refresh.sh || true
+
+    docker run -d \
+      --name misp-intel-sync \
+      --restart always \
+      -e "MISP_API_KEY=$MISP_API_KEY" \
+      -v /opt/zeek/intel:/opt/zeek/intel \
+      -v /opt/misp-intel-refresh.sh:/opt/misp-intel-refresh.sh:ro \
+      ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/alpine:3.20 \
+      sh -c 'apk add --no-cache curl python3 >/dev/null; while true; do sleep 3600; /opt/misp-intel-refresh.sh; done'
 
     # ── Vector: ship Zeek logs to CloudWatch ────────────────────
     mkdir -p /opt/vector
