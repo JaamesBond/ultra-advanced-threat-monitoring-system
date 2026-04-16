@@ -97,6 +97,10 @@ jobs:
           kubectl -n cert-manager rollout status deployment/cert-manager-webhook --timeout=120s
           kubectl -n external-secrets rollout status deployment/external-secrets-webhook --timeout=120s
 
+      - name: Delete immutable Jobs before Wazuh apply
+        run: |
+          kubectl delete job -n wazuh wazuh-indexer-ism-bootstrap 2>/dev/null || true
+
       - name: Deploy Wazuh Manager stack (bc-ctrl)
         run: |
           CERT_ARN=$(terraform -chdir=new-infra/environments/bc-ctrl/eu-central-1 output -raw wazuh_dashboard_cert_arn)
