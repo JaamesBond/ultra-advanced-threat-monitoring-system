@@ -14,14 +14,33 @@ module "eks" {
   enable_cluster_creator_admin_permissions = true
 
   access_entries = {
+    # Grant access to the role assumed by GitHub Actions
+    gh_deploy = {
+      principal_arn     = "arn:aws:iam::286439316079:role/GitHubActionsDeployRole"
+      policy_associations = {
+        admin = {
+          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = { type = "cluster" }
+        }
+      }
+    }
+    # Grant access to the Runner Instance Profile
     runner = {
       principal_arn     = "arn:aws:iam::286439316079:role/github-runner-role"
       policy_associations = {
         admin = {
           policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-          access_scope = {
-            type = "cluster"
-          }
+          access_scope = { type = "cluster" }
+        }
+      }
+    }
+    # Grant access to the local user to prevent state flip-flop
+    matei = {
+      principal_arn     = "arn:aws:iam::286439316079:user/Matei"
+      policy_associations = {
+        admin = {
+          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = { type = "cluster" }
         }
       }
     }
@@ -69,8 +88,6 @@ module "eks" {
       most_recent = true
       configuration_values = jsonencode({
         env = {
-          # We use Cilium for CNI, but keep vpc-cni for ENI allocation if needed
-          # or patch it to not schedule pods.
           AWS_VPC_K8S_CNI_EXTERNALSNAT = "true"
         }
       })
