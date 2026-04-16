@@ -5,8 +5,8 @@ module "vpc" {
   cidr_block         = local.vpc_cidr
   availability_zones = local.azs
 
-  public_subnet_cidrs  = [cidrsubnet(local.vpc_cidr, 8, 0)]
-  private_subnet_cidrs = [cidrsubnet(local.vpc_cidr, 8, 10)]
+  public_subnet_cidrs  = [cidrsubnet(local.vpc_cidr, 8, 0), cidrsubnet(local.vpc_cidr, 8, 1)]    # 10.0.0.0/24, 10.0.1.0/24
+  private_subnet_cidrs = [cidrsubnet(local.vpc_cidr, 8, 10), cidrsubnet(local.vpc_cidr, 8, 11)]  # 10.0.10.0/24, 10.0.11.0/24
 
   enable_nat_gateway = false # Using fck-nat
 
@@ -93,9 +93,10 @@ resource "aws_iam_instance_profile" "fck_nat" {
   role = aws_iam_role.fck_nat.name
 }
 
-# Routes in bc-ctrl private RT to use fck-nat for internet
+# Routes in bc-ctrl private RTs to use fck-nat for internet (one per AZ)
 resource "aws_route" "private_nat" {
-  route_table_id         = module.vpc.private_route_table_ids[0]
+  count                  = length(module.vpc.private_route_table_ids)
+  route_table_id         = module.vpc.private_route_table_ids[count.index]
   destination_cidr_block = "0.0.0.0/0"
   network_interface_id   = aws_instance.fck_nat.primary_network_interface_id
 }
