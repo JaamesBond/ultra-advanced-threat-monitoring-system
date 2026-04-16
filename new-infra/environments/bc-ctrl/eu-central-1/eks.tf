@@ -175,6 +175,23 @@ module "eks_addons" {
 }
 
 #--------------------------------------------------------------
+# Cluster SG — allow node SG to reach the private API endpoint (tcp/443)
+#
+# In v21, cluster_security_group_additional_rules was removed. The module
+# no longer auto-creates this ingress rule, so nodes cannot reach the EKS
+# private API endpoint and bootstrap never starts. This standalone resource
+# replaces the old argument.
+#--------------------------------------------------------------
+resource "aws_vpc_security_group_ingress_rule" "nodes_to_cluster_api" {
+  security_group_id            = module.eks.cluster_security_group_id
+  description                  = "Nodes to cluster API"
+  ip_protocol                  = "tcp"
+  from_port                    = 443
+  to_port                      = 443
+  referenced_security_group_id = module.eks.node_security_group_id
+}
+
+#--------------------------------------------------------------
 # Outputs
 #--------------------------------------------------------------
 output "eks_cluster_name" {
