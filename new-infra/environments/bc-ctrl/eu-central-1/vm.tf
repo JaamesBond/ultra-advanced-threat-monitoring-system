@@ -97,8 +97,22 @@ resource "aws_instance" "github_runner" {
   user_data = <<-EOT
               #!/bin/bash
               yum update -y
-              yum install -y docker git
+              yum install -y docker git jq
               systemctl enable --now docker
+
+              # GitHub Runner Setup
+              mkdir /home/ec2-user/actions-runner && cd /home/ec2-user/actions-runner
+              curl -o actions-runner-linux-x64-2.316.1.tar.gz -L https://github.com/actions/runner/releases/download/v2.316.1/actions-runner-linux-x64-2.316.1.tar.gz
+              tar xzf ./actions-runner-linux-x64-2.316.1.tar.gz
+              chown -R ec2-user:ec2-user /home/ec2-user/actions-runner
+
+              # Get registration token using PAT
+              PAT=$(aws secretsmanager get-secret-value --secret-id bc/github/runnerpat --query SecretString --output text --region eu-central-1)
+              TOKEN=$(curl -X POST -H "Authorization: token $PAT" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/JaamesBond/ultra-advanced-threat-monitoring-system/actions/runners/registration-token | jq -r .token)
+
+              sudo -u ec2-user ./config.sh --url https://github.com/JaamesBond/ultra-advanced-threat-monitoring-system --token $TOKEN --name $(hostname) --unattended --replace
+              sudo ./svc.sh install
+              sudo ./svc.sh start
               EOT
 
   tags = merge(local.common_tags, { Name = "github-runner-ctrl" })

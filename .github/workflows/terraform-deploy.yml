@@ -30,10 +30,13 @@ jobs:
           terraform init
           terraform apply -auto-approve
 
+      - name: Wait for GitHub Runner to bootstrap
+        run: sleep 120
+
   production-plane:
     name: Deploy Production Plane (The Data)
     needs: ctrl-plane
-    runs-on: ubuntu-latest # Using ubuntu-latest for AWS API calls, then can switch to self-hosted if needed
+    runs-on: self-hosted
     permissions:
       id-token: write
       contents: read
