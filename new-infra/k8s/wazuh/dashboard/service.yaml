@@ -66,7 +66,7 @@ metadata:
     # --- HTTPS ---
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
-    alb.ingress.kubernetes.io/certificate-arn: "PLACEHOLDER_ACM_CERT_ARN"
+    alb.ingress.kubernetes.io/certificate-arn: "${WAZUH_DASHBOARD_CERT_ARN}"
     alb.ingress.kubernetes.io/ssl-policy: "ELBSecurityPolicy-TLS13-1-2-2021-06"
 
     # --- Health check ---
