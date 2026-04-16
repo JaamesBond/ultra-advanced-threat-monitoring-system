@@ -1,4 +1,4 @@
-name: Terraform Deploy
+name: Terraform Deploy (v8)
 
 on:
   push:
@@ -6,160 +6,49 @@ on:
     paths:
       - "new-infra/**"
   workflow_dispatch:
-    inputs:
-      environment:
-        description: "Deploy specific environment (or 'all')"
-        required: false
-        default: "all"
-        type: choice
-        options: [all, xdr, ctrl, prd]
-
-permissions:
-  contents: read
-  id-token: write
-
-env:
-  TF_VERSION: "1.5.7"
-  AWS_REGION: "eu-central-1"
-  AWS_ROLE_ARN: "arn:aws:iam::286439316079:role/GitHubActionsDeployRole"
 
 jobs:
-  # ---------------------------------------------------------------
-  # Step 1: XDR VPC + EKS (ubuntu-latest — public/API endpoint)
-  # ---------------------------------------------------------------
-  deploy-xdr:
-    name: "Deploy — bc-xdr"
+  ctrl-plane:
+    name: Deploy Control Plane (The Brain)
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.environment == 'all' || github.event.inputs.environment == 'xdr' || github.event_name == 'push' }}
-    defaults:
-      run:
-        working-directory: new-infra/environments/bc-xdr/eu-central-1
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      - run: terraform init
-      - run: terraform validate
-      - run: terraform plan -out=tfplan -no-color
-      - run: terraform apply -auto-approve tfplan
+          role-to-assume: arn:aws:iam::286439316079:role/GitHubActionsDeployRole
+          aws-region: eu-central-1
 
-  # ---------------------------------------------------------------
-  # Step 2: bc-ctrl (VPC + peering requester + runner VM)
-  # Runs on self-hosted runner — runner is already alive from prior
-  # deploy or was manually bootstrapped.
-  # ---------------------------------------------------------------
-  deploy-ctrl:
-    name: "Deploy — bc-ctrl"
-    runs-on: [self-hosted, bc-ctrl]
-    needs: deploy-xdr
-    if: ${{ always() && !failure() && !cancelled() && (github.event.inputs.environment == 'all' || github.event.inputs.environment == 'ctrl' || github.event_name == 'push') }}
-    defaults:
-      run:
+      - uses: hashicorp/setup-terraform@v3
+      
+      - name: Terraform Apply (Ctrl)
         working-directory: new-infra/environments/bc-ctrl/eu-central-1
+        run: |
+          terraform init
+          terraform apply -auto-approve
+
+  production-plane:
+    name: Deploy Production Plane (The Data)
+    needs: ctrl-plane
+    runs-on: ubuntu-latest # Using ubuntu-latest for AWS API calls, then can switch to self-hosted if needed
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      # bc-ctrl-eks does not exist in the minimum-compute phase (only runner VM).
-      # Best-effort — must not block the Terraform apply.
-      - name: Update kubeconfig (bc-ctrl)
-        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name bc-ctrl-eks || echo "bc-ctrl-eks not found — skipping (expected in minimum-compute phase)"
-      - run: terraform init
-      - run: terraform validate
-      - run: terraform plan -out=tfplan -no-color
-      - run: terraform apply -auto-approve tfplan
+          role-to-assume: arn:aws:iam::286439316079:role/GitHubActionsDeployRole
+          aws-region: eu-central-1
 
-  # ---------------------------------------------------------------
-  # Step 3: bc-prd (EKS + Cilium + Tetragon + Falco)
-  # Must run AFTER deploy-ctrl so the VPC peering connection exists
-  # before bc-prd accepts it and routes are wired.
-  # ---------------------------------------------------------------
-  deploy-prd:
-    name: "Deploy — bc-prd"
-    runs-on: [self-hosted, bc-ctrl]
-    needs: [deploy-xdr, deploy-ctrl]
-    if: ${{ always() && !failure() && !cancelled() && (github.event.inputs.environment == 'all' || github.event.inputs.environment == 'prd' || github.event_name == 'push') }}
-    defaults:
-      run:
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Apply (Prd)
         working-directory: new-infra/environments/bc-prd/eu-central-1
-    steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Update kubeconfig (bc-prd)
-        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name bc-prd-eks
-      - run: terraform init
-      - run: terraform validate
-
-      # ---- Connectivity prerequisites (must run BEFORE Helm provider dials EKS) ----
-      #
-      # Three failures were blocking bc-prd deploy:
-      #
-      # 1. Stale TGW routes in bc-prd private route tables from the TGW→peering
-      #    migration conflict with the new peering routes (duplicate CIDR). Delete
-      #    them idempotently — they are orphaned (attachments already removed).
-      #
-      # 2. VPC peering from bc-ctrl is created fresh on each bc-ctrl apply. Until
-      #    bc-prd accepts it (aws_vpc_peering_connection_accepter), bc-ctrl routes
-      #    to 10.30.0.0/16 are blackhole and NO traffic reaches the EKS API.
-      #
-      # 3. aws_vpc_security_group_ingress_rule.eks_runner_api (10.0.0.0/16 → 443)
-      #    must exist before the Helm/k8s provider initialises — the provider dials
-      #    the private EKS endpoint during plan, not only during apply.
-      - name: Remove stale TGW routes from bc-prd private route tables
         run: |
-          RTB_IDS=$(aws ec2 describe-route-tables \
-            --region ${{ env.AWS_REGION }} \
-            --filters \
-              "Name=vpc-id,Values=$(terraform output -raw vpc_id)" \
-              "Name=route.destination-cidr-block,Values=10.0.0.0/16" \
-            --query 'RouteTables[?Routes[?TransitGatewayId!=null && DestinationCidrBlock==`10.0.0.0/16`]].RouteTableId' \
-            --output text)
-          for RTB in $RTB_IDS; do
-            aws ec2 delete-route \
-              --route-table-id "$RTB" \
-              --destination-cidr-block 10.0.0.0/16 \
-              --region ${{ env.AWS_REGION }} \
-              && echo "Removed stale TGW route from $RTB" \
-              || echo "No stale route in $RTB"
-          done
-
-      - name: Accept VPC peering and apply connectivity prerequisites
-        run: |
-          terraform apply -auto-approve -no-color \
-            -target=aws_vpc_peering_connection_accepter.prd_accepts_ctrl \
-            -target=aws_route.private_to_ctrl \
-            -target=aws_vpc_security_group_ingress_rule.eks_runner_api
-
-      # Bootstrap CRDs before full plan so kubernetes_manifest resources
-      # (CiliumClusterwideNetworkPolicy, TracingPolicy) can be validated
-      # against the live API server.
-      - name: Bootstrap CRDs (Helm charts only)
-        run: |
-          terraform apply -auto-approve -no-color \
-            -target=helm_release.cilium \
-            -target=helm_release.tetragon \
-            -target=helm_release.falco
-      - name: Wait for CRDs to propagate
-        run: sleep 60
-
-      - run: terraform plan -out=tfplan -no-color
-      - run: terraform apply -auto-approve tfplan
+          terraform init
+          terraform apply -auto-approve

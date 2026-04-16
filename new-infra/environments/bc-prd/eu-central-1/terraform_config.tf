@@ -4,33 +4,30 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = ">= 6.23"
-    }
-    tls = {
-      source  = "hashicorp/tls"
-      version = ">= 4.0"
-    }
-    time = {
-      source  = "hashicorp/time"
-      version = ">= 0.9"
+      version = ">= 5.40, < 6.0.0"
     }
     helm = {
       source  = "hashicorp/helm"
-      version = "~> 2.15"
-    }
-    kubernetes = {
-      source  = "hashicorp/kubernetes"
-      version = ">= 2.32"
+      version = "~> 2.0"
     }
   }
 
   backend "s3" {
     bucket = "bc-uatms-terraform-state"
-    key    = "environments/bc-prd/terraform.tfstate"
+    key    = "v8/environments/bc-prd/terraform.tfstate"
     region = "eu-central-1"
   }
 }
 
 provider "aws" {
   region = local.region
+}
+
+data "terraform_remote_state" "ctrl" {
+  backend = "s3"
+  config = {
+    bucket = "bc-uatms-terraform-state"
+    key    = "v8/environments/bc-ctrl/terraform.tfstate"
+    region = "eu-central-1"
+  }
 }

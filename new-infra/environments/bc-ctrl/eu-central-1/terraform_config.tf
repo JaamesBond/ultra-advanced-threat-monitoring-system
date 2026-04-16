@@ -10,7 +10,7 @@ terraform {
 
   backend "s3" {
     bucket = "bc-uatms-terraform-state"
-    key    = "environments/bc-ctrl/terraform.tfstate"
+    key    = "v8/environments/bc-ctrl/terraform.tfstate"
     region = "eu-central-1"
   }
 }
@@ -23,7 +23,7 @@ data "terraform_remote_state" "prd" {
   backend = "s3"
   config = {
     bucket = "bc-uatms-terraform-state"
-    key    = "environments/bc-prd/terraform.tfstate"
+    key    = "v8/environments/bc-prd/terraform.tfstate"
     region = "eu-central-1"
   }
 }

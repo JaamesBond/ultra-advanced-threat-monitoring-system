@@ -1,71 +1,51 @@
-#--------------------------------------------------------------
-# Tetragon + Falco — eBPF security enforcement (bc-prd)
-#
-# Tetragon (Layer 1): in-kernel SIGKILL enforcer via TracingPolicies.
-#   Autonomous response in <1us, zero dependency on SOAR/Kafka/network.
-#   Runs as DaemonSet on every node.
-#
-# Falco (Layer 2): syscall-level detection + alerting via eBPF driver.
-#   Alerts -> Falcosidekick -> Vector -> MSK.
-#   Runs as DaemonSet on every node.
-#
-# Gated by local.deploy_security_helm — requires private endpoint
-# connectivity. Set to true when applying from bastion/runner in VPC.
-#--------------------------------------------------------------
-
-resource "helm_release" "tetragon" {
-  count = local.deploy_security_helm ? 1 : 0
-
-  name             = "tetragon"
-  namespace        = "kube-system"
-  repository       = "https://helm.cilium.io"
-  chart            = "tetragon"
-  version          = "1.4.0"
-  create_namespace = false
-  atomic           = false
-  wait             = false
-  cleanup_on_fail  = false
-  timeout          = 300
-
-  set {
-    name  = "tetragon.grpc.address"
-    value = "localhost:54321"
+provider "helm" {
+  kubernetes {
+    host                   = module.eks.cluster_endpoint
+    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+      command     = "aws"
+    }
   }
+}
 
-  # Export events to stdout for Vector/Fluent Bit collection
+resource "helm_release" "cilium" {
+  name       = "cilium"
+  repository = "https://helm.cilium.io/"
+  chart      = "cilium"
+  namespace  = "kube-system"
+
   set {
-    name  = "export.stdout.enabledCommand"
+    name  = "eni.enabled"
     value = "true"
   }
-
-  depends_on = [module.eks]
+  set {
+    name  = "ipam.mode"
+    value = "eni"
+  }
+  set {
+    name  = "routingMode"
+    value = "native"
+  }
 }
 
 resource "helm_release" "falco" {
-  count = local.deploy_security_helm ? 1 : 0
-
-  name             = "falco"
-  namespace        = "falco"
-  repository       = "https://falcosecurity.github.io/charts"
-  chart            = "falco"
-  version          = "8.0.2"
+  name       = "falco"
+  repository = "https://falcosecurity.github.io/charts"
+  chart      = "falco"
+  namespace  = "falco"
   create_namespace = true
-  atomic           = false
-  wait             = false
-  cleanup_on_fail  = false
-  timeout          = 300
 
-  # eBPF driver — no kernel module needed
   set {
     name  = "driver.kind"
     value = "ebpf"
   }
+}
 
-  # Falcosidekick for alert routing
-  set {
-    name  = "falcosidekick.enabled"
-    value = "true"
-  }
-
-  depends_on = [module.eks]
+resource "helm_release" "tetragon" {
+  name       = "tetragon"
+  repository = "https://helm.cilium.io/"
+  chart      = "tetragon"
+  namespace  = "kube-system"
 }

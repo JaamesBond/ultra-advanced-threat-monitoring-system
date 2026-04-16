@@ -1,124 +1,98 @@
-#==============================================================
-# Production EKS Cluster
-# Private endpoint only — no public subnets in prd VPC.
-#==============================================================
-
-# Import pre-existing addons into state.
-# EKS auto-creates coredns; ebs-csi-driver exists in CREATE_FAILED (IAM issue fixed by
-# pod identity association below — import so Terraform updates rather than re-creates).
-import {
-  to = module.eks.aws_eks_addon.this["coredns"]
-  id = "bc-prd-eks:coredns"
-}
-
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 21.0"
+  version = "~> 20.31"
 
-  name               = local.eks_cluster_name
-  kubernetes_version = local.eks_cluster_version
-
-  endpoint_public_access  = local.eks_endpoint_public_access
-  endpoint_private_access = local.eks_endpoint_private_access
-
-  enable_irsa         = local.eks_enable_irsa
-  deletion_protection = local.eks_deletion_protection
+  cluster_name    = "${local.platform_name}-${local.env}-eks"
+  cluster_version = "1.35"
 
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnet_ids
 
-  addons = {
-    kube-proxy = {
-      addon_version               = local.eks_addons["kube-proxy"].addon_version
-      resolve_conflicts_on_create = "OVERWRITE"
-      resolve_conflicts_on_update = "OVERWRITE"
-      before_compute              = true
-    }
+  cluster_endpoint_public_access  = true # Keep true until Helm is done
+  cluster_endpoint_private_access = true
 
-    eks-pod-identity-agent = {
-      addon_version               = local.eks_addons["eks-pod-identity-agent"].addon_version
-      resolve_conflicts_on_create = "OVERWRITE"
-      resolve_conflicts_on_update = "OVERWRITE"
-      before_compute              = true
-    }
+  enable_cluster_creator_admin_permissions = true
 
-    vpc-cni = {
-      addon_version               = local.eks_addons["vpc-cni"].addon_version
-      resolve_conflicts_on_create = "OVERWRITE"
-      resolve_conflicts_on_update = "OVERWRITE"
-      before_compute              = true
-    }
-
+  cluster_addons = {
     coredns = {
-      addon_version               = local.eks_addons["coredns"].addon_version
-      resolve_conflicts_on_create = "OVERWRITE"
-      resolve_conflicts_on_update = "OVERWRITE"
+      most_recent = true
     }
-
+    kube-proxy = {
+      most_recent = true
+    }
+    vpc-cni = {
+      most_recent = true
+    }
     amazon-cloudwatch-observability = {
-      addon_version               = local.eks_addons["amazon-cloudwatch-observability"].addon_version
-      resolve_conflicts_on_create = "OVERWRITE"
-      resolve_conflicts_on_update = "OVERWRITE"
+      most_recent = true
     }
   }
 
-  eks_managed_node_groups = local.eks_node_groups
+  eks_managed_node_groups = {
+    workload = {
+      instance_types = ["t3.small"]
+      min_size     = 2
+      max_size     = 2
+      desired_size = 2
+    }
+  }
 
   tags = local.common_tags
 }
 
-# Same pattern as bc-ctrl — standalone access entry with import blocks.
-import {
-  to = aws_eks_access_entry.ci_deploy
-  id = "bc-prd-eks:arn:aws:iam::286439316079:role/GitHubActionsDeployRole"
-}
+# Test EC2 in PRD
+resource "aws_security_group" "test_ec2" {
+  name        = "prd-test-ec2-sg"
+  description = "PRD test instance"
+  vpc_id      = module.vpc.vpc_id
 
-resource "aws_eks_access_entry" "ci_deploy" {
-  cluster_name  = module.eks.cluster_name
-  principal_arn = "arn:aws:iam::286439316079:role/GitHubActionsDeployRole"
-  type          = "STANDARD"
-}
-
-import {
-  to = aws_eks_access_policy_association.ci_deploy_admin
-  id = "bc-prd-eks#arn:aws:iam::286439316079:role/GitHubActionsDeployRole#arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-}
-
-resource "aws_eks_access_policy_association" "ci_deploy_admin" {
-  cluster_name  = module.eks.cluster_name
-  principal_arn = aws_eks_access_entry.ci_deploy.principal_arn
-  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-
-  access_scope {
-    type = "cluster"
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["10.0.0.0/8"]
   }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = local.common_tags
 }
 
-# Allow the self-hosted GitHub Actions runner (in this VPC) to reach the
-# private EKS API endpoint for Helm + kubernetes_manifest resources.
-resource "aws_vpc_security_group_ingress_rule" "eks_runner_api" {
-  security_group_id = module.eks.cluster_security_group_id
-  description       = "GitHub Actions runner (bc-ctrl VPC) to EKS API via peering"
-  ip_protocol       = "tcp"
-  from_port         = 443
-  to_port           = 443
-  cidr_ipv4         = local.ctrl_vpc_cidr
+resource "aws_instance" "test_ec2" {
+  ami           = "ami-0a457777ab864ed6f" # Amazon Linux 2023 x86_64
+  instance_type = "t3.nano"
+  subnet_id     = module.vpc.private_subnet_ids[0]
 
-  tags = merge(local.common_tags, { Name = "${local.platform_name}-${local.env}-eks-runner-api" })
+  vpc_security_group_ids = [aws_security_group.test_ec2.id]
+  iam_instance_profile   = aws_iam_instance_profile.test_ec2.name
+
+  tags = merge(local.common_tags, { Name = "prd-test-instance" })
 }
 
-#--------------------------------------------------------------
-# Outputs — EKS
-#--------------------------------------------------------------
+resource "aws_iam_role" "test_ec2" {
+  name = "prd-test-ec2-role"
 
-output "eks_cluster_name" {
-  value = module.eks.cluster_name
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+    }]
+  })
 }
 
-output "eks_cluster_endpoint" {
-  value = module.eks.cluster_endpoint
+resource "aws_iam_role_policy_attachment" "test_ssm" {
+  role       = aws_iam_role.test_ec2.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-output "eks_node_group_arns" {
-  value = { for k, v in module.eks.eks_managed_node_groups : k => v.node_group_arn }
+resource "aws_iam_instance_profile" "test_ec2" {
+  name = "prd-test-ec2-profile"
+  role = aws_iam_role.test_ec2.name
 }

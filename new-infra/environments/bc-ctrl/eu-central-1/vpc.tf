@@ -1,104 +1,101 @@
-#--------------------------------------------------------------
-# Control Plane VPC (10.0.0.0/16)
-#
-# Single public subnet — runner VM has public IP + EIP, no NAT needed.
-# VPC peering to bc-prd so the runner can reach the private EKS API.
-#--------------------------------------------------------------
-
 module "vpc" {
   source = "../../../modules/network/vpc"
 
   vpc_name           = "${local.platform_name}-${local.env}-vpc"
   cidr_block         = local.vpc_cidr
-  availability_zones = local.availability_zones
+  availability_zones = local.azs
 
-  public_subnet_cidrs  = local.subnet_cidr_public
-  private_subnet_cidrs = local.subnet_cidr_private
+  public_subnet_cidrs  = [cidrsubnet(local.vpc_cidr, 8, 0)]
+  private_subnet_cidrs = [cidrsubnet(local.vpc_cidr, 8, 10)]
 
-  create_igw         = true
-  enable_nat_gateway = false
+  enable_nat_gateway = false # Using fck-nat
 
-  enable_flow_log                   = true
-  flow_log_traffic_type             = local.flowlog_traffic_type
-  flow_log_max_aggregation_interval = local.flowlog_aggregation_interval
-  flow_log_retention_in_days        = local.cloudwatch_log_files_retention
+  enable_dns_hostnames = true
+  enable_dns_support   = true
 
   tags = local.common_tags
 }
 
-#--------------------------------------------------------------
-# VPC Endpoints — SSM + Secrets Manager access from private subnet
-#--------------------------------------------------------------
-module "vpc_endpoints" {
-  source = "../../../modules/network/vpc/endpoints"
+# Peering Accepter (CTRL accepts PRD)
+module "peering" {
+  source = "../../../modules/network/vpc_peering"
 
-  name_prefix    = "${local.platform_name}-${local.env}"
-  region         = local.region
-  vpc_id         = module.vpc.vpc_id
-  vpc_cidr_block = module.vpc.vpc_cidr_block
-
-  private_subnet_ids      = module.vpc.private_subnet_ids
-  private_route_table_ids = module.vpc.private_route_table_ids
-  intra_route_table_ids   = []
-
-  enable_ssm            = true
-  enable_secretsmanager = true
-  enable_s3             = true
-  enable_sts            = true
-
-  tags = local.common_tags
+  is_requester          = false
+  peering_connection_id = data.terraform_remote_state.prd.outputs.peering_id
+  peering_name          = "ctrl-accepts-prd"
+  route_table_ids       = concat(module.vpc.public_route_table_ids, module.vpc.private_route_table_ids)
+  peer_cidr_block       = "10.30.0.0/16"
+  tags                  = local.common_tags
 }
 
-#--------------------------------------------------------------
-# VPC Peering — ctrl (requester) → prd (accepter)
-# Same account + region → auto-accept on accepter side.
-#--------------------------------------------------------------
-resource "aws_vpc_peering_connection" "ctrl_to_prd" {
+# fck-nat (Shared for both VPCs)
+resource "aws_security_group" "fck_nat" {
+  name        = "fck-nat-sg"
+  description = "Allow all from internal CIDRs"
   vpc_id      = module.vpc.vpc_id
-  peer_vpc_id = data.terraform_remote_state.prd.outputs.vpc_id
-  auto_accept = false
 
-  tags = merge(local.common_tags, { Name = "bc-ctrl-to-bc-prd" })
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["10.0.0.0/8"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = local.common_tags
 }
 
-# Route: ctrl private subnet → prd CIDR via peering
-resource "aws_route" "private_to_prd" {
-  count = length(module.vpc.private_route_table_ids)
+resource "aws_instance" "fck_nat" {
+  ami                         = "ami-077be74ead50d19aa" # fck-nat ARM64 eu-central-1
+  instance_type               = "t4g.nano"
+  subnet_id                   = module.vpc.public_subnet_ids[0]
+  associate_public_ip_address = true
+  source_dest_check           = false
+  vpc_security_group_ids      = [aws_security_group.fck_nat.id]
+  iam_instance_profile        = aws_iam_instance_profile.fck_nat.name
 
-  route_table_id            = module.vpc.private_route_table_ids[count.index]
-  destination_cidr_block    = local.prd_vpc_cidr
-  vpc_peering_connection_id = aws_vpc_peering_connection.ctrl_to_prd.id
+  # Ensure MASQUERADE for the peering VPC
+  user_data = <<-EOF
+              #!/bin/bash
+              echo 1 > /proc/sys/net/ipv4/ip_forward
+              iptables -t nat -A POSTROUTING -s 10.30.0.0/16 -o eth0 -j MASQUERADE
+              EOF
+
+  tags = merge(local.common_tags, { Name = "fck-nat-shared" })
 }
 
-# Route: public subnet → prd CIDR via peering (runner is in public subnet)
-resource "aws_route" "public_to_prd" {
-  count = length(module.vpc.public_route_table_ids)
+resource "aws_iam_role" "fck_nat" {
+  name = "fck-nat-role"
 
-  route_table_id            = module.vpc.public_route_table_ids[count.index]
-  destination_cidr_block    = local.prd_vpc_cidr
-  vpc_peering_connection_id = aws_vpc_peering_connection.ctrl_to_prd.id
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+    }]
+  })
 }
 
-#--------------------------------------------------------------
-# Outputs
-#--------------------------------------------------------------
-output "vpc_id" {
-  value = module.vpc.vpc_id
+resource "aws_iam_role_policy_attachment" "fck_nat_ssm" {
+  role       = aws_iam_role.fck_nat.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-output "vpc_cidr_block" {
-  value = module.vpc.vpc_cidr_block
+resource "aws_iam_instance_profile" "fck_nat" {
+  name = "fck-nat-profile"
+  role = aws_iam_role.fck_nat.name
 }
 
-output "private_subnet_ids" {
-  value = module.vpc.private_subnet_ids
-}
-
-output "public_subnet_ids" {
-  value = module.vpc.public_subnet_ids
-}
-
-output "peering_connection_id" {
-  description = "VPC peering connection ID — bc-prd reads this to accept"
-  value       = aws_vpc_peering_connection.ctrl_to_prd.id
+# Routes in bc-ctrl private RT to use fck-nat for internet
+resource "aws_route" "private_nat" {
+  route_table_id         = module.vpc.private_route_table_ids[0]
+  destination_cidr_block = "0.0.0.0/0"
+  network_interface_id   = aws_instance.fck_nat.primary_network_interface_id
 }
