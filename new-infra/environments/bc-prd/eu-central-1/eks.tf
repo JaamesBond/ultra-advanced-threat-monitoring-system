@@ -25,6 +25,15 @@ module "eks" {
         }
       }
     }
+    afonso = {
+      principal_arn     = "arn:aws:iam::286439316079:user/Afonso"
+      policy_associations = {
+        admin = {
+          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = { type = "cluster" }
+        }
+      }
+    }
     # 2. Grant access to the role assumed by GitHub Actions
     gh_deploy = {
       principal_arn     = "arn:aws:iam::286439316079:role/GitHubActionsDeployRole"
