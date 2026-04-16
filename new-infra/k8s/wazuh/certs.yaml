@@ -80,7 +80,7 @@ spec:
     size: 4096
   issuerRef:
     name: wazuh-selfsigned-issuer
-    kind: ClusterIssuer
+    kind: Issuer
     group: cert-manager.io
 ---
 #--------------------------------------------------------------
@@ -88,9 +88,10 @@ spec:
 # All Wazuh leaf certificates are issued from this issuer.
 #--------------------------------------------------------------
 apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
+kind: Issuer
 metadata:
   name: wazuh-ca-issuer
+  namespace: wazuh
   labels:
     app.kubernetes.io/part-of: xdr-platform
 spec:
@@ -153,7 +154,7 @@ spec:
     - localhost
   issuerRef:
     name: wazuh-ca-issuer
-    kind: ClusterIssuer
+    kind: Issuer
     group: cert-manager.io
 ---
 #--------------------------------------------------------------
@@ -201,7 +202,7 @@ spec:
     - key encipherment
   issuerRef:
     name: wazuh-ca-issuer
-    kind: ClusterIssuer
+    kind: Issuer
     group: cert-manager.io
 ---
 #--------------------------------------------------------------
@@ -257,7 +258,7 @@ spec:
     - wazuh-dashboard.wazuh.svc.cluster.local
   issuerRef:
     name: wazuh-ca-issuer
-    kind: ClusterIssuer
+    kind: Issuer
     group: cert-manager.io
 ---
 #--------------------------------------------------------------
@@ -304,5 +305,5 @@ spec:
     - wazuh-manager-2.wazuh-manager-headless.wazuh.svc.cluster.local
   issuerRef:
     name: wazuh-ca-issuer
-    kind: ClusterIssuer
+    kind: Issuer
     group: cert-manager.io
