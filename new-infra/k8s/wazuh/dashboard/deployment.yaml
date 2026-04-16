@@ -46,7 +46,7 @@ spec:
       # Scheduling: platform nodegroup
       #--------------------------------------------------------------
       nodeSelector:
-        role: platform
+        role: security
       # No taint on the platform nodegroup in bc-ctrl — no toleration needed.
 
       affinity:
