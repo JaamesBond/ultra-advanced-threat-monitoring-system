@@ -34,7 +34,7 @@ jobs:
 
       - uses: hashicorp/setup-terraform@v3
 
-      - name: Terraform Apply (Ctrl) — Stage 1: Network
+      - name: "Terraform Apply (Ctrl) — Stage 1: Network"
         working-directory: new-infra/environments/bc-ctrl/eu-central-1
         run: |
           terraform init
@@ -59,12 +59,12 @@ jobs:
             -target=aws_iam_instance_profile.security_tools \
             -target=aws_instance.security_tools
 
-      - name: Terraform Apply (Ctrl) — Stage 2: EKS
+      - name: "Terraform Apply (Ctrl) — Stage 2: EKS"
         working-directory: new-infra/environments/bc-ctrl/eu-central-1
         run: |
           terraform apply -auto-approve -target=module.eks
 
-      - name: Terraform Apply (Ctrl) — Stage 3: Reconcile
+      - name: "Terraform Apply (Ctrl) — Stage 3: Reconcile"
         working-directory: new-infra/environments/bc-ctrl/eu-central-1
         run: |
           terraform apply -auto-approve
