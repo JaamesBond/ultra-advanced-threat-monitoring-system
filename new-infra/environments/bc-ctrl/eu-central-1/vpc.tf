@@ -60,11 +60,11 @@ resource "aws_instance" "fck_nat" {
   vpc_security_group_ids      = [aws_security_group.fck_nat.id]
   iam_instance_profile        = aws_iam_instance_profile.fck_nat.name
 
-  # Ensure MASQUERADE for the peering VPC
+  # MASQUERADE all RFC1918 traffic destined for internet (covers bc-ctrl nodes + bc-prd peering traffic)
   user_data = <<-EOF
               #!/bin/bash
               echo 1 > /proc/sys/net/ipv4/ip_forward
-              iptables -t nat -A POSTROUTING -s 10.30.0.0/16 -o eth0 -j MASQUERADE
+              iptables -t nat -A POSTROUTING -s 10.0.0.0/8 ! -d 10.0.0.0/8 -o eth0 -j MASQUERADE
               EOF
 
   tags = merge(local.common_tags, { Name = "fck-nat-shared" })
