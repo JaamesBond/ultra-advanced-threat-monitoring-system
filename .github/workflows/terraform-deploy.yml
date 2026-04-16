@@ -30,9 +30,6 @@ jobs:
           terraform init
           terraform apply -auto-approve
 
-      - name: Wait for GitHub Runner to bootstrap
-        run: sleep 120
-
   production-plane:
     name: Deploy Production Plane (The Data)
     needs: ctrl-plane
