@@ -150,10 +150,16 @@ jobs:
           terraform apply -auto-approve \
             -target=helm_release.cilium \
             -target=helm_release.falco \
-            -target=helm_release.tetragon
+            -target=helm_release.tetragon \
+            -target=helm_release.external_secrets \
+            -target=aws_iam_role.external_secrets \
+            -target=aws_iam_role_policy.external_secrets_secrets_manager
 
       - name: Wait for CRDs to propagate
         run: sleep 60
+
+      - name: Wait for external-secrets webhook
+        run: kubectl -n external-secrets rollout status deployment/external-secrets-webhook --timeout=120s
 
       - name: Deploy Wazuh Agent (bc-prd)
         run: |
