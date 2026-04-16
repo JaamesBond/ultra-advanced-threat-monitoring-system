@@ -77,16 +77,16 @@ module "eks" {
 
   node_security_group_additional_rules = {
     ingress_self_all = {
-      description = "Node to node — all ports/protocols"
+      description = "Node to node all ports/protocols"
       protocol    = "-1"
       from_port   = 0
       to_port     = 0
       type        = "ingress"
       self        = true
     }
-    # Wazuh agents in bc-prd reach Manager via VPC peering → internal NLB → node
+    # Wazuh agents in bc-prd reach Manager via VPC peering - internal NLB - node
     ingress_prd_wazuh_events = {
-      description = "bc-prd Wazuh agents → Manager events (1514)"
+      description = "bc-prd Wazuh agents to Manager events (1514)"
       protocol    = "tcp"
       from_port   = 1514
       to_port     = 1514
@@ -94,7 +94,7 @@ module "eks" {
       cidr_blocks = [local.prd_vpc_cidr]
     }
     ingress_prd_wazuh_enroll = {
-      description = "bc-prd Wazuh agents → Manager enrollment (1515)"
+      description = "bc-prd Wazuh agents to Manager enrollment (1515)"
       protocol    = "tcp"
       from_port   = 1515
       to_port     = 1515
