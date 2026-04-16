@@ -57,6 +57,7 @@ resource "aws_instance" "fck_nat" {
   subnet_id                   = module.vpc.public_subnet_ids[0]
   associate_public_ip_address = true
   source_dest_check           = false
+  user_data_replace_on_change = true
   vpc_security_group_ids      = [aws_security_group.fck_nat.id]
   iam_instance_profile        = aws_iam_instance_profile.fck_nat.name
 
