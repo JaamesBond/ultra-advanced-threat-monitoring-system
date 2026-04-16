@@ -98,7 +98,7 @@ resource "aws_instance" "github_runner" {
   user_data = <<-EOT
               #!/bin/bash
               yum update -y
-              yum install -y docker git jq libicu
+              yum install -y docker git jq libicu nodejs
               systemctl enable --now docker
 
               # GitHub Runner Setup
