@@ -15,6 +15,12 @@ This repository contains the Terraform and Kubernetes infrastructure for **Big C
     - **VPC Endpoints**: Full suite (ECR, S3, STS, etc.) to ensure EKS control plane access is independent of NAT status.
     - **Security Stack**: Cilium (ENI mode), Falco (eBPF), Tetragon (SIGKILL enforcement).
 
+### Security Standards (Mandatory for ALL EKS Clusters)
+To ensure consistent observability and zero-day protection across the XDR system, the following eBPF stack MUST be deployed on every EKS cluster:
+- **Cilium**: L3/L4/L7 Network security and identity.
+- **Falco**: Real-time syscall auditing and alerting.
+- **Tetragon**: Real-time process and syscall enforcement (SIGKILL).
+
 ## Building and Running
 1. **Control Plane (`bc-ctrl`)**: Deploy first to establish the hub and runner.
 2. **Production Plane (`bc-prd`)**: Deploy second; depends on `bc-ctrl` for peering acceptance.

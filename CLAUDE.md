@@ -4,6 +4,7 @@
 Architecture: 2-VPC hub-spoke via Peering (Brain: bc-ctrl, Data: bc-prd).
 
 ## 🚨 Critical AI Guardrails
+- **Mandatory Stack**: Every EKS cluster MUST run Cilium, Falco, and Tetragon. No exceptions.
 - **No Transitive Routing**: VPC Peering DOES NOT support internet egress through a peer. `bc-prd` MUST have its own `fck-nat` for worker node internet access.
 - **EKS Access Management**: NEVER use `enable_cluster_creator_admin_permissions`. It causes 409 conflicts between local and CI/CD runs. ALWAYS use explicit `access_entries`.
 - **Node Capacity**: Worker nodes MUST be `t3.medium`. `t3.small` will fail due to the pod limit (11) being exceeded by the eBPF stack.
