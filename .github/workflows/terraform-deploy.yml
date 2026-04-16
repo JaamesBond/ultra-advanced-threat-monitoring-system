@@ -64,6 +64,18 @@ jobs:
         run: |
           terraform apply -auto-approve -target=module.eks
 
+      - name: Install kubectl (pre-Stage-3 cleanup)
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubectl for cleanup (bc-ctrl-eks)
+        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name bc-uatms-ctrl-eks
+
+      - name: Cleanup stale Helm releases (pre-Stage-3)
+        run: |
+          helm uninstall aws-load-balancer-controller -n kube-system 2>/dev/null || true
+          helm uninstall external-secrets -n external-secrets 2>/dev/null || true
+          helm uninstall cert-manager -n cert-manager 2>/dev/null || true
+
       - name: "Terraform Apply (Ctrl) — Stage 3: Reconcile"
         working-directory: new-infra/environments/bc-ctrl/eu-central-1
         run: |
