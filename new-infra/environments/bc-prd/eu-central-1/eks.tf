@@ -13,6 +13,20 @@ module "eks" {
 
   enable_cluster_creator_admin_permissions = true
 
+  access_entries = {
+    runner = {
+      principal_arn     = "arn:aws:iam::286439316079:role/github-runner-role"
+      policy_associations = {
+        admin = {
+          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = {
+            type = "cluster"
+          }
+        }
+      }
+    }
+  }
+
   # Add ingress rule to cluster SG for node access (required for Cilium/CoreDNS)
   cluster_security_group_additional_rules = {
     ingress_nodes_443 = {
