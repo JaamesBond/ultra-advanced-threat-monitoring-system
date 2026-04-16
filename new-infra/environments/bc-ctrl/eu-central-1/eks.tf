@@ -123,11 +123,15 @@ module "eks" {
   }
 
   addons = {
-    eks-pod-identity-agent = { most_recent = true }  # required for Pod Identity (LBC, ext-secrets)
+    eks-pod-identity-agent = {
+      most_recent    = true
+      before_compute = true  # Must be present before node bootstrap
+    }  # required for Pod Identity (LBC, ext-secrets)
     coredns                = { most_recent = true }
     kube-proxy             = { most_recent = true }
     vpc-cni = {
-      most_recent = true
+      most_recent    = true
+      before_compute = true  # CNI must exist before nodes boot; without this, NetworkPluginNotReady
       configuration_values = jsonencode({
         env = {
           # EXTERNALSNAT=true: pod traffic SNAT'd to node IP → fck-nat handles egress
