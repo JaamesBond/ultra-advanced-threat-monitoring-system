@@ -11,6 +11,7 @@ module "eks" {
   cluster_endpoint_public_access  = true # Keep true until Helm is done
   cluster_endpoint_private_access = true
 
+  # Automatically grant admin access to the principal that creates the cluster
   enable_cluster_creator_admin_permissions = true
 
   access_entries = {
@@ -27,16 +28,6 @@ module "eks" {
     # Grant access to the Runner Instance Profile
     runner = {
       principal_arn     = "arn:aws:iam::286439316079:role/github-runner-role"
-      policy_associations = {
-        admin = {
-          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-          access_scope = { type = "cluster" }
-        }
-      }
-    }
-    # Grant access to the local user to prevent state flip-flop
-    matei = {
-      principal_arn     = "arn:aws:iam::286439316079:user/Matei"
       policy_associations = {
         admin = {
           policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
