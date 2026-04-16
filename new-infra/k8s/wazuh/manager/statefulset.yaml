@@ -96,7 +96,7 @@ spec:
       #--------------------------------------------------------------
       initContainers:
         - name: set-node-identity
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/busybox:1.37.0
+          image: public.ecr.aws/docker/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -124,7 +124,7 @@ spec:
               mountPath: /workdir
 
         - name: inject-secrets
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/alpine:3.20
+          image: public.ecr.aws/docker/library/alpine:3.20
           command:
             - sh
             - -c
@@ -142,7 +142,7 @@ spec:
               mountPath: /workdir
 
         - name: wait-for-indexer
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/busybox:1.37.0
+          image: public.ecr.aws/docker/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -168,7 +168,7 @@ spec:
         # ossec-execd (runs as root) can execute them.
         #--------------------------------------------------------------
         - name: copy-ar-scripts
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/busybox:1.37.0
+          image: public.ecr.aws/docker/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -323,7 +323,7 @@ spec:
         # Workers pick up the updated lists via cluster sync.
         #--------------------------------------------------------------
         - name: misp-ioc-sync
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/alpine:3.20
+          image: public.ecr.aws/docker/library/alpine:3.20
           imagePullPolicy: IfNotPresent
           command:
             - sh

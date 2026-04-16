@@ -80,7 +80,7 @@ spec:
         - name: set-node-identity
           # Pull-through cache path — swap to a direct docker.io
           # reference only for testing in a cluster with internet.
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/busybox:1.37.0
+          image: public.ecr.aws/docker/library/busybox:1.37.0
           command:
             - sh
             - -c

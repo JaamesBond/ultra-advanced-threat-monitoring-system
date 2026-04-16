@@ -53,7 +53,7 @@ spec:
 
       containers:
         - name: ism-apply
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/alpine:3.20
+          image: public.ecr.aws/docker/library/alpine:3.20
           imagePullPolicy: IfNotPresent
           command:
             - sh

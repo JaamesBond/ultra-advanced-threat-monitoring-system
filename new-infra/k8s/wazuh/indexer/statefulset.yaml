@@ -82,7 +82,7 @@ spec:
       #--------------------------------------------------------------
       initContainers:
         - name: set-sysctl
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/busybox:1.37.0
+          image: public.ecr.aws/docker/library/busybox:1.37.0
           securityContext:
             privileged: true
             runAsUser: 0
@@ -95,7 +95,7 @@ spec:
               ulimit -n 65536 || true
 
         - name: fix-permissions
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/busybox:1.37.0
+          image: public.ecr.aws/docker/library/busybox:1.37.0
           securityContext:
             runAsUser: 0
           command:
@@ -111,7 +111,7 @@ spec:
               mountPath: /var/log/wazuh-indexer
 
         - name: wait-dns
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/busybox:1.37.0
+          image: public.ecr.aws/docker/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -135,7 +135,7 @@ spec:
         # main container at the OpenSearch security config path.
         #--------------------------------------------------------------
         - name: inject-secrets
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/alpine:3.20
+          image: public.ecr.aws/docker/library/alpine:3.20
           command:
             - sh
             - -c
