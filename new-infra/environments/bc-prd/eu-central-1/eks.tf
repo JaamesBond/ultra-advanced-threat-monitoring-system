@@ -13,6 +13,37 @@ module "eks" {
 
   enable_cluster_creator_admin_permissions = true
 
+  # Add ingress rule to cluster SG for node access (required for Cilium/CoreDNS)
+  cluster_security_group_additional_rules = {
+    ingress_nodes_443 = {
+      description                = "Nodes to cluster API"
+      protocol                   = "tcp"
+      from_port                  = 443
+      to_port                    = 443
+      type                       = "ingress"
+      source_node_security_group = true
+    }
+  }
+
+  node_security_group_additional_rules = {
+    ingress_self_all = {
+      description = "Node to node all ports/protocols"
+      protocol    = "-1"
+      from_port   = 0
+      to_port     = 0
+      type        = "ingress"
+      self        = true
+    }
+    egress_all = {
+      description      = "Node all egress"
+      protocol         = "-1"
+      from_port        = 0
+      to_port          = 0
+      type             = "egress"
+      cidr_blocks      = ["0.0.0.0/0"]
+    }
+  }
+
   cluster_addons = {
     coredns = {
       most_recent = true
@@ -22,6 +53,13 @@ module "eks" {
     }
     vpc-cni = {
       most_recent = true
+      configuration_values = jsonencode({
+        env = {
+          # We use Cilium for CNI, but keep vpc-cni for ENI allocation if needed
+          # or patch it to not schedule pods.
+          AWS_VPC_K8S_CNI_EXTERNALSNAT = "true"
+        }
+      })
     }
     amazon-cloudwatch-observability = {
       most_recent = true
@@ -30,7 +68,7 @@ module "eks" {
 
   eks_managed_node_groups = {
     workload = {
-      instance_types = ["t3.small"]
+      instance_types = ["t3.medium"]
       min_size     = 2
       max_size     = 2
       desired_size = 2

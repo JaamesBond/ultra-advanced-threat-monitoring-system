@@ -47,6 +47,7 @@ resource "aws_instance" "fck_nat_prd" {
   associate_public_ip_address = true
   source_dest_check           = false
   vpc_security_group_ids      = [aws_security_group.fck_nat_prd.id]
+  iam_instance_profile        = aws_iam_instance_profile.fck_nat_prd.name
 
   # IP Forwarding and Masquerade
   user_data = <<-EOF
@@ -57,6 +58,30 @@ resource "aws_instance" "fck_nat_prd" {
 
   tags = merge(local.common_tags, { Name = "fck-nat-prd" })
 }
+
+resource "aws_iam_role" "fck_nat_prd" {
+  name = "fck-nat-prd-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "fck_nat_prd_ssm" {
+  role       = aws_iam_role.fck_nat_prd.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_instance_profile" "fck_nat_prd" {
+  name = "fck-nat-prd-profile"
+  role = aws_iam_role.fck_nat_prd.name
+}
+
 
 # Route private traffic to local fck-nat
 resource "aws_route" "private_nat_prd" {
