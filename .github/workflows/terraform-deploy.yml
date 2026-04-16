@@ -132,8 +132,15 @@ jobs:
 
       - name: Configure kubectl (bc-prd-eks)
         run: |
-          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name bc-uatms-prd-eks
-          echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
+          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name bc-uatms-prd-eks --kubeconfig /tmp/kubeconfig-prd
+          echo "KUBECONFIG=/tmp/kubeconfig-prd" >> $GITHUB_ENV
+
+      - name: Verify kubectl config (bc-prd-eks)
+        run: |
+          echo "KUBECONFIG=$KUBECONFIG"
+          kubectl config view --minify
+          kubectl config current-context
+          kubectl get nodes --request-timeout=10s
 
       # Bootstrap Cilium CRDs before applying Wazuh/Zeek/Suricata so
       # NetworkPolicy resources can be validated against the live API.
