@@ -3,12 +3,25 @@
 ## Project Overview
 Architecture: 2-VPC hub-spoke via Peering (Brain: bc-ctrl, Data: bc-prd).
 
-## 🚨 Critical AI Guardrails
+## 🧭 AI Quick-Start & Troubleshooting
+
+### 1. Resource Map
+- **Terraform Configs**: `new-infra/environments/{env}/eu-central-1/`
+- **Networking Logic**: `new-infra/environments/bc-prd/eu-central-1/vpc.tf` (Peering + local fck-nat).
+- **Security Logic**: `new-infra/environments/bc-prd/eu-central-1/helm-security.tf` (Mandatory Stack).
+- **Runner Setup**: `new-infra/environments/bc-ctrl/eu-central-1/vm.tf` (GitHub Runner bootstrap).
+
+### 2. 🚨 Critical AI Guardrails
 - **Mandatory Stack**: Every EKS cluster MUST run Cilium, Falco, and Tetragon. No exceptions.
 - **No Transitive Routing**: VPC Peering DOES NOT support internet egress through a peer. `bc-prd` MUST have its own `fck-nat` for worker node internet access.
 - **EKS Access Management**: NEVER use `enable_cluster_creator_admin_permissions`. It causes 409 conflicts between local and CI/CD runs. ALWAYS use explicit `access_entries`.
-- **Node Capacity**: Worker nodes MUST be `t3.medium`. `t3.small` will fail due to the pod limit (11) being exceeded by the eBPF stack.
+- **Node Capacity**: Worker nodes MUST be `t3.medium`. `t3.small` will fail due to the pod limit (11).
 - **Runner Support**: The self-hosted runner needs `nodejs`, `git`, `jq`, `libicu`, `terraform`, and `kubectl`.
+
+### 3. Common Failure Modes
+- **409 Conflict on Access Entry**: Usually caused by `enable_cluster_creator_admin_permissions = true`. Switch to explicit entries.
+- **Helm Timeout (i/o timeout)**: Usually means nodes lack internet egress. Check `fck-nat` iptables and MASQUERADE rules.
+- **Worker Node Not Joining**: Check VPC Endpoints (STS, EKS, EC2) in the private VPC.
 
 ## Build & Deploy
 - **Step 1 (Ctrl)**: `cd new-infra/environments/bc-ctrl/eu-central-1 && terraform apply`
