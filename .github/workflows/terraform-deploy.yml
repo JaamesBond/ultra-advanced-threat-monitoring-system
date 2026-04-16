@@ -34,10 +34,39 @@ jobs:
 
       - uses: hashicorp/setup-terraform@v3
 
-      - name: Terraform Apply (Ctrl)
+      - name: Terraform Apply (Ctrl) — Stage 1: Network
         working-directory: new-infra/environments/bc-ctrl/eu-central-1
         run: |
           terraform init
+          terraform apply -auto-approve \
+            -target=module.vpc \
+            -target=module.peering \
+            -target=aws_security_group.fck_nat \
+            -target=aws_iam_role.fck_nat \
+            -target=aws_iam_role_policy_attachment.fck_nat_ssm \
+            -target=aws_iam_instance_profile.fck_nat \
+            -target=aws_instance.fck_nat \
+            -target=aws_route.private_nat \
+            -target=aws_route53_zone.bc_ctrl_internal \
+            -target=aws_security_group.github_runner \
+            -target=aws_iam_role.github_runner \
+            -target=aws_iam_role_policy_attachment.runner_admin \
+            -target=aws_iam_instance_profile.github_runner \
+            -target=aws_instance.github_runner \
+            -target=aws_security_group.security_tools \
+            -target=aws_iam_role.security_tools \
+            -target=aws_iam_role_policy_attachment.ssm \
+            -target=aws_iam_instance_profile.security_tools \
+            -target=aws_instance.security_tools
+
+      - name: Terraform Apply (Ctrl) — Stage 2: EKS
+        working-directory: new-infra/environments/bc-ctrl/eu-central-1
+        run: |
+          terraform apply -auto-approve -target=module.eks
+
+      - name: Terraform Apply (Ctrl) — Stage 3: Reconcile
+        working-directory: new-infra/environments/bc-ctrl/eu-central-1
+        run: |
           terraform apply -auto-approve
 
       - name: Install kubectl

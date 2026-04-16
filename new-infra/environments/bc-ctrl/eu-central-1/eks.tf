@@ -26,7 +26,7 @@
 #   cluster_endpoint_public_access  → endpoint_public_access
 #   cluster_endpoint_private_access → endpoint_private_access
 #   cluster_addons  → addons
-#   cluster_security_group_additional_rules → removed (auto-managed in v21)
+#   cluster_security_group_additional_rules → renamed (drop cluster_ prefix; NOT auto-managed)
 #--------------------------------------------------------------
 
 module "eks" {
@@ -108,6 +108,17 @@ module "eks" {
       to_port     = 0
       type        = "egress"
       cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
+
+  security_group_additional_rules = {
+    ingress_nodes_443 = {
+      description                = "Nodes to cluster API"
+      protocol                   = "tcp"
+      from_port                  = 443
+      to_port                    = 443
+      type                       = "ingress"
+      source_node_security_group = true
     }
   }
 

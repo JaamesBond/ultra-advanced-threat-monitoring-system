@@ -102,6 +102,7 @@ resource "helm_release" "aws_lb_controller" {
   namespace        = "kube-system"
   create_namespace = false
   atomic           = true
+  replace          = true
   cleanup_on_fail  = true
   timeout          = 600
 
@@ -228,6 +229,7 @@ resource "helm_release" "external_secrets" {
   namespace        = "external-secrets"
   create_namespace = true
   atomic           = true
+  replace          = true
   cleanup_on_fail  = true
   timeout          = 600
 
@@ -415,6 +417,7 @@ resource "helm_release" "cert_manager" {
   namespace        = "cert-manager"
   create_namespace = true
   atomic           = true
+  replace          = true
   cleanup_on_fail  = true
   timeout          = 600
 
