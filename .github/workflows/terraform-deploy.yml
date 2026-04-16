@@ -146,17 +146,26 @@ jobs:
       - name: Wait for CRDs to propagate
         run: sleep 60
 
+      - name: Refresh kubectl context (bc-prd-eks)
+        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name bc-uatms-prd-eks
+
       - name: Deploy Wazuh Agent (bc-prd)
         run: |
           kubectl kustomize new-infra/k8s/wazuh/agent \
             | sed "s/\${AWS_ACCOUNT_ID}/${{ env.AWS_ACCOUNT_ID }}/g" \
             | kubectl apply -f -
 
+      - name: Refresh kubectl context (bc-prd-eks)
+        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name bc-uatms-prd-eks
+
       - name: Deploy Zeek (bc-prd)
         run: |
           kubectl kustomize new-infra/k8s/zeek \
             | sed "s/\${AWS_ACCOUNT_ID}/${{ env.AWS_ACCOUNT_ID }}/g" \
             | kubectl apply -f -
+
+      - name: Refresh kubectl context (bc-prd-eks)
+        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name bc-uatms-prd-eks
 
       - name: Deploy Suricata (bc-prd)
         run: |
