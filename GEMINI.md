@@ -4,37 +4,38 @@
 This repository contains the Terraform and Kubernetes infrastructure for **Big Chemistry's XDR v8 security system**. The architecture is a simplified, cost-optimized "Brain/Data" model consisting of two AWS VPCs (`bc-ctrl` and `bc-prd`) in `eu-central-1` connected via **VPC Peering**.
 
 ### Architecture Highlights (v8)
-- **VPC Peering**: Replaces Transit Gateway for lower cost and latency. Direct bi-directional routing between Control and Production planes.
+- **VPC Peering**: Replaces Transit Gateway for lower cost. **Note**: Transitive routing is NOT supported; each VPC has its own local egress.
 - **bc-ctrl (The Brain)**:
-    - Hosts the centralized security tools and management stack.
-    - **fck-nat (ARM64)**: Provides a cost-effective NAT hub for the Control Plane.
-    - **GitHub Actions Runner**: A self-hosted `t3.small` instance for secure, private-network deployments.
-    - **Security Tools VM**: A dedicated `t3.nano` instance for Docker-based security services.
+    - **fck-nat-shared** (`t4g.nano`): Handles NAT for management subnets.
+    - **GitHub Actions Runner**: Self-hosted `t3.small` with Node.js, Terraform, and kubectl pre-installed.
+    - **Security Tools**: Dedicated `t3.nano` Docker host.
 - **bc-prd (The Data Plane)**:
-    - **EKS Cluster (v1.35)**: Strictly **2 worker nodes** (`t3.small`) hosting workload applications.
-    - **fck-nat (Local)**: Dedicated internet egress for worker nodes to pull images and updates.
-    - **Security Stack**: Deep monitoring via **Cilium CNI (ENI mode)**, **Falco (eBPF syscall auditing)**, and **Tetragon (SIGKILL enforcement)**.
-    - **VPC Endpoints**: Ensures the EKS cluster remains operational even during NAT/Peering maintenance.
+    - **EKS Cluster (v1.35)**: 2x `t3.medium` nodes. **Warning**: eBPF stack requires >2GB RAM; `t3.small` will fail due to pod limits (11) and memory pressure.
+    - **fck-nat-prd**: Dedicated local NAT for EKS worker nodes.
+    - **VPC Endpoints**: Full suite (ECR, S3, STS, etc.) to ensure EKS control plane access is independent of NAT status.
+    - **Security Stack**: Cilium (ENI mode), Falco (eBPF), Tetragon (SIGKILL enforcement).
 
 ## Building and Running
-The infrastructure deployment follows a two-stage bootstrap process to handle peering dependencies.
+1. **Control Plane (`bc-ctrl`)**: Deploy first to establish the hub and runner.
+2. **Production Plane (`bc-prd`)**: Deploy second; depends on `bc-ctrl` for peering acceptance.
 
-### Deployment Order
-1. **Control Plane (`bc-ctrl`)**
-   ```bash
-   cd new-infra/environments/bc-ctrl/eu-central-1 && terraform init && terraform apply
-   ```
-2. **Production Plane (`bc-prd`)**
-   ```bash
-   cd new-infra/environments/bc-prd/eu-central-1 && terraform init && terraform apply
-   ```
+## 🛠 Lessons Learned (AI Playbook)
+To prevent common EKS/Networking failures in this environment:
 
-*Note: The GitHub Runner in `bc-ctrl` is required to reach the private EKS API in `bc-prd` for Helm deployments.*
+### 1. Networking: The Peering Trap
+VPC Peering is **not transitive**. Traffic from `bc-prd` cannot reach the internet through a NAT in `bc-ctrl`. 
+- **Fix**: Deploy a local `fck-nat` in every VPC that requires internet egress.
+- **Fix**: Deploy VPC Endpoints in private VPCs to unblock EKS node registration.
 
-## Development Conventions
-- **Cost-First Design**: Always use `fck-nat` and minimal instance types (`t3.nano/micro/small`) for testing.
-- **Resource Pinning**: EKS node count is strictly pinned to 2 nodes. DO NOT upscale without approval.
-- **Transitive Routing Limitation**: Remember that VPC Peering does NOT support transitive routing; each VPC must have its own egress path or local NAT.
-- **Graphify Tooling**: 
-  - ALWAYS use `/graphify query "<concept>"` to understand the architecture.
-  - ALWAYS run `/graphify new-infra --update` after modifications to keep the cache fresh.
+### 2. IAM: The EKS Access Conflict
+The EKS module's `enable_cluster_creator_admin_permissions` is dangerous in CI/CD. It uses the ARN of the role/user that runs the apply. If you run locally as `User A` and then in GH Actions as `Role B`, you will get `409 ResourceInUse` errors.
+- **Fix**: Set `enable_cluster_creator_admin_permissions = false` and use **explicit** `access_entries` for all roles.
+
+### 3. Compute: The Resource Wall
+Cilium + Falco + Tetragon + CloudWatch Agent = ~12-14 pods per node.
+- **Constraint**: `t3.small` has a hard limit of 11 pods.
+- **Fix**: Use `t3.medium` (17 pod limit) at a minimum for worker nodes.
+
+### 4. Runner: The Actions Dependency
+GH Actions host-side logic (checkout, etc.) requires Node.js.
+- **Fix**: Ensure `nodejs`, `git`, and `jq` are in the runner's `user_data`.
