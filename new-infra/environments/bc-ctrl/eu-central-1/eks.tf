@@ -136,6 +136,7 @@ module "eks" {
       most_recent    = true
       before_compute = true  # Must be present before node bootstrap
     }  # required for Pod Identity (LBC, ext-secrets)
+    aws-ebs-csi-driver     = { most_recent = true }  # required for wazuh-gp3 StorageClass (ebs.csi.aws.com)
     coredns                = { most_recent = true }
     kube-proxy             = { most_recent = true }
     vpc-cni = {

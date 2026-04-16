@@ -59,13 +59,8 @@ spec:
                     values: [wazuh-indexer]
               topologyKey: kubernetes.io/hostname
 
-      topologySpreadConstraints:
-        - maxSkew: 1
-          topologyKey: topology.kubernetes.io/zone
-          whenUnsatisfiable: DoNotSchedule
-          labelSelector:
-            matchLabels:
-              app: wazuh-indexer
+      # topologySpreadConstraints removed — bc-ctrl is single-AZ (eu-central-1a).
+      # podAntiAffinity per-hostname is sufficient for node-level HA.
 
       securityContext:
         runAsUser: 1000
