@@ -52,15 +52,15 @@ spec:
 # 2. Agent entry point — internal NLB
 #
 # This is what bc-prd agents connect to. The NLB lives in
-# bc-ctrl private subnets, reachable from bc-prd via TGW
-# because:
-#   - bc-prd routes 10.0.0.0/16 → TGW (ctrl/vpc.tf:98-101)
-#   - bc-ctrl TGW attachment is associated with shared-rt
-#   - shared-rt routes propagated into spoke-rt
+# bc-ctrl private subnets, reachable from bc-prd via VPC peering:
+#   - bc-prd routes 10.0.0.0/16 → peering connection (prd/vpc.tf)
+#   - bc-ctrl routes 10.30.0.0/16 → peering connection (ctrl/vpc.tf)
 #
-# IMPORTANT: Requires AWS Load Balancer Controller. If not
-# installed, switch type to ClusterIP and create the NLB
-# in Terraform instead (targeting pod IPs via TargetGroupBinding).
+# DNS: external-dns writes wazuh-manager.bc-ctrl.internal → NLB DNS
+# into the Route53 private zone (ctrl/route53.tf), which is
+# associated with bc-prd VPC so agents can resolve it.
+#
+# IMPORTANT: Requires AWS Load Balancer Controller (ctrl/eks.tf).
 #--------------------------------------------------------------
 apiVersion: v1
 kind: Service

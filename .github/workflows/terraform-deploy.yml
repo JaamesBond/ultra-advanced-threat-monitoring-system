@@ -39,9 +39,25 @@ jobs:
         run: |
           terraform init
           terraform apply -auto-approve
-      # NOTE: Wazuh Manager/Indexer/Dashboard run on the security_tools Docker EC2,
-      # not on EKS. bc-ctrl has no EKS cluster. Docker Compose deployment is handled
-      # via SSM/user_data on the security_tools instance (see vm.tf).
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubectl (bc-ctrl-eks)
+        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name bc-uatms-ctrl-eks
+
+      # Terraform apply installs LBC/external-secrets/cert-manager via Helm (atomic).
+      # Wait for webhooks to be Ready before applying Wazuh (uses Certificate + ExternalSecret CRDs).
+      - name: Wait for addon webhooks
+        run: |
+          kubectl -n cert-manager rollout status deployment/cert-manager-webhook --timeout=120s
+          kubectl -n external-secrets rollout status deployment/external-secrets-webhook --timeout=120s
+
+      - name: Deploy Wazuh Manager stack (bc-ctrl)
+        run: |
+          kubectl kustomize new-infra/k8s/wazuh \
+            | sed 's/\${AWS_ACCOUNT_ID}/${{ env.AWS_ACCOUNT_ID }}/g' \
+            | kubectl apply -f -
 
   # ---------------------------------------------------------------
   # Step 2: bc-prd (The Data) — EKS + security stack + sensors
