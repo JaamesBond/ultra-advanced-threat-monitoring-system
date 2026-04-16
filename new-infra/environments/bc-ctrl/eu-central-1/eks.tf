@@ -18,20 +18,29 @@
 #   bc-prd (10.30.0.0/16) → 1514 (events) + 1515 (enrollment)
 #   Wazuh agents in bc-prd reach Manager via VPC peering →
 #   internal NLB (created by AWS LBC from manager/service.yaml).
+#
+# NOTE: Uses eks module ~> 21.0 (bc-ctrl AWS provider >= 6.23).
+# v21 renamed several arguments vs v20 (used in bc-prd):
+#   cluster_name    → name
+#   cluster_version → kubernetes_version
+#   cluster_endpoint_public_access  → endpoint_public_access
+#   cluster_endpoint_private_access → endpoint_private_access
+#   cluster_addons  → addons
+#   cluster_security_group_additional_rules → removed (auto-managed in v21)
 #--------------------------------------------------------------
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 21.0"
 
-  cluster_name    = "${local.platform_name}-${local.env}-eks"
-  cluster_version = "1.35"
+  name               = "${local.platform_name}-${local.env}-eks"
+  kubernetes_version = "1.35"
 
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnet_ids
 
-  cluster_endpoint_public_access  = true  # CI public runner needs this for kubectl apply
-  cluster_endpoint_private_access = true  # Self-hosted runner uses private path
+  endpoint_public_access  = true  # CI public runner needs this for kubectl apply
+  endpoint_private_access = true  # Self-hosted runner uses private path
 
   # Disable auto-permissions to prevent 409 conflicts
   enable_cluster_creator_admin_permissions = false
@@ -63,17 +72,6 @@ module "eks" {
           access_scope = { type = "cluster" }
         }
       }
-    }
-  }
-
-  cluster_security_group_additional_rules = {
-    ingress_nodes_443 = {
-      description                = "Nodes → cluster API"
-      protocol                   = "tcp"
-      from_port                  = 443
-      to_port                    = 443
-      type                       = "ingress"
-      source_node_security_group = true
     }
   }
 
@@ -113,7 +111,7 @@ module "eks" {
     }
   }
 
-  cluster_addons = {
+  addons = {
     eks-pod-identity-agent = { most_recent = true }  # required for Pod Identity (LBC, ext-secrets)
     coredns                = { most_recent = true }
     kube-proxy             = { most_recent = true }
@@ -144,11 +142,11 @@ module "eks" {
 #--------------------------------------------------------------
 # EKS Addons — AWS LBC + external-secrets + cert-manager + external-dns
 #
-# AWS LBC:        creates internal NLB for wazuh-manager Service
+# AWS LBC:          creates internal NLB for wazuh-manager Service
 # external-secrets: syncs AWS Secrets Manager → K8s Secrets (Wazuh creds)
-# cert-manager:   issues TLS certs for Wazuh Indexer inter-node comms
-# external-dns:   writes wazuh-manager.bc-ctrl.internal → NLB DNS
-#                 into the Route53 private zone (route53.tf)
+# cert-manager:     issues TLS certs for Wazuh Indexer inter-node comms
+# external-dns:     writes wazuh-manager.bc-ctrl.internal → NLB DNS
+#                   into the Route53 private zone (route53.tf)
 #--------------------------------------------------------------
 module "eks_addons" {
   source = "../../../modules/eks-addons"
