@@ -307,6 +307,10 @@ resource "aws_s3_object" "misp_install_script" {
   source                 = "${path.module}/../../../scripts/phase4-install-misp.sh"
   source_hash            = filemd5("${path.module}/../../../scripts/phase4-install-misp.sh")
   server_side_encryption = "AES256"
+
+  lifecycle {
+    ignore_changes = [object_lock_mode, object_lock_retain_until_date, object_lock_legal_hold_status]
+  }
 }
 
 resource "aws_instance" "misp" {

@@ -5,6 +5,8 @@ resource "helm_release" "cilium" {
   version    = "1.19.3"
   namespace  = "kube-system"
 
+  depends_on = [module.eks]
+
   set {
     name  = "cni.chainingMode"
     value = "aws-cni"
@@ -46,6 +48,9 @@ resource "helm_release" "falco" {
   namespace        = "falco"
   create_namespace = true
   version          = "8.0.2"
+  timeout          = 600
+
+  depends_on = [module.eks]
 
   values = [
     file("${path.module}/falco-rules.yaml")
@@ -63,4 +68,6 @@ resource "helm_release" "tetragon" {
   chart      = "tetragon"
   version    = "1.6.1"
   namespace  = "kube-system"
+
+  depends_on = [module.eks]
 }

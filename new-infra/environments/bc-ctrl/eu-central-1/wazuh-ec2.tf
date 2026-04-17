@@ -237,11 +237,15 @@ resource "aws_kms_alias" "wazuh_ec2" {
 ###############################################################
 
 resource "aws_s3_object" "wazuh_install_script" {
-  bucket      = "bc-uatms-wazuh-snapshots"
-  key         = "scripts/phase3-install-wazuh.sh"
-  source      = "${path.module}/../../../scripts/phase3-install-wazuh.sh"
-  source_hash = filemd5("${path.module}/../../../scripts/phase3-install-wazuh.sh")
+  bucket                 = "bc-uatms-wazuh-snapshots"
+  key                    = "scripts/phase3-install-wazuh.sh"
+  source                 = "${path.module}/../../../scripts/phase3-install-wazuh.sh"
+  source_hash            = filemd5("${path.module}/../../../scripts/phase3-install-wazuh.sh")
   server_side_encryption = "AES256"
+
+  lifecycle {
+    ignore_changes = [object_lock_mode, object_lock_retain_until_date, object_lock_legal_hold_status]
+  }
 }
 
 ###############################################################
