@@ -182,7 +182,8 @@ module "eks" {
 # enter CrashLoopBackOff ("no EC2 IMDS role found").
 #--------------------------------------------------------------
 resource "aws_iam_role" "ebs_csi_driver" {
-  name = "${local.platform_name}-${local.env}-ebs-csi-driver"
+  name                = "${local.platform_name}-${local.env}-ebs-csi-driver"
+  managed_policy_arns = ["arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"]
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -194,11 +195,6 @@ resource "aws_iam_role" "ebs_csi_driver" {
   })
 
   tags = local.common_tags
-}
-
-resource "aws_iam_role_policy_attachment" "ebs_csi_driver" {
-  role       = aws_iam_role.ebs_csi_driver.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
 }
 
 #--------------------------------------------------------------
