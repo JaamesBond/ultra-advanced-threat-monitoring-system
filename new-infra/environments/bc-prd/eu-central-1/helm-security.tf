@@ -14,6 +14,7 @@ resource "helm_release" "cilium" {
   name       = "cilium"
   repository = "https://helm.cilium.io/"
   chart      = "cilium"
+  version    = "1.19.3"
   namespace  = "kube-system"
 
   set {
@@ -28,14 +29,31 @@ resource "helm_release" "cilium" {
     name  = "routingMode"
     value = "native"
   }
+  set {
+    name  = "hubble.enabled"
+    value = "true"
+  }
+  set {
+    name  = "hubble.relay.enabled"
+    value = "true"
+  }
+  set {
+    name  = "hubble.ui.enabled"
+    value = "true"
+  }
+  set {
+    name  = "policyEnforcementMode"
+    value = "default"
+  }
 }
 
 resource "helm_release" "falco" {
-  name       = "falco"
-  repository = "https://falcosecurity.github.io/charts"
-  chart      = "falco"
-  namespace  = "falco"
+  name             = "falco"
+  repository       = "https://falcosecurity.github.io/charts"
+  chart            = "falco"
+  namespace        = "falco"
   create_namespace = true
+  version          = "8.0.2"
 
   set {
     name  = "driver.kind"
@@ -47,6 +65,7 @@ resource "helm_release" "tetragon" {
   name       = "tetragon"
   repository = "https://helm.cilium.io/"
   chart      = "tetragon"
+  version    = "1.6.1"
   namespace  = "kube-system"
 }
 

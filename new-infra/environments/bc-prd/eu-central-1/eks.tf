@@ -14,6 +14,9 @@ module "eks" {
   # CRITICAL: Disable auto-permissions to prevent 409 conflicts in the pipeline
   enable_cluster_creator_admin_permissions = false
 
+  # Pin KMS admin to CI role so local plans don't flip-flop the policy on apply
+  kms_key_administrators = ["arn:aws:iam::286439316079:role/GitHubActionsDeployRole"]
+
   access_entries = {
     # 1. Manual entry for local management
     matei = {

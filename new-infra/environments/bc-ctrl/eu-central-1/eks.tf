@@ -45,6 +45,9 @@ module "eks" {
   # Disable auto-permissions to prevent 409 conflicts
   enable_cluster_creator_admin_permissions = false
 
+  # Pin KMS admin to CI role so local plans don't flip-flop the policy on apply
+  kms_key_administrators = ["arn:aws:iam::286439316079:role/GitHubActionsDeployRole"]
+
   access_entries = {
     matei = {
       principal_arn = "arn:aws:iam::286439316079:user/Matei"
