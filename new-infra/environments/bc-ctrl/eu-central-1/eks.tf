@@ -1,32 +1,20 @@
 #--------------------------------------------------------------
-# bc-ctrl EKS Cluster — hosts Wazuh Manager / Indexer / Dashboard
+# bc-ctrl EKS Cluster — hosts Falco / Cilium / Tetragon
+#
+# Wazuh and MISP migrated to bare EC2 (wazuh-ec2.tf, vm.tf).
 #
 # Network:
 #   Private subnets only (10.0.10.0/24, eu-central-1a).
 #   Egress via fck-nat instance (ECR pulls, Helm chart downloads).
 #
 # Endpoint access:
-#   Public  = true  → CI (ubuntu-latest) can kubectl apply Wazuh manifests
+#   Public  = true  → CI runner can kubectl apply
 #   Private = true  → self-hosted runner in bc-ctrl VPC uses private path
 #
-# Node group — security (t3.xlarge × 2–3):
-#   Wazuh Indexer (OpenSearch) requests 8 Gi per pod × 3 replicas = 24 Gi
-#   minimum. t3.xlarge = 16 GB. 2 nodes gives 32 GB usable (after OS
-#   overhead) — fits indexer + manager + dashboard with headroom.
-#
-# Extra node SG rules:
-#   bc-prd (10.30.0.0/16) → 1514 (events) + 1515 (enrollment)
-#   Wazuh agents in bc-prd reach Manager via VPC peering →
-#   internal NLB (created by AWS LBC from manager/service.yaml).
+# Node group — security (t3.medium × 1–2):
+#   Falco + Cilium + Tetragon only — no heavy stateful workloads.
 #
 # NOTE: Uses eks module ~> 21.0 (bc-ctrl AWS provider >= 6.23).
-# v21 renamed several arguments vs v20 (used in bc-prd):
-#   cluster_name    → name
-#   cluster_version → kubernetes_version
-#   cluster_endpoint_public_access  → endpoint_public_access
-#   cluster_endpoint_private_access → endpoint_private_access
-#   cluster_addons  → addons
-#   cluster_security_group_additional_rules → renamed (drop cluster_ prefix; NOT auto-managed)
 #--------------------------------------------------------------
 
 module "eks" {
@@ -96,23 +84,6 @@ module "eks" {
       type        = "ingress"
       self        = true
     }
-    # Wazuh agents in bc-prd reach Manager via VPC peering - internal NLB - node
-    ingress_prd_wazuh_events = {
-      description = "bc-prd Wazuh agents to Manager events (1514)"
-      protocol    = "tcp"
-      from_port   = 1514
-      to_port     = 1514
-      type        = "ingress"
-      cidr_blocks = [local.prd_vpc_cidr]
-    }
-    ingress_prd_wazuh_enroll = {
-      description = "bc-prd Wazuh agents to Manager enrollment (1515)"
-      protocol    = "tcp"
-      from_port   = 1515
-      to_port     = 1515
-      type        = "ingress"
-      cidr_blocks = [local.prd_vpc_cidr]
-    }
     egress_all = {
       description = "Node all egress"
       protocol    = "-1"
@@ -155,11 +126,11 @@ module "eks" {
 
   eks_managed_node_groups = {
     security = {
-      instance_types = ["t3.xlarge"]
-      min_size       = 2
-      max_size       = 3
-      desired_size   = 3
-      disk_size      = 80   # 50 Gi indexer + 10 Gi manager + OS headroom per node
+      instance_types = ["t3.medium"]
+      min_size       = 1
+      max_size       = 2
+      desired_size   = 2
+      disk_size      = 30
       labels         = { role = "security" }
     }
   }

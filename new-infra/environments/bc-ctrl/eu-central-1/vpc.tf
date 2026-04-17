@@ -101,3 +101,19 @@ resource "aws_route" "private_nat" {
   destination_cidr_block = "0.0.0.0/0"
   network_interface_id   = aws_instance.fck_nat.primary_network_interface_id
 }
+
+###############################################################
+# VPC Flow Logs — bc-ctrl
+#
+# Captures ALL traffic (accepted + rejected) and ships to the
+# shared S3 bucket referenced in the Wazuh IAM read-only policy.
+###############################################################
+
+resource "aws_flow_log" "bc_ctrl" {
+  vpc_id               = module.vpc.vpc_id
+  traffic_type         = "ALL"
+  log_destination_type = "s3"
+  log_destination      = "arn:aws:s3:::bc-vpcflow-logs"
+
+  tags = merge(local.common_tags, { Name = "bc-ctrl-vpc-flow-log" })
+}

@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: misp
-  labels:
-    app.kubernetes.io/part-of: xdr-platform
-    app.kubernetes.io/component: threat-intel

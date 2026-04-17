@@ -13,9 +13,10 @@ env:
 
 jobs:
   # ---------------------------------------------------------------
-  # Step 1: bc-ctrl (The Brain) — VPC + EKS + runner VM
-  # Runs on ubuntu-latest because bc-ctrl EKS has public endpoint.
-  # K8s manifests (Wazuh manager/indexer/dashboard) applied here.
+  # Step 1: bc-ctrl (The Brain) — VPC + EC2 infra (no EKS)
+  # Runs on ubuntu-latest (public AWS APIs only, no K8s endpoint).
+  # Manages: VPC, peering, fck-nat, github runner VM, security tools
+  # VM, wazuh EC2 instances, MISP EC2 instance, Route53, ACM.
   # ---------------------------------------------------------------
   ctrl-plane:
     name: Deploy Control Plane (The Brain)
@@ -62,60 +63,60 @@ jobs:
             -target=tls_self_signed_cert.wazuh_dashboard \
             -target=aws_acm_certificate.wazuh_dashboard
 
-      - name: "Terraform Apply (Ctrl) — Stage 2: EKS"
-        working-directory: new-infra/environments/bc-ctrl/eu-central-1
-        run: |
-          terraform apply -auto-approve -target=module.eks
-
-      - name: Install kubectl (pre-Stage-3 cleanup)
-        uses: azure/setup-kubectl@v4
-
-      - name: Configure kubectl for cleanup (bc-ctrl-eks)
-        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name bc-uatms-ctrl-eks
-
-      - name: Cleanup stale Helm releases (pre-Stage-3)
-        run: |
-          helm uninstall aws-load-balancer-controller -n kube-system 2>/dev/null || true
-          helm uninstall external-secrets -n external-secrets 2>/dev/null || true
-          helm uninstall cert-manager -n cert-manager 2>/dev/null || true
-
-      - name: "Terraform Apply (Ctrl) — Stage 3: Reconcile"
+      - name: "Terraform Apply (Ctrl) — Stage 2: Reconcile"
         working-directory: new-infra/environments/bc-ctrl/eu-central-1
         run: |
           terraform apply -auto-approve
 
-      - name: Install kubectl
-        uses: azure/setup-kubectl@v4
-
-      - name: Configure kubectl (bc-ctrl-eks)
-        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name bc-uatms-ctrl-eks
-
-      # Terraform apply installs LBC/external-secrets/cert-manager via Helm (atomic).
-      # Wait for webhooks to be Ready before applying Wazuh (uses Certificate + ExternalSecret CRDs).
-      - name: Wait for addon webhooks
+      - name: Wait for EC2 instances to reach running state
         run: |
-          kubectl -n cert-manager rollout status deployment/cert-manager-webhook --timeout=120s
-          kubectl -n external-secrets rollout status deployment/external-secrets-webhook --timeout=120s
+          echo "Waiting for bc-ctrl EC2 instances to enter 'running' state..."
+          for tag in wazuh-manager wazuh-indexer wazuh-dashboard misp; do
+            echo "  Checking instance with tag Name=${tag}..."
+            instance_id=$(aws ec2 describe-instances \
+              --region ${{ env.AWS_REGION }} \
+              --filters "Name=tag:Name,Values=${tag}" "Name=instance-state-name,Values=pending,running" \
+              --query "Reservations[0].Instances[0].InstanceId" \
+              --output text)
+            if [ "${instance_id}" = "None" ] || [ -z "${instance_id}" ]; then
+              echo "  ERROR: No instance found for tag Name=${tag}"
+              exit 1
+            fi
+            echo "  Found ${tag} => ${instance_id}. Waiting for running state..."
+            aws ec2 wait instance-running \
+              --region ${{ env.AWS_REGION }} \
+              --instance-ids "${instance_id}"
+            echo "  ${tag} (${instance_id}) is running."
+          done
 
-      - name: Install local-path-provisioner
+      - name: Wait for EC2 instances to be SSM-reachable
         run: |
-          kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.28/deploy/local-path-storage.yaml
-          kubectl rollout status deployment/local-path-provisioner -n local-path-storage --timeout=120s
-
-      - name: Delete immutable resources before Wazuh apply
-        run: |
-          kubectl delete statefulset -n wazuh wazuh-indexer wazuh-manager 2>/dev/null || true
-          kubectl delete pvc -n wazuh -l app=wazuh-indexer 2>/dev/null || true
-          kubectl delete pvc -n wazuh -l app=wazuh-manager 2>/dev/null || true
-          kubectl delete job -n wazuh wazuh-indexer-ism-bootstrap 2>/dev/null || true
-
-      - name: Deploy Wazuh Manager stack (bc-ctrl)
-        run: |
-          CERT_ARN=$(terraform -chdir=new-infra/environments/bc-ctrl/eu-central-1 output -raw wazuh_dashboard_cert_arn)
-          kubectl kustomize new-infra/k8s/wazuh \
-            | sed 's/\${AWS_ACCOUNT_ID}/${{ env.AWS_ACCOUNT_ID }}/g' \
-            | sed "s|\${WAZUH_DASHBOARD_CERT_ARN}|${CERT_ARN}|g" \
-            | kubectl apply -f -
+          echo "Waiting for bc-ctrl EC2 instances to register with SSM..."
+          for tag in wazuh-manager wazuh-indexer wazuh-dashboard misp; do
+            instance_id=$(aws ec2 describe-instances \
+              --region ${{ env.AWS_REGION }} \
+              --filters "Name=tag:Name,Values=${tag}" "Name=instance-state-name,Values=running" \
+              --query "Reservations[0].Instances[0].InstanceId" \
+              --output text)
+            echo "  Polling SSM for ${tag} (${instance_id})..."
+            for attempt in $(seq 1 30); do
+              ssm_status=$(aws ssm describe-instance-information \
+                --region ${{ env.AWS_REGION }} \
+                --filters "Key=InstanceIds,Values=${instance_id}" \
+                --query "InstanceInformationList[0].PingStatus" \
+                --output text 2>/dev/null || echo "None")
+              if [ "${ssm_status}" = "Online" ]; then
+                echo "  ${tag} (${instance_id}) is SSM-reachable (attempt ${attempt})."
+                break
+              fi
+              if [ "${attempt}" -eq 30 ]; then
+                echo "  ERROR: ${tag} (${instance_id}) did not become SSM-reachable after 150s."
+                exit 1
+              fi
+              echo "  ${tag} SSM status: ${ssm_status} — waiting 5s (attempt ${attempt}/30)..."
+              sleep 5
+            done
+          done
 
   # ---------------------------------------------------------------
   # Step 2: bc-prd (The Data) — EKS + security stack + sensors
