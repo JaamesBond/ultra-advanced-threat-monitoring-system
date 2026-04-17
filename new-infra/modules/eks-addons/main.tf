@@ -3,13 +3,13 @@
 #
 # Installs three foundational Helm charts on an EKS cluster:
 #   1. AWS Load Balancer Controller  — needed for internal NLBs
-#                                       (Wazuh Manager agents:1514/1515)
 #   2. external-secrets operator     — AWS Secrets Manager → K8s Secrets
 #   3. cert-manager                  — TLS automation (Wazuh Indexer certs)
+#   4. external-dns                  — Route53 record management
 #
-# IAM roles for the addon pods themselves are created here via
-# EKS Pod Identity (not IRSA). Workload-specific IAM (e.g. the
-# wazuh-manager SA) lives in the environment dir, not this module.
+# IAM: uses IRSA (AssumeRoleWithWebIdentity via OIDC) for all addons.
+# Pod Identity (eks-auth:AssumeRoleForPodIdentity) is blocked by an
+# org-level SCP in this account and cannot be used.
 #--------------------------------------------------------------
 
 terraform {
@@ -34,6 +34,9 @@ locals {
   common_tags = merge(var.tags, {
     Module = "eks-addons"
   })
+  # Extract OIDC provider URL (without https://) from the ARN
+  # ARN format: arn:aws:iam::<account>:oidc-provider/<url>
+  oidc_provider = replace(var.oidc_provider_arn, "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/", "")
 }
 
 data "aws_caller_identity" "current" {}
@@ -51,12 +54,15 @@ resource "aws_iam_role" "aws_lb_controller" {
     Statement = [{
       Effect = "Allow"
       Principal = {
-        Service = "pods.eks.amazonaws.com"
+        Federated = var.oidc_provider_arn
       }
-      Action = [
-        "sts:AssumeRole",
-        "sts:TagSession"
-      ]
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "${local.oidc_provider}:sub" = "system:serviceaccount:kube-system:aws-load-balancer-controller"
+          "${local.oidc_provider}:aud" = "sts.amazonaws.com"
+        }
+      }
     }]
   })
 
@@ -68,8 +74,7 @@ resource "aws_iam_policy" "aws_lb_controller" {
 
   name        = "${var.cluster_name}-aws-lb-controller"
   description = "Permissions for AWS Load Balancer Controller"
-  # Official policy JSON — sourced from aws-load-balancer-controller v2.9.2 release
-  policy = file("${path.module}/policies/aws-lb-controller.json")
+  policy      = file("${path.module}/policies/aws-lb-controller.json")
 
   tags = local.common_tags
 }
@@ -79,17 +84,6 @@ resource "aws_iam_role_policy_attachment" "aws_lb_controller" {
 
   role       = aws_iam_role.aws_lb_controller[0].name
   policy_arn = aws_iam_policy.aws_lb_controller[0].arn
-}
-
-resource "aws_eks_pod_identity_association" "aws_lb_controller" {
-  count = var.install_load_balancer_controller ? 1 : 0
-
-  cluster_name    = var.cluster_name
-  namespace       = "kube-system"
-  service_account = "aws-load-balancer-controller"
-  role_arn        = aws_iam_role.aws_lb_controller[0].arn
-
-  tags = local.common_tags
 }
 
 resource "helm_release" "aws_lb_controller" {
@@ -114,6 +108,9 @@ resource "helm_release" "aws_lb_controller" {
       serviceAccount = {
         create = true
         name   = "aws-load-balancer-controller"
+        annotations = {
+          "eks.amazonaws.com/role-arn" = aws_iam_role.aws_lb_controller[0].arn
+        }
       }
       nodeSelector = var.platform_node_label
       tolerations = [{
@@ -133,8 +130,6 @@ resource "helm_release" "aws_lb_controller" {
       enableServiceMutatorWebhook = false
     })
   ]
-
-  depends_on = [aws_eks_pod_identity_association.aws_lb_controller]
 }
 
 #--------------------------------------------------------------
@@ -150,12 +145,15 @@ resource "aws_iam_role" "external_secrets" {
     Statement = [{
       Effect = "Allow"
       Principal = {
-        Service = "pods.eks.amazonaws.com"
+        Federated = var.oidc_provider_arn
       }
-      Action = [
-        "sts:AssumeRole",
-        "sts:TagSession"
-      ]
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "${local.oidc_provider}:sub" = "system:serviceaccount:external-secrets:external-secrets"
+          "${local.oidc_provider}:aud" = "sts.amazonaws.com"
+        }
+      }
     }]
   })
 
@@ -208,17 +206,6 @@ resource "aws_iam_role_policy_attachment" "external_secrets" {
   policy_arn = aws_iam_policy.external_secrets[0].arn
 }
 
-resource "aws_eks_pod_identity_association" "external_secrets" {
-  count = var.install_external_secrets ? 1 : 0
-
-  cluster_name    = var.cluster_name
-  namespace       = "external-secrets"
-  service_account = "external-secrets"
-  role_arn        = aws_iam_role.external_secrets[0].arn
-
-  tags = local.common_tags
-}
-
 resource "helm_release" "external_secrets" {
   count = var.deploy_helm_releases && var.install_external_secrets ? 1 : 0
 
@@ -235,11 +222,14 @@ resource "helm_release" "external_secrets" {
 
   values = [
     yamlencode({
-      installCRDs = true
+      installCRDs  = true
       replicaCount = 2
       serviceAccount = {
         create = true
         name   = "external-secrets"
+        annotations = {
+          "eks.amazonaws.com/role-arn" = aws_iam_role.external_secrets[0].arn
+        }
       }
       nodeSelector = var.platform_node_label
       tolerations = [{
@@ -262,20 +252,60 @@ resource "helm_release" "external_secrets" {
       }
     })
   ]
+}
 
-  depends_on = [aws_eks_pod_identity_association.external_secrets]
+#--------------------------------------------------------------
+# 3. cert-manager
+#--------------------------------------------------------------
+resource "helm_release" "cert_manager" {
+  count = var.deploy_helm_releases && var.install_cert_manager ? 1 : 0
+
+  name             = "cert-manager"
+  repository       = "https://charts.jetstack.io"
+  chart            = "cert-manager"
+  version          = var.cert_manager_chart_version
+  namespace        = "cert-manager"
+  create_namespace = true
+  atomic           = true
+  replace          = true
+  cleanup_on_fail  = true
+  timeout          = 600
+
+  values = [
+    yamlencode({
+      crds = {
+        enabled = true
+        keep    = true
+      }
+      replicaCount = 2
+      nodeSelector = var.platform_node_label
+      tolerations = [{
+        key      = "dedicated"
+        operator = "Equal"
+        value    = "platform"
+        effect   = "NoSchedule"
+      }]
+      resources = {
+        requests = { cpu = "50m", memory = "128Mi" }
+        limits   = { cpu = "300m", memory = "512Mi" }
+      }
+      webhook = {
+        replicaCount = 2
+        nodeSelector = var.platform_node_label
+      }
+      cainjector = {
+        replicaCount = 2
+        nodeSelector = var.platform_node_label
+      }
+      prometheus = {
+        enabled = false
+      }
+    })
+  ]
 }
 
 #--------------------------------------------------------------
 # 4. external-dns
-#
-# Watches Service/Ingress annotations and upserts Route53 records
-# automatically. Used here so that when the AWS LB Controller creates
-# the Wazuh Manager NLB, external-dns writes
-# wazuh-manager.bc-ctrl.internal → NLB DNS into the private zone.
-#
-# IAM: Route53 ChangeResourceRecordSets scoped to the zone ARNs
-# passed in via var.external_dns_route53_zone_arns.
 #--------------------------------------------------------------
 resource "aws_iam_role" "external_dns" {
   count = var.install_external_dns ? 1 : 0
@@ -287,12 +317,15 @@ resource "aws_iam_role" "external_dns" {
     Statement = [{
       Effect = "Allow"
       Principal = {
-        Service = "pods.eks.amazonaws.com"
+        Federated = var.oidc_provider_arn
       }
-      Action = [
-        "sts:AssumeRole",
-        "sts:TagSession",
-      ]
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "${local.oidc_provider}:sub" = "system:serviceaccount:external-dns:external-dns"
+          "${local.oidc_provider}:aud" = "sts.amazonaws.com"
+        }
+      }
     }]
   })
 
@@ -342,17 +375,6 @@ resource "aws_iam_role_policy_attachment" "external_dns" {
   policy_arn = aws_iam_policy.external_dns[0].arn
 }
 
-resource "aws_eks_pod_identity_association" "external_dns" {
-  count = var.install_external_dns ? 1 : 0
-
-  cluster_name    = var.cluster_name
-  namespace       = "external-dns"
-  service_account = "external-dns"
-  role_arn        = aws_iam_role.external_dns[0].arn
-
-  tags = local.common_tags
-}
-
 resource "helm_release" "external_dns" {
   count = var.deploy_helm_releases && var.install_external_dns ? 1 : 0
 
@@ -376,14 +398,17 @@ resource "helm_release" "external_dns" {
         ["--aws-zone-type=private"],
         var.external_dns_domain_filter != "" ? ["--domain-filter=${var.external_dns_domain_filter}"] : [],
       )
-      policy          = "upsert-only"   # never delete records; safe default
-      registry        = "txt"
-      txtOwnerId      = var.cluster_name
-      txtPrefix       = "edns-"
-      sources         = ["service"]
+      policy     = "upsert-only"
+      registry   = "txt"
+      txtOwnerId = var.cluster_name
+      txtPrefix  = "edns-"
+      sources    = ["service"]
       serviceAccount = {
         create = true
         name   = "external-dns"
+        annotations = {
+          "eks.amazonaws.com/role-arn" = aws_iam_role.external_dns[0].arn
+        }
       }
       nodeSelector = var.platform_node_label
       tolerations = [{
@@ -398,58 +423,6 @@ resource "helm_release" "external_dns" {
       }
       logLevel  = "info"
       logFormat = "json"
-    })
-  ]
-
-  depends_on = [aws_eks_pod_identity_association.external_dns]
-}
-
-#--------------------------------------------------------------
-# 3. cert-manager
-#--------------------------------------------------------------
-resource "helm_release" "cert_manager" {
-  count = var.deploy_helm_releases && var.install_cert_manager ? 1 : 0
-
-  name             = "cert-manager"
-  repository       = "https://charts.jetstack.io"
-  chart            = "cert-manager"
-  version          = var.cert_manager_chart_version
-  namespace        = "cert-manager"
-  create_namespace = true
-  atomic           = true
-  replace          = true
-  cleanup_on_fail  = true
-  timeout          = 600
-
-  values = [
-    yamlencode({
-      crds = {
-        enabled = true
-        keep    = true
-      }
-      replicaCount = 2
-      nodeSelector = var.platform_node_label
-      tolerations = [{
-        key      = "dedicated"
-        operator = "Equal"
-        value    = "platform"
-        effect   = "NoSchedule"
-      }]
-      resources = {
-        requests = { cpu = "50m", memory = "128Mi" }
-        limits   = { cpu = "300m", memory = "512Mi" }
-      }
-      webhook = {
-        replicaCount = 2
-        nodeSelector = var.platform_node_label
-      }
-      cainjector = {
-        replicaCount = 2
-        nodeSelector = var.platform_node_label
-      }
-      prometheus = {
-        enabled = false
-      }
     })
   ]
 }

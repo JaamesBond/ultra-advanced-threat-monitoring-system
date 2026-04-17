@@ -102,8 +102,11 @@ jobs:
           kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.28/deploy/local-path-storage.yaml
           kubectl rollout status deployment/local-path-provisioner -n local-path-storage --timeout=120s
 
-      - name: Delete immutable Jobs before Wazuh apply
+      - name: Delete immutable resources before Wazuh apply
         run: |
+          kubectl delete statefulset -n wazuh wazuh-indexer wazuh-manager 2>/dev/null || true
+          kubectl delete pvc -n wazuh -l app=wazuh-indexer 2>/dev/null || true
+          kubectl delete pvc -n wazuh -l app=wazuh-manager 2>/dev/null || true
           kubectl delete job -n wazuh wazuh-indexer-ism-bootstrap 2>/dev/null || true
 
       - name: Deploy Wazuh Manager stack (bc-ctrl)

@@ -131,6 +131,8 @@ spec:
         #--------------------------------------------------------------
         - name: inject-secrets
           image: public.ecr.aws/docker/library/alpine:3.20
+          securityContext:
+            runAsUser: 0
           command:
             - sh
             - -c
@@ -153,7 +155,7 @@ spec:
       #--------------------------------------------------------------
       containers:
         - name: wazuh-indexer
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/wazuh/wazuh-indexer:4.9.2
+          image: wazuh/wazuh-indexer:4.9.2
           imagePullPolicy: IfNotPresent
 
           ports:
@@ -170,9 +172,9 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
             - name: OPENSEARCH_JAVA_OPTS
-              value: "-Xms8g -Xmx8g"
+              value: "-Xms4g -Xmx4g"
             - name: OPENSEARCH_PATH_CONF
-              value: /usr/share/wazuh-indexer/config
+              value: /usr/share/wazuh-indexer
             - name: DISABLE_INSTALL_DEMO_CONFIG
               value: "true"
             # OPENSEARCH_INITIAL_ADMIN_PASSWORD is read by the Wazuh 4.9
@@ -193,11 +195,11 @@ spec:
 
           resources:
             requests:
-              cpu: "2"
-              memory: 8Gi
+              cpu: "1"
+              memory: 5Gi
             limits:
               cpu: "4"
-              memory: 16Gi
+              memory: 8Gi
 
           securityContext:
             capabilities:
@@ -210,14 +212,11 @@ spec:
             - name: log-dir
               mountPath: /var/log/wazuh-indexer
             - name: config
-              mountPath: /usr/share/wazuh-indexer/config/opensearch.yml
+              mountPath: /usr/share/wazuh-indexer/opensearch.yml
               subPath: opensearch.yml
             - name: config
-              mountPath: /usr/share/wazuh-indexer/config/jvm.options
+              mountPath: /usr/share/wazuh-indexer/jvm.options
               subPath: jvm.options
-            # Rendered internal_users.yml (PLACEHOLDER hashes substituted by
-            # inject-secrets initContainer). The ConfigMap version is
-            # source-only; the rendered one contains real bcrypt hashes.
             - name: config-rendered
               mountPath: /usr/share/wazuh-indexer/opensearch-security/internal_users.yml
               subPath: internal_users.yml
@@ -270,9 +269,9 @@ spec:
                   name: wazuh-indexer-node-cert
                   items:
                     - key: tls.crt
-                      path: node.pem
+                      path: indexer.pem
                     - key: tls.key
-                      path: node-key.pem
+                      path: indexer-key.pem
                     - key: ca.crt
                       path: root-ca.pem
               - secret:

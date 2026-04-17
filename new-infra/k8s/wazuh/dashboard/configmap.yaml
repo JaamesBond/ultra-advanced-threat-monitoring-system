@@ -47,20 +47,6 @@ data:
     opensearch_security.session.ttl: 28800000
 
     #----------------------------------------------------------
-    # Logging
-    #----------------------------------------------------------
-    logging:
-      appenders:
-        console:
-          type: console
-          layout:
-            type: pattern
-            pattern: "[%date][%level][%logger] %message"
-      root:
-        appenders: [console]
-        level: warn   # info is too noisy in production; switch to debug when troubleshooting
-
-    #----------------------------------------------------------
     # Wazuh plugin
     #----------------------------------------------------------
     # API connection configured via env vars API_USERNAME / API_PASSWORD

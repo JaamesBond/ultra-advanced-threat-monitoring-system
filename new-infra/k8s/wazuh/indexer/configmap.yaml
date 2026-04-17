@@ -73,14 +73,14 @@ data:
     # Security plugin — TLS + RBAC
     #--------------------------------------------------------
     plugins.security.disabled: false
-    plugins.security.ssl.transport.pemcert_filepath: certs/node.pem
-    plugins.security.ssl.transport.pemkey_filepath: certs/node-key.pem
+    plugins.security.ssl.transport.pemcert_filepath: certs/indexer.pem
+    plugins.security.ssl.transport.pemkey_filepath: certs/indexer-key.pem
     plugins.security.ssl.transport.pemtrustedcas_filepath: certs/root-ca.pem
     plugins.security.ssl.transport.enforce_hostname_verification: false
     plugins.security.ssl.transport.resolve_hostname: false
     plugins.security.ssl.http.enabled: true
-    plugins.security.ssl.http.pemcert_filepath: certs/node.pem
-    plugins.security.ssl.http.pemkey_filepath: certs/node-key.pem
+    plugins.security.ssl.http.pemcert_filepath: certs/indexer.pem
+    plugins.security.ssl.http.pemkey_filepath: certs/indexer-key.pem
     plugins.security.ssl.http.pemtrustedcas_filepath: certs/root-ca.pem
     plugins.security.allow_default_init_securityindex: true
     plugins.security.authcz.admin_dn:

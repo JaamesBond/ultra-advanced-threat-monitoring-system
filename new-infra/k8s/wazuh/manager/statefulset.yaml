@@ -69,13 +69,8 @@ spec:
                     values: [wazuh-manager]
               topologyKey: kubernetes.io/hostname
 
-      topologySpreadConstraints:
-        - maxSkew: 1
-          topologyKey: topology.kubernetes.io/zone
-          whenUnsatisfiable: DoNotSchedule
-          labelSelector:
-            matchLabels:
-              app: wazuh-manager
+      # topologySpreadConstraints removed — bc-ctrl is single-AZ (eu-central-1a).
+      # podAntiAffinity per-hostname is sufficient for node-level HA.
 
       #--------------------------------------------------------------
       # Security context — Wazuh runs as UID 101 (wazuh user)
@@ -125,6 +120,8 @@ spec:
 
         - name: inject-secrets
           image: public.ecr.aws/docker/library/alpine:3.20
+          securityContext:
+            runAsUser: 0
           command:
             - sh
             - -c
@@ -195,7 +192,7 @@ spec:
       #--------------------------------------------------------------
       containers:
         - name: wazuh-manager
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/wazuh/wazuh-manager:4.9.2
+          image: wazuh/wazuh-manager:4.9.2
           imagePullPolicy: IfNotPresent
 
           ports:
