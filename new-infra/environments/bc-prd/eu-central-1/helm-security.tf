@@ -66,7 +66,7 @@ resource "helm_release" "falco" {
 
   set {
     name  = "driver.kind"
-    value = "ebpf"
+    value = "modern_ebpf"
   }
 }
 
