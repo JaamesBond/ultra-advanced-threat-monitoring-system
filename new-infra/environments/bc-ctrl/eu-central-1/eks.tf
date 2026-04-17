@@ -139,7 +139,13 @@ module "eks" {
       most_recent    = true
       before_compute = true                     # Must be present before node bootstrap
     }                                           # required for Pod Identity (LBC, ext-secrets)
-    aws-ebs-csi-driver = { most_recent = true } # required for wazuh-gp3 StorageClass (ebs.csi.aws.com)
+    aws-ebs-csi-driver = {
+      most_recent = true
+      pod_identity_association = [{
+        role_arn        = aws_iam_role.ebs_csi_driver.arn
+        service_account = "ebs-csi-controller-sa"
+      }]
+    }
     coredns            = { most_recent = true }
     kube-proxy         = { most_recent = true }
     vpc-cni = {
@@ -193,15 +199,6 @@ resource "aws_iam_role" "ebs_csi_driver" {
 resource "aws_iam_role_policy_attachment" "ebs_csi_driver" {
   role       = aws_iam_role.ebs_csi_driver.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
-}
-
-resource "aws_eks_pod_identity_association" "ebs_csi_driver" {
-  cluster_name    = module.eks.cluster_name
-  namespace       = "kube-system"
-  service_account = "ebs-csi-controller-sa"
-  role_arn        = aws_iam_role.ebs_csi_driver.arn
-
-  tags = local.common_tags
 }
 
 #--------------------------------------------------------------
