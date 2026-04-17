@@ -55,6 +55,10 @@ resource "helm_release" "falco" {
   create_namespace = true
   version          = "8.0.2"
 
+  values = [
+    file("${path.module}/falco-rules.yaml")
+  ]
+
   set {
     name  = "driver.kind"
     value = "ebpf"

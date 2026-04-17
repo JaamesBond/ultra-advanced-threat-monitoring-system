@@ -1,0 +1,22 @@
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: "sigkill-malicious-tools"
+spec:
+  kprobes:
+  - call: "sys_execve"
+    syscall: true
+    args:
+    - index: 0
+      type: "string" # filename
+    selectors:
+    - matchArgs:
+      - index: 0
+        operator: "Contains"
+        values:
+        - "/usr/bin/nc"
+        - "/usr/bin/nmap"
+        - "/bin/nc"
+        - "/bin/nmap"
+      matchActions:
+      - action: Sigkill

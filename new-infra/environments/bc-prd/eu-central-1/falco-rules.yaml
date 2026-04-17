@@ -1,0 +1,11 @@
+customRules:
+  custom_rules.yaml: |-
+    - rule: Terminal shell in container
+      desc: A shell was used in a container. This could be an attacker or a legitimate user.
+      condition: >
+        spawned_process and container and shell_procs and proc.tty != 0
+        and not user_known_shell_in_container_conditions
+      output: >
+        A shell was spawned in a container with a TTY (user=%user.name user_loginuid=%user.loginuid %container.info
+        shell=%proc.name parent=%proc.pname cmdline=%proc.cmdline terminal=%proc.tty container_id=%container.id image=%container.image.repository)
+      priority: WARNING

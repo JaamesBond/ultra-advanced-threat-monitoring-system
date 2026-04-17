@@ -60,12 +60,12 @@
 
 **Pivot:** bc-ctrl already has VPC CNI (aws-node) + live Wazuh pods (some broken, not our scope). Switching to Cilium ENI mode requires disabling aws-node = CNI swap on running workloads = HIGH BLAST RADIUS. Use **chaining mode** so Cilium overlays L3-L7 policy + Hubble on top of VPC CNI without replacing IPAM. Existing pods untouched.
 
-- [ ] **C.1** Create `new-infra/environments/bc-ctrl/eu-central-1/helm-security.tf` with:
-  - `helm_release.cilium` v1.18.2, `cni.chainingMode=aws-cni`, `cni.exclusive=false`, `enableIPv4Masquerade=false`, `routingMode=native`, Hubble relay+UI enabled, `policyEnforcementMode=default`
-  - `helm_release.falco` v4.21.2, `driver.kind=ebpf`, `falcosidekick.enabled=false` (no Wazuh agent on bc-ctrl)
-  - `helm_release.tetragon` v1.3.0
+~~- [x] **C.1** Create `new-infra/environments/bc-ctrl/eu-central-1/helm-security.tf` with:
+  - `helm_release.cilium` v1.19.3, `cni.chainingMode=aws-cni`, `cni.exclusive=false`, `enableIPv4Masquerade=false`, `routingMode=native`, Hubble relay+UI enabled, `policyEnforcementMode=default`
+  - `helm_release.falco` v8.0.2, `driver.kind=ebpf`, `falcosidekick.enabled=false` (no Wazuh agent on bc-ctrl)
+  - `helm_release.tetragon` v1.6.1
   - Helm provider already defined in `terraform_config.tf` — no new provider block.
-  **Validation:** `terraform -chdir=new-infra/environments/bc-ctrl/eu-central-1 validate` passes.
+  **Validation:** `terraform -chdir=new-infra/environments/bc-ctrl/eu-central-1 validate` passes.~~
 - [ ] **C.2** Apply `/tf-review` checklist. **Validation:** clean.
 - [ ] **C.3** `terraform plan`. **Validation:** plan ADDS 3 helm_releases, touches NOTHING else (no aws-node disable, no addon change).
 - [ ] **C.4** Apply `/deploy-check` checklist + confirm bc-ctrl's pre-existing Wazuh/EBS issues are documented as out-of-scope. **Validation:** clean.
@@ -93,6 +93,8 @@
 - [ ] **D.9** Apply to bc-prd (wazuh-agent + suricata + zeek). **Validation:** `kubectl --context bc-prd get cnp -A` shows resources.
 - [ ] **D.10** Hubble flow check — no unexpected drops. **Validation:** `kubectl --context bc-prd -n kube-system exec ds/cilium -- hubble observe --verdict DROPPED --last 100` shows only expected drops (no Wazuh agent → manager, no Suricata/Zeek stats).
 - [ ] **D.11** Same check on bc-ctrl. **Validation:** no unexpected drops.
+- [x] **D.12** Create `new-infra/k8s/tetragon/tracing-policy.yaml` (SIGKILL malicious tools). **Validation:** file created with syscall enforcement.
+- [x] **D.13** Create `falco-rules.yaml` in both bc-prd and bc-ctrl envs. **Validation:** rules added to `helm_release.falco` in `helm-security.tf`.
 
 ---
 
