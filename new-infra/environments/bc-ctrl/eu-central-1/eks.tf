@@ -140,11 +140,13 @@ module "eks" {
       before_compute = true                     # Must be present before node bootstrap
     }                                           # required for Pod Identity (LBC, ext-secrets)
     aws-ebs-csi-driver = {
-      most_recent = true
+      most_recent                 = true
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+      preserve                    = true
       pod_identity_association = [{
         role_arn        = aws_iam_role.ebs_csi_driver.arn
         service_account = "ebs-csi-controller-sa"
-        preserve        = true
       }]
     }
     coredns            = { most_recent = true }
