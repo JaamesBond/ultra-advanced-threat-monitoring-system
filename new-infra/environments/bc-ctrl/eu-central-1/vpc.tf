@@ -5,8 +5,8 @@ module "vpc" {
   cidr_block         = local.vpc_cidr
   availability_zones = local.azs
 
-  public_subnet_cidrs  = [cidrsubnet(local.vpc_cidr, 8, 0), cidrsubnet(local.vpc_cidr, 8, 1)]    # 10.0.0.0/24, 10.0.1.0/24
-  private_subnet_cidrs = [cidrsubnet(local.vpc_cidr, 8, 10), cidrsubnet(local.vpc_cidr, 8, 11)]  # 10.0.10.0/24, 10.0.11.0/24
+  public_subnet_cidrs  = [cidrsubnet(local.vpc_cidr, 8, 0), cidrsubnet(local.vpc_cidr, 8, 1)]   # 10.0.0.0/24, 10.0.1.0/24
+  private_subnet_cidrs = [cidrsubnet(local.vpc_cidr, 8, 10), cidrsubnet(local.vpc_cidr, 8, 11)] # 10.0.10.0/24, 10.0.11.0/24
 
   enable_nat_gateway = false # Using fck-nat
 
@@ -77,8 +77,8 @@ resource "aws_iam_role" "fck_nat" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
       Principal = { Service = "ec2.amazonaws.com" }
     }]
   })

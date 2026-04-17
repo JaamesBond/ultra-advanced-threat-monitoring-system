@@ -39,8 +39,8 @@ module "eks" {
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnet_ids
 
-  endpoint_public_access  = true  # CI public runner needs this for kubectl apply
-  endpoint_private_access = true  # Self-hosted runner uses private path
+  endpoint_public_access  = true # CI public runner needs this for kubectl apply
+  endpoint_private_access = true # Self-hosted runner uses private path
 
   # Disable auto-permissions to prevent 409 conflicts
   enable_cluster_creator_admin_permissions = false
@@ -137,14 +137,14 @@ module "eks" {
   addons = {
     eks-pod-identity-agent = {
       most_recent    = true
-      before_compute = true  # Must be present before node bootstrap
-    }  # required for Pod Identity (LBC, ext-secrets)
-    aws-ebs-csi-driver     = { most_recent = true }  # required for wazuh-gp3 StorageClass (ebs.csi.aws.com)
-    coredns                = { most_recent = true }
-    kube-proxy             = { most_recent = true }
+      before_compute = true                     # Must be present before node bootstrap
+    }                                           # required for Pod Identity (LBC, ext-secrets)
+    aws-ebs-csi-driver = { most_recent = true } # required for wazuh-gp3 StorageClass (ebs.csi.aws.com)
+    coredns            = { most_recent = true }
+    kube-proxy         = { most_recent = true }
     vpc-cni = {
       most_recent    = true
-      before_compute = true  # CNI must exist before nodes boot; without this, NetworkPluginNotReady
+      before_compute = true # CNI must exist before nodes boot; without this, NetworkPluginNotReady
       configuration_values = jsonencode({
         env = {
           # EXTERNALSNAT=true: pod traffic SNAT'd to node IP → fck-nat handles egress
@@ -163,6 +163,43 @@ module "eks" {
       labels         = { role = "security" }
     }
   }
+
+  tags = local.common_tags
+}
+
+#--------------------------------------------------------------
+# Pod Identity — aws-ebs-csi-driver
+#
+# The ebs-csi-controller-sa service account needs EC2/EBS permissions.
+# bc-ctrl uses EKS Pod Identity (not IRSA), so we wire the role here.
+# Without this the ebs-csi-controller pods hit IMDS, find no role, and
+# enter CrashLoopBackOff ("no EC2 IMDS role found").
+#--------------------------------------------------------------
+resource "aws_iam_role" "ebs_csi_driver" {
+  name = "${local.platform_name}-${local.env}-ebs-csi-driver"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "pods.eks.amazonaws.com" }
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+    }]
+  })
+
+  tags = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "ebs_csi_driver" {
+  role       = aws_iam_role.ebs_csi_driver.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+}
+
+resource "aws_eks_pod_identity_association" "ebs_csi_driver" {
+  cluster_name    = module.eks.cluster_name
+  namespace       = "kube-system"
+  service_account = "ebs-csi-controller-sa"
+  role_arn        = aws_iam_role.ebs_csi_driver.arn
 
   tags = local.common_tags
 }
