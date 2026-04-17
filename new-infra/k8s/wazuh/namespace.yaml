@@ -1,9 +1,9 @@
 #--------------------------------------------------------------
-# Wazuh — Namespace, ServiceAccounts, StorageClass
+# Wazuh — Namespace, ServiceAccounts
 #
 # Deployed to: bc-ctrl EKS cluster (eu-central-1)
-# Depends on:  aws-ebs-csi-driver addon (already installed via
-#              bc-ctrl/locals.tf eks_addons block)
+# Storage:     local-path-provisioner (Rancher) — no EBS CSI required.
+#              Installed by the pipeline before this manifest is applied.
 #
 # This file creates ONLY cluster-level foundation objects.
 # It does not install Wazuh itself — see:
@@ -74,39 +74,5 @@ metadata:
   labels:
     app: wazuh-dashboard
     app.kubernetes.io/component: siem-dashboard
----
-#--------------------------------------------------------------
-# StorageClass: wazuh-gp3
-#
-# Encrypted gp3 EBS volumes for Wazuh Indexer (indices) and
-# Wazuh Manager (queues, cluster state, alerts.log).
-#
-#   - encrypted: true        — mandatory for SIEM data at rest
-#   - reclaimPolicy: Retain  — deleting the StatefulSet does NOT
-#                              delete the PVs; prevents accidental
-#                              data loss if manifests are re-applied
-#   - WaitForFirstConsumer   — volume is provisioned in the same AZ
-#                              as the pod, avoiding cross-AZ latency
-#                              and EBS attachment failures
-#   - iops 3000 / throughput 125 — gp3 baseline; tune up if Indexer
-#                                   shows ingestion lag in Grafana
-#--------------------------------------------------------------
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: wazuh-gp3
-  labels:
-    app.kubernetes.io/part-of: xdr-platform
-  annotations:
-    storageclass.kubernetes.io/is-default-class: "false"
-provisioner: ebs.csi.aws.com
-volumeBindingMode: WaitForFirstConsumer
-reclaimPolicy: Retain
-allowVolumeExpansion: true
-parameters:
-  type: gp3
-  iops: "3000"
-  throughput: "125"
-  encrypted: "true"
-  # KMS key created by Terraform in bc-ctrl — uncomment once available:
-  # kmsKeyId: arn:aws:kms:eu-central-1:<ACCOUNT_ID>:key/<KEY_ID>
+# StorageClass local-path is installed by the pipeline via local-path-provisioner.
+# No StorageClass manifest needed here.

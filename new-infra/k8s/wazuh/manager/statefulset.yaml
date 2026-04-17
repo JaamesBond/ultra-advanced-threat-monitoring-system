@@ -492,7 +492,7 @@ spec:
         name: wazuh-storage
       spec:
         accessModes: [ReadWriteOnce]
-        storageClassName: wazuh-gp3
+        storageClassName: local-path
         resources:
           requests:
             storage: 10Gi

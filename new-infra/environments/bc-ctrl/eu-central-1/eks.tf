@@ -139,9 +139,6 @@ module "eks" {
       most_recent    = true
       before_compute = true                     # Must be present before node bootstrap
     }                                           # required for Pod Identity (LBC, ext-secrets)
-    # aws-ebs-csi-driver is managed as a standalone aws_eks_addon resource
-    # below so it can depend_on the pod identity association (avoids the
-    # 20-min timeout caused by the controller pods having no IAM credentials).
     coredns            = { most_recent = true }
     kube-proxy         = { most_recent = true }
     vpc-cni = {
@@ -162,53 +159,12 @@ module "eks" {
       min_size       = 2
       max_size       = 3
       desired_size   = 3
+      disk_size      = 80   # 50 Gi indexer + 10 Gi manager + OS headroom per node
       labels         = { role = "security" }
     }
   }
 
   tags = local.common_tags
-}
-
-#--------------------------------------------------------------
-# Pod Identity — aws-ebs-csi-driver
-#
-# The ebs-csi-controller-sa service account needs EC2/EBS permissions.
-# bc-ctrl uses EKS Pod Identity (not IRSA), so we wire the role here.
-# Without this the ebs-csi-controller pods hit IMDS, find no role, and
-# enter CrashLoopBackOff ("no EC2 IMDS role found").
-#--------------------------------------------------------------
-resource "aws_iam_role" "ebs_csi_driver" {
-  name                = "${local.platform_name}-${local.env}-ebs-csi-driver"
-  managed_policy_arns = ["arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"]
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Service = "pods.eks.amazonaws.com" }
-      Action    = ["sts:AssumeRole", "sts:TagSession"]
-    }]
-  })
-
-  tags = local.common_tags
-}
-
-resource "aws_eks_pod_identity_association" "ebs_csi_driver" {
-  cluster_name    = module.eks.cluster_name
-  namespace       = "kube-system"
-  service_account = "ebs-csi-controller-sa"
-  role_arn        = aws_iam_role.ebs_csi_driver.arn
-}
-
-# Standalone addon — created AFTER the pod identity association so the
-# controller pods have credentials from the moment the addon becomes ACTIVE.
-resource "aws_eks_addon" "ebs_csi_driver" {
-  cluster_name                = module.eks.cluster_name
-  addon_name                  = "aws-ebs-csi-driver"
-  resolve_conflicts_on_create = "OVERWRITE"
-  resolve_conflicts_on_update = "OVERWRITE"
-
-  depends_on = [aws_eks_pod_identity_association.ebs_csi_driver]
 }
 
 #--------------------------------------------------------------

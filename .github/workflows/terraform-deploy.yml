@@ -97,6 +97,11 @@ jobs:
           kubectl -n cert-manager rollout status deployment/cert-manager-webhook --timeout=120s
           kubectl -n external-secrets rollout status deployment/external-secrets-webhook --timeout=120s
 
+      - name: Install local-path-provisioner
+        run: |
+          kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.28/deploy/local-path-storage.yaml
+          kubectl rollout status deployment/local-path-provisioner -n local-path-storage --timeout=120s
+
       - name: Delete immutable Jobs before Wazuh apply
         run: |
           kubectl delete job -n wazuh wazuh-indexer-ism-bootstrap 2>/dev/null || true
