@@ -139,14 +139,9 @@ module "eks" {
       most_recent    = true
       before_compute = true                     # Must be present before node bootstrap
     }                                           # required for Pod Identity (LBC, ext-secrets)
-    aws-ebs-csi-driver = {
-      most_recent                 = true
-      resolve_conflicts_on_create = "OVERWRITE"
-      resolve_conflicts_on_update = "OVERWRITE"
-      preserve                    = true
-      # pod_identity_association is managed as a standalone resource below
-      # to avoid 409 on CreateAddon when the association already exists
-    }
+    # aws-ebs-csi-driver is managed as a standalone aws_eks_addon resource
+    # below so it can depend_on the pod identity association (avoids the
+    # 20-min timeout caused by the controller pods having no IAM credentials).
     coredns            = { most_recent = true }
     kube-proxy         = { most_recent = true }
     vpc-cni = {
@@ -203,8 +198,17 @@ resource "aws_eks_pod_identity_association" "ebs_csi_driver" {
   namespace       = "kube-system"
   service_account = "ebs-csi-controller-sa"
   role_arn        = aws_iam_role.ebs_csi_driver.arn
+}
 
-  depends_on = [module.eks]
+# Standalone addon — created AFTER the pod identity association so the
+# controller pods have credentials from the moment the addon becomes ACTIVE.
+resource "aws_eks_addon" "ebs_csi_driver" {
+  cluster_name                = module.eks.cluster_name
+  addon_name                  = "aws-ebs-csi-driver"
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
+
+  depends_on = [aws_eks_pod_identity_association.ebs_csi_driver]
 }
 
 #--------------------------------------------------------------
