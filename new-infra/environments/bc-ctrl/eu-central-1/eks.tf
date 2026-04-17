@@ -144,6 +144,7 @@ module "eks" {
       pod_identity_association = [{
         role_arn        = aws_iam_role.ebs_csi_driver.arn
         service_account = "ebs-csi-controller-sa"
+        preserve        = true
       }]
     }
     coredns            = { most_recent = true }
