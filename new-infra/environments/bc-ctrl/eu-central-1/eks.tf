@@ -144,10 +144,8 @@ module "eks" {
       resolve_conflicts_on_create = "OVERWRITE"
       resolve_conflicts_on_update = "OVERWRITE"
       preserve                    = true
-      pod_identity_association = [{
-        role_arn        = aws_iam_role.ebs_csi_driver.arn
-        service_account = "ebs-csi-controller-sa"
-      }]
+      # pod_identity_association is managed as a standalone resource below
+      # to avoid 409 on CreateAddon when the association already exists
     }
     coredns            = { most_recent = true }
     kube-proxy         = { most_recent = true }
@@ -198,6 +196,15 @@ resource "aws_iam_role" "ebs_csi_driver" {
   })
 
   tags = local.common_tags
+}
+
+resource "aws_eks_pod_identity_association" "ebs_csi_driver" {
+  cluster_name    = module.eks.cluster_name
+  namespace       = "kube-system"
+  service_account = "ebs-csi-controller-sa"
+  role_arn        = aws_iam_role.ebs_csi_driver.arn
+
+  depends_on = [module.eks]
 }
 
 #--------------------------------------------------------------
