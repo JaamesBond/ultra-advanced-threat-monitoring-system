@@ -35,6 +35,21 @@ jobs:
 
       - uses: hashicorp/setup-terraform@v3
 
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Clear stuck Helm releases (bc-ctrl)
+        run: |
+          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name bc-uatms-ctrl-eks 2>/dev/null || true
+          for pair in "cilium:kube-system" "falco:falco" "tetragon:kube-system"; do
+            release="${pair%%:*}"; ns="${pair##*:}"
+            status=$(helm status "$release" -n "$ns" -o json 2>/dev/null | jq -r '.info.status // empty' || true)
+            if [[ "$status" == pending* ]]; then
+              echo "Rolling back stuck $release in $ns (status=$status)"
+              helm rollback "$release" 0 -n "$ns" 2>/dev/null || helm uninstall "$release" -n "$ns" 2>/dev/null || true
+            fi
+          done
+
       - name: "Terraform Apply (Ctrl) — Stage 1: Network"
         working-directory: new-infra/environments/bc-ctrl/eu-central-1
         run: |
@@ -109,9 +124,6 @@ jobs:
               sleep 5
             done
           done
-
-      - name: Install kubectl
-        uses: azure/setup-kubectl@v4
 
       - name: Configure kubectl (bc-ctrl-eks)
         run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name bc-uatms-ctrl-eks

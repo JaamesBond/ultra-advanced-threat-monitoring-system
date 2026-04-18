@@ -11,11 +11,12 @@ provider "helm" {
 }
 
 resource "helm_release" "cilium" {
-  name       = "cilium"
-  repository = "https://helm.cilium.io/"
-  chart      = "cilium"
-  version    = "1.19.3"
-  namespace  = "kube-system"
+  name            = "cilium"
+  repository      = "https://helm.cilium.io/"
+  chart           = "cilium"
+  version         = "1.19.3"
+  namespace       = "kube-system"
+  cleanup_on_fail = true
 
   depends_on = [module.eks]
 
@@ -57,6 +58,7 @@ resource "helm_release" "falco" {
   create_namespace = true
   version          = "8.0.2"
   timeout          = 600
+  cleanup_on_fail  = true
 
   depends_on = [module.eks]
 
@@ -68,25 +70,15 @@ resource "helm_release" "falco" {
     name  = "driver.kind"
     value = "modern_ebpf"
   }
-
-  # Pull via ECR pull-through cache (docker-hub) — avoids Docker Hub rate
-  # limits and slow pulls over fck-nat from the private subnet.
-  set {
-    name  = "image.registry"
-    value = "286439316079.dkr.ecr.eu-central-1.amazonaws.com"
-  }
-  set {
-    name  = "image.repository"
-    value = "docker-hub/falcosecurity/falco-no-driver"
-  }
 }
 
 resource "helm_release" "tetragon" {
-  name       = "tetragon"
-  repository = "https://helm.cilium.io/"
-  chart      = "tetragon"
-  version    = "1.6.1"
-  namespace  = "kube-system"
+  name            = "tetragon"
+  repository      = "https://helm.cilium.io/"
+  chart           = "tetragon"
+  version         = "1.6.1"
+  namespace       = "kube-system"
+  cleanup_on_fail = true
 
   depends_on = [module.eks]
 }
@@ -98,6 +90,7 @@ resource "helm_release" "external_secrets" {
   namespace        = "external-secrets"
   create_namespace = true
   version          = "0.10.7"
+  cleanup_on_fail  = true
 
   depends_on = [module.eks]
 
