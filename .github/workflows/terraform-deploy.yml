@@ -133,6 +133,9 @@ jobs:
 
       - uses: hashicorp/setup-terraform@v3
 
+      - name: Resolve Shuffle Helm dependencies
+        run: helm dependency update new-infra/k8s/shuffle
+
       - name: Terraform Apply (Prd)
         working-directory: new-infra/environments/bc-prd/eu-central-1
         run: |

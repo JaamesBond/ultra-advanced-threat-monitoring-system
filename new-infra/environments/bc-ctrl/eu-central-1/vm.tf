@@ -47,6 +47,9 @@ resource "aws_instance" "github_runner" {
               curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
               install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 
+              # Install Helm
+              curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
               # Get registration token using PAT
               PAT=$(aws secretsmanager get-secret-value --secret-id bc/github/runnerpat --query SecretString --output text --region eu-central-1)
               TOKEN=$(curl -X POST -H "Authorization: token $PAT" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/JaamesBond/ultra-advanced-threat-monitoring-system/actions/runners/registration-token | jq -r .token)
