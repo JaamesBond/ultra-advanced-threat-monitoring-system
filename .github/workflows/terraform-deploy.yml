@@ -195,3 +195,9 @@ jobs:
           kubectl kustomize new-infra/k8s/suricata \
             | sed "s/\${AWS_ACCOUNT_ID}/${{ env.AWS_ACCOUNT_ID }}/g" \
             | kubectl apply -f -
+
+      - name: Deploy Wazuh agent (bc-prd)
+        run: |
+          kubectl kustomize new-infra/k8s/wazuh-agent \
+            | sed "s/\${AWS_ACCOUNT_ID}/${{ env.AWS_ACCOUNT_ID }}/g" \
+            | kubectl apply -f -

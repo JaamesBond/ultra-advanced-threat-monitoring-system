@@ -1,0 +1,66 @@
+#--------------------------------------------------------------
+# Wazuh Agent DaemonSet
+#
+# Deployed to: bc-prd EKS cluster, namespace "wazuh"
+#
+# Reads logs from /var/log on the host (where Suricata and Zeek write).
+# Connects to wazuh-manager.bc-ctrl.internal.
+#--------------------------------------------------------------
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: wazuh-agent
+  namespace: wazuh
+  labels:
+    app: wazuh-agent
+spec:
+  selector:
+    matchLabels:
+      app: wazuh-agent
+  template:
+    metadata:
+      labels:
+        app: wazuh-agent
+    spec:
+      hostNetwork: true
+      hostPID: true
+      hostIPC: true
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+      containers:
+        - name: wazuh-agent
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/wazuh/wazuh-agent:4.9.0
+          securityContext:
+            privileged: true
+          env:
+            - name: WAZUH_MANAGER
+              value: "wazuh-manager.bc-ctrl.internal"
+            - name: WAZUH_ENROLLMENT_SERVER
+              value: "wazuh-manager.bc-ctrl.internal"
+            - name: WAZUH_AGENT_GROUP
+              value: "default"
+          volumeMounts:
+            - mountPath: /var/run
+              name: var-run
+            - mountPath: /dev
+              name: dev
+            - mountPath: /host/etc
+              name: etc
+              readOnly: true
+            - mountPath: /host/var/log
+              name: var-log
+              readOnly: true
+      volumes:
+        - name: var-run
+          hostPath:
+            path: /var/run
+        - name: dev
+          hostPath:
+            path: /dev
+        - name: etc
+          hostPath:
+            path: /etc
+        - name: var-log
+          hostPath:
+            path: /var/log
