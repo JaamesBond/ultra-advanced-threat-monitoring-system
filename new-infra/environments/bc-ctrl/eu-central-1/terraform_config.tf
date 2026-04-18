@@ -19,11 +19,3 @@ provider "aws" {
   region = local.region
 }
 
-data "terraform_remote_state" "prd" {
-  backend = "s3"
-  config = {
-    bucket = "bc-uatms-terraform-state"
-    key    = "v8/environments/bc-prd/terraform.tfstate"
-    region = "eu-central-1"
-  }
-}

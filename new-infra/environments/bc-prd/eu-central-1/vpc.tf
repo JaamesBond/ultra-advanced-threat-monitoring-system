@@ -65,8 +65,8 @@ resource "aws_iam_role" "fck_nat_prd" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
       Principal = { Service = "ec2.amazonaws.com" }
     }]
   })
@@ -95,11 +95,11 @@ resource "aws_route" "private_nat_prd" {
 module "vpc_endpoints" {
   source = "../../../modules/network/vpc/endpoints"
 
-  name_prefix        = "${local.platform_name}-${local.env}"
-  vpc_id             = module.vpc.vpc_id
-  region             = local.region
-  vpc_cidr_block     = module.vpc.vpc_cidr_block
-  private_subnet_ids = module.vpc.private_subnet_ids
+  name_prefix             = "${local.platform_name}-${local.env}"
+  vpc_id                  = module.vpc.vpc_id
+  region                  = local.region
+  vpc_cidr_block          = module.vpc.vpc_cidr_block
+  private_subnet_ids      = module.vpc.private_subnet_ids
   private_route_table_ids = module.vpc.private_route_table_ids
 
   enable_s3              = true
@@ -115,14 +115,32 @@ module "vpc_endpoints" {
 }
 
 # Peering Requester (PRD -> CTRL)
-module "peering" {
+module "peering_requester" {
   source = "../../../modules/network/vpc_peering"
 
   is_requester    = true
   vpc_id          = module.vpc.vpc_id
-  peer_vpc_id     = "vpc-086616521c45f63be" # bc-ctrl-vpc
+  peer_vpc_id     = data.terraform_remote_state.ctrl.outputs.vpc_id
   peering_name    = "prd-to-ctrl"
   route_table_ids = module.vpc.private_route_table_ids
   peer_cidr_block = "10.0.0.0/16"
   tags            = local.common_tags
+}
+
+# Peering Accepter (CTRL accepts PRD) — managed from bc-prd to avoid cross-stack read on empty state
+module "peering_accepter" {
+  source = "../../../modules/network/vpc_peering"
+
+  is_requester          = false
+  peering_connection_id = module.peering_requester.peering_id
+  peering_name          = "ctrl-accepts-prd"
+  route_table_ids       = concat(data.terraform_remote_state.ctrl.outputs.public_route_table_ids, data.terraform_remote_state.ctrl.outputs.private_route_table_ids)
+  peer_cidr_block       = "10.30.0.0/16"
+  tags                  = local.common_tags
+}
+
+# Associate bc-ctrl.internal private zone with bc-prd VPC so Wazuh agents can resolve wazuh-manager.bc-ctrl.internal
+resource "aws_route53_zone_association" "bc_ctrl_internal_prd" {
+  zone_id = data.terraform_remote_state.ctrl.outputs.route53_bc_ctrl_internal_zone_id
+  vpc_id  = module.vpc.vpc_id
 }

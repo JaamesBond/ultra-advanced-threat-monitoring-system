@@ -41,7 +41,6 @@ jobs:
           terraform init
           terraform apply -auto-approve \
             -target=module.vpc \
-            -target=module.peering \
             -target=aws_security_group.fck_nat \
             -target=aws_iam_role.fck_nat \
             -target=aws_iam_role_policy_attachment.fck_nat_ssm \

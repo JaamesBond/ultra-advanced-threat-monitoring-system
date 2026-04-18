@@ -16,18 +16,6 @@ module "vpc" {
   tags = local.common_tags
 }
 
-# Peering Accepter (CTRL accepts PRD)
-module "peering" {
-  source = "../../../modules/network/vpc_peering"
-
-  is_requester          = false
-  peering_connection_id = data.terraform_remote_state.prd.outputs.peering_id
-  peering_name          = "ctrl-accepts-prd"
-  route_table_ids       = concat(module.vpc.public_route_table_ids, module.vpc.private_route_table_ids)
-  peer_cidr_block       = "10.30.0.0/16"
-  tags                  = local.common_tags
-}
-
 # fck-nat (Shared for both VPCs)
 resource "aws_security_group" "fck_nat" {
   name        = "fck-nat-sg"
@@ -116,4 +104,16 @@ resource "aws_flow_log" "bc_ctrl" {
   log_destination      = "arn:aws:s3:::bc-vpcflow-logs"
 
   tags = merge(local.common_tags, { Name = "bc-ctrl-vpc-flow-log" })
+}
+
+output "vpc_id" {
+  value = module.vpc.vpc_id
+}
+
+output "public_route_table_ids" {
+  value = module.vpc.public_route_table_ids
+}
+
+output "private_route_table_ids" {
+  value = module.vpc.private_route_table_ids
 }
