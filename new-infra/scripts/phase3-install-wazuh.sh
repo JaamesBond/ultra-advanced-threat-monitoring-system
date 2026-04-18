@@ -182,6 +182,18 @@ if [[ "${HOST_ROLE}" == "indexer" || "${HOST_ROLE}" == "all_in_one" ]]; then
   DATA_DEV="/dev/nvme1n1"
   DATA_MNT="/var/lib/wazuh-indexer"
 
+  log "Waiting for device ${DATA_DEV} to appear..."
+  for i in {1..30}; do
+    if [[ -b "${DATA_DEV}" ]]; then
+      log "Device ${DATA_DEV} is now available."
+      break
+    fi
+    if (( i == 30 )); then
+      fail "Timeout waiting for device ${DATA_DEV} to appear"
+    fi
+    sleep 2
+  done
+
   if ! blkid "${DATA_DEV}" >/dev/null 2>&1; then
     log "Formatting ${DATA_DEV} as XFS..."
     mkfs.xfs -f "${DATA_DEV}" || fail "mkfs.xfs failed on ${DATA_DEV}"
@@ -503,6 +515,18 @@ if [[ "${HOST_ROLE}" == "manager" || "${HOST_ROLE}" == "all_in_one" ]]; then
   if [[ "${HOST_ROLE}" != "all_in_one" ]]; then
     DATA_DEV="/dev/nvme1n1"
     DATA_MNT="/var/ossec-data"
+
+    log "Waiting for device ${DATA_DEV} to appear..."
+    for i in {1..30}; do
+      if [[ -b "${DATA_DEV}" ]]; then
+        log "Device ${DATA_DEV} is now available."
+        break
+      fi
+      if (( i == 30 )); then
+        fail "Timeout waiting for device ${DATA_DEV} to appear"
+      fi
+      sleep 2
+    done
 
     if ! blkid "${DATA_DEV}" >/dev/null 2>&1; then
       log "Formatting ${DATA_DEV} as XFS..."
