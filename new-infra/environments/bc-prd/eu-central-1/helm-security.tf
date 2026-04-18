@@ -79,6 +79,10 @@ resource "helm_release" "falco" {
     name  = "falcoctl.artifact.follow.enabled"
     value = "false"
   }
+  set {
+    name  = "collectors.containerEngine.enabled"
+    value = "false"
+  }
 }
 
 resource "helm_release" "tetragon" {
