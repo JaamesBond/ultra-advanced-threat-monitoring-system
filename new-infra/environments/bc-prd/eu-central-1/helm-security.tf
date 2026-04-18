@@ -59,6 +59,7 @@ resource "helm_release" "falco" {
   version          = "8.0.2"
   timeout          = 600
   cleanup_on_fail  = true
+  wait             = false
 
   depends_on = [module.eks]
 
