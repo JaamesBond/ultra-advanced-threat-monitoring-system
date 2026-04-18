@@ -418,8 +418,10 @@ EOF
   log "Waiting for Wazuh Indexer cluster health (green/yellow)..."
   HEALTH_OK=false
   for i in $(seq 1 60); do
+    # Use client certificates for health check to bypass Basic Auth requirement
     HEALTH="$(curl -sk \
-      -u "admin:admin" \
+      --cert "${INDEXER_CERTS_DIR}/admin.pem" \
+      --key "${INDEXER_CERTS_DIR}/admin-key.pem" \
       "https://localhost:9200/_cluster/health" \
       --connect-timeout 5 --max-time 10 2>/dev/null \
       | jq -r '.status // "unknown"' 2>/dev/null || echo "unreachable")"
@@ -447,7 +449,9 @@ EOF
   SEC_CONFIG="/etc/wazuh-indexer/opensearch-security"
 
   # Check if security index already exists
-  ALREADY_INIT="$(curl -sk -u "admin:admin" \
+  ALREADY_INIT="$(curl -sk \
+    --cert "${INDEXER_CERTS_DIR}/admin.pem" \
+    --key "${INDEXER_CERTS_DIR}/admin-key.pem" \
     "https://localhost:9200/_cat/indices/.opendistro_security?h=index" \
     --connect-timeout 5 --max-time 10 2>/dev/null || true)"
 
