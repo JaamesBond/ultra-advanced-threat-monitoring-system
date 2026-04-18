@@ -13,10 +13,10 @@ env:
 
 jobs:
   # ---------------------------------------------------------------
-  # Step 1: bc-ctrl (The Brain) — VPC + EC2 + EKS infra
+  # Step 1: bc-ctrl (The Brain) — VPC + EC2 infra only (no EKS)
   # Runs on ubuntu-latest (public AWS APIs only).
   # Manages: VPC, peering, fck-nat, github runner VM, wazuh EC2
-  # instances, MISP EC2 instance, Route53, EKS + Helm security stack.
+  # instances, MISP EC2 instance, Route53.
   # ---------------------------------------------------------------
   ctrl-plane:
     name: Deploy Control Plane (The Brain)
@@ -34,21 +34,6 @@ jobs:
           aws-region: eu-central-1
 
       - uses: hashicorp/setup-terraform@v3
-
-      - name: Install kubectl
-        uses: azure/setup-kubectl@v4
-
-      - name: Clear stuck Helm releases (bc-ctrl)
-        run: |
-          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name bc-uatms-ctrl-eks 2>/dev/null || true
-          for pair in "cilium:kube-system" "falco:falco" "tetragon:kube-system"; do
-            release="${pair%%:*}"; ns="${pair##*:}"
-            status=$(helm status "$release" -n "$ns" -o json 2>/dev/null | jq -r '.info.status // empty' || true)
-            if [[ "$status" == pending* ]]; then
-              echo "Rolling back stuck $release in $ns (status=$status)"
-              helm rollback "$release" 0 -n "$ns" 2>/dev/null || helm uninstall "$release" -n "$ns" 2>/dev/null || true
-            fi
-          done
 
       - name: "Terraform Apply (Ctrl) — Stage 1: Network"
         working-directory: new-infra/environments/bc-ctrl/eu-central-1
@@ -78,7 +63,7 @@ jobs:
       - name: Wait for EC2 instances to reach running state
         run: |
           echo "Waiting for bc-ctrl EC2 instances to enter 'running' state..."
-          for tag in wazuh-manager wazuh-indexer wazuh-dashboard misp; do
+          for tag in wazuh-ctrl misp-ctrl; do
             echo "  Checking instance with tag Name=${tag}..."
             instance_id=$(aws ec2 describe-instances \
               --region ${{ env.AWS_REGION }} \
@@ -99,7 +84,7 @@ jobs:
       - name: Wait for EC2 instances to be SSM-reachable
         run: |
           echo "Waiting for bc-ctrl EC2 instances to register with SSM..."
-          for tag in wazuh-manager wazuh-indexer wazuh-dashboard misp; do
+          for tag in wazuh-ctrl misp-ctrl; do
             instance_id=$(aws ec2 describe-instances \
               --region ${{ env.AWS_REGION }} \
               --filters "Name=tag:Name,Values=${tag}" "Name=instance-state-name,Values=running" \
@@ -124,19 +109,6 @@ jobs:
               sleep 5
             done
           done
-
-      - name: Configure kubectl (bc-ctrl-eks)
-        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name bc-uatms-ctrl-eks
-
-      - name: Verify security stack (bc-ctrl)
-        run: |
-          echo "=== Nodes ==="
-          kubectl get nodes -o wide
-          echo "=== Falco pods ==="
-          kubectl -n falco get pods -o wide
-          kubectl -n falco rollout status daemonset/falco --timeout=600s
-          echo "=== Tetragon pods ==="
-          kubectl -n kube-system get pods -l app.kubernetes.io/name=tetragon -o wide
 
   # ---------------------------------------------------------------
   # Step 2: bc-prd (The Data) — EKS + security stack + sensors

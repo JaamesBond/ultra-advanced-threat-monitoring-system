@@ -56,10 +56,10 @@ For simple, single-domain tasks, skip step 1 — dispatch domain agent directly,
 - **K8s Manifests**: `new-infra/k8s/{wazuh,suricata,zeek,misp}/`
 
 ## Critical AI Guardrails
-- **Mandatory Stack**: Every EKS cluster MUST run Cilium, Falco, and Tetragon. No exceptions.
+- **Mandatory Stack**: bc-prd EKS MUST run Cilium, Falco, and Tetragon. bc-ctrl has no EKS cluster.
 - **No Transitive Routing**: VPC Peering DOES NOT support internet egress through a peer. `bc-prd` MUST have its own `fck-nat` for worker node internet access.
 - **EKS Access Management**: NEVER use `enable_cluster_creator_admin_permissions`. It causes 409 conflicts between local and CI/CD runs. ALWAYS use explicit `access_entries`.
-- **Node Capacity**: bc-prd workers = `t3.medium` (t3.small fails, pod limit 11). bc-ctrl workers = `t3.medium` (Cilium + Tetragon + Falco only; Wazuh/MISP on EC2; eks_addons removed).
+- **Node Capacity**: bc-prd workers = `t3.medium` (t3.small fails, pod limit 11). bc-ctrl has NO EKS cluster — all workloads on bare EC2.
 - **Runner Support**: The self-hosted runner needs `nodejs`, `git`, `jq`, `libicu`, `terraform`, and `kubectl`.
 - **Cost ceiling**: ~$565/month baseline. Any change adding >$10/month needs explicit justification.
 
