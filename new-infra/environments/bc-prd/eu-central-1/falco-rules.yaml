@@ -1,3 +1,6 @@
+falco:
+  config_files: []
+
 customRules:
   custom_rules.yaml: |-
     - rule: Terminal shell in container
