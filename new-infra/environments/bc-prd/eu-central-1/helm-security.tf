@@ -154,3 +154,18 @@ resource "aws_iam_role_policy" "external_secrets_secrets_manager" {
     ]
   })
 }
+
+resource "helm_release" "shuffle" {
+  name             = "shuffle"
+  chart            = "${path.module}/../../../k8s/shuffle"
+  namespace        = "shuffle"
+  create_namespace = true
+  cleanup_on_fail  = true
+
+  depends_on = [module.eks]
+
+  set {
+    name  = "opensearch.sysctlInit.enabled"
+    value = "true"
+  }
+}
