@@ -26,9 +26,8 @@ REGION="eu-central-1"
 
 : "${MISP_API_KEY:?  Set MISP_API_KEY before running}"
 : "${SHUFFLE_HOOK_ID:?  Set SHUFFLE_HOOK_ID before running}"
-: "${GITHUB_RUNNER_PAT:?  Set GITHUB_RUNNER_PAT before running}"
 
-echo "[1/4] Updating bc/wazuh/manager FILL_IN values..."
+echo "[1/3] Updating bc/wazuh/manager FILL_IN values..."
 CURRENT=$(aws secretsmanager get-secret-value \
   --region "$REGION" \
   --secret-id bc/wazuh/manager \
@@ -50,14 +49,14 @@ aws secretsmanager put-secret-value \
   --secret-string "$UPDATED"
 echo "  bc/wazuh/manager updated"
 
-echo "[2/4] Updating bc/suricata/misp..."
+echo "[2/3] Updating bc/suricata/misp..."
 aws secretsmanager put-secret-value \
   --region "$REGION" \
   --secret-id bc/suricata/misp \
   --secret-string "{\"MISP_API_KEY\": \"$MISP_API_KEY\"}"
 echo "  bc/suricata/misp updated"
 
-echo "[3/4] Updating bc/misp MISP_AUTH_KEY..."
+echo "[3/3] Updating bc/misp MISP_AUTH_KEY..."
 CURRENT_MISP=$(aws secretsmanager get-secret-value \
   --region "$REGION" \
   --secret-id bc/misp \
@@ -77,22 +76,6 @@ aws secretsmanager put-secret-value \
   --secret-id bc/misp \
   --secret-string "$UPDATED_MISP"
 echo "  bc/misp updated"
-
-echo "[4/4] Creating/updating bc/github-runner/pat..."
-if aws secretsmanager describe-secret --region "$REGION" --secret-id bc/github-runner/pat &>/dev/null; then
-  aws secretsmanager put-secret-value \
-    --region "$REGION" \
-    --secret-id bc/github-runner/pat \
-    --secret-string "{\"PAT\": \"$GITHUB_RUNNER_PAT\"}"
-  echo "  bc/github-runner/pat updated"
-else
-  aws secretsmanager create-secret \
-    --region "$REGION" \
-    --name bc/github-runner/pat \
-    --description "GitHub PAT used by bc-ctrl self-hosted runner to register with GitHub Actions" \
-    --secret-string "{\"PAT\": \"$GITHUB_RUNNER_PAT\"}"
-  echo "  bc/github-runner/pat created"
-fi
 
 echo ""
 echo "Done. ExternalSecret operators will pick up the new values"
