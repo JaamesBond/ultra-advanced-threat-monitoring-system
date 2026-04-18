@@ -70,6 +70,14 @@ resource "helm_release" "falco" {
     name  = "driver.kind"
     value = "modern_ebpf"
   }
+  set {
+    name  = "falcoctl.artifact.install.enabled"
+    value = "false"
+  }
+  set {
+    name  = "falcoctl.artifact.follow.enabled"
+    value = "false"
+  }
 }
 
 resource "helm_release" "tetragon" {
