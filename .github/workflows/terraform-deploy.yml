@@ -118,6 +118,22 @@ jobs:
             done
           done
 
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubectl (bc-ctrl-eks)
+        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name bc-uatms-ctrl-eks
+
+      - name: Verify security stack (bc-ctrl)
+        run: |
+          echo "=== Nodes ==="
+          kubectl get nodes -o wide
+          echo "=== Falco pods ==="
+          kubectl -n falco get pods -o wide
+          kubectl -n falco rollout status daemonset/falco --timeout=600s
+          echo "=== Tetragon pods ==="
+          kubectl -n kube-system get pods -l app.kubernetes.io/name=tetragon -o wide
+
   # ---------------------------------------------------------------
   # Step 2: bc-prd (The Data) — EKS + security stack + sensors
   # Runs on self-hosted runner in bc-ctrl VPC (reaches private
@@ -174,16 +190,24 @@ jobs:
             -target=aws_iam_role_policy.external_secrets_secrets_manager
 
       - name: Wait for CRDs to propagate
-        run: sleep 60
+        run: |
+          kubectl wait --for condition=established --timeout=120s \
+            crd/ciliumnetworkpolicies.cilium.io \
+            crd/tracingpolicies.cilium.io \
+            crd/externalsecrets.external-secrets.io
 
       - name: Wait for external-secrets webhook
         run: kubectl -n external-secrets rollout status deployment/external-secrets-webhook --timeout=120s
 
-      - name: Deploy Wazuh Agent (bc-prd)
+      - name: Verify security stack (bc-prd)
         run: |
-          kubectl kustomize new-infra/k8s/wazuh/agent \
-            | sed "s/\${AWS_ACCOUNT_ID}/${{ env.AWS_ACCOUNT_ID }}/g" \
-            | kubectl apply -f -
+          echo "=== Nodes ==="
+          kubectl get nodes -o wide
+          echo "=== Falco pods ==="
+          kubectl -n falco get pods -o wide
+          kubectl -n falco rollout status daemonset/falco --timeout=600s
+          echo "=== Tetragon pods ==="
+          kubectl -n kube-system get pods -l app.kubernetes.io/name=tetragon -o wide
 
       - name: Deploy Zeek (bc-prd)
         run: |

@@ -60,6 +60,17 @@ resource "helm_release" "falco" {
     name  = "driver.kind"
     value = "modern_ebpf"
   }
+
+  # Pull via ECR pull-through cache (docker-hub) — avoids Docker Hub rate
+  # limits and slow pulls over fck-nat from the private subnet.
+  set {
+    name  = "image.registry"
+    value = "286439316079.dkr.ecr.eu-central-1.amazonaws.com"
+  }
+  set {
+    name  = "image.repository"
+    value = "docker-hub/falcosecurity/falco-no-driver"
+  }
 }
 
 resource "helm_release" "tetragon" {
