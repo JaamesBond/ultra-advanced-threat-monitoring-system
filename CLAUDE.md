@@ -78,6 +78,19 @@ For simple, single-domain tasks, skip step 1 — dispatch domain agent directly,
 - **Cilium**: `kubectl -n kube-system exec ds/cilium -- cilium status`
 - **Tetragon**: `kubectl -n kube-system logs ds/tetragon -c export-stdout`
 
+## Known Issues & Troubleshooting
+
+### Shuffle (EKS)
+- **Deployment Timeout**: Shuffle (OpenSearch + Backend) takes >10 minutes to initialize. Use `timeout = 900` and `wait = true` in `helm_release`.
+- **Persistent Volumes**: Requires `aws-ebs-csi-driver` EKS addon and `AmazonEBSCSIDriverPolicy` on node roles.
+- **StorageClass**: Ensure a default StorageClass (e.g., `gp2`) is present. Patch with: `kubectl patch storageclass gp2 -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'`.
+- **Pending Pods**: If OpenSearch pods are Pending, check `kubectl get pvc -n shuffle`. Unbound PVCs usually mean missing CSI driver or default StorageClass.
+
+### Wazuh (EC2)
+- **Dashboard "No Indices"**: Usually means `filebeat` is not running on the Wazuh manager. `filebeat` is responsible for shipping alerts to the indexer.
+- **API Offline/Unauthorized**: The initial setup script must handle the transition from factory default password (`wazuh-wui`) to the custom Secrets Manager password. Readiness probes should check both if sync fails.
+- **Re-provisioning**: If `phase3-install-wazuh.sh` is updated, the EC2 instance must be tainted and re-applied: `terraform taint aws_instance.wazuh`.
+
 ## Configuration & Policies
 - **Network Policies**: Use `CiliumNetworkPolicy` CRDs.
 - **Enforcement**: Use `TracingPolicy` CRDs for Tetragon SIGKILL rules.

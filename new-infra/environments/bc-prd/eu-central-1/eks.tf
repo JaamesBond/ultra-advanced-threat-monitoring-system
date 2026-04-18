@@ -105,6 +105,9 @@ module "eks" {
         }
       })
     }
+    # aws-ebs-csi-driver = {
+    #   most_recent = true
+    # }
   }
 
   eks_managed_node_groups = {
@@ -113,9 +116,11 @@ module "eks" {
       min_size     = 2
       max_size     = 2
       desired_size = 2
+      # iam_role_additional_policies = {
+      #   ebs_csi = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+      # }
     }
   }
 
   tags = local.common_tags
 }
-
