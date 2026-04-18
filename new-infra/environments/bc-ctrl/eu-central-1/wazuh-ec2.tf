@@ -243,6 +243,8 @@ resource "aws_s3_object" "wazuh_install_script" {
   source_hash            = filemd5("${path.module}/../../../scripts/phase3-install-wazuh.sh")
   server_side_encryption = "AES256"
 
+  force_destroy          = true
+
   lifecycle {
     ignore_changes = [object_lock_mode, object_lock_retain_until_date, object_lock_legal_hold_status]
   }
