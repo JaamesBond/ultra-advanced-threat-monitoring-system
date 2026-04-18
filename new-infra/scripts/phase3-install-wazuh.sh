@@ -1367,6 +1367,8 @@ REPO
   # Patch or append ssl block under output.elasticsearch
   if grep -q "ssl.certificate_authorities" /etc/filebeat/filebeat.yml; then
     sed -i "s|ssl\.certificate_authorities:.*|ssl.certificate_authorities: [\"/etc/filebeat/certs/root-ca.pem\"]|" /etc/filebeat/filebeat.yml
+    # Remove redundant list item if template used list format for CA
+    sed -i '/- \/etc\/filebeat\/certs\/root-ca.pem/d' /etc/filebeat/filebeat.yml
     sed -i "s|ssl\.certificate:.*|ssl.certificate: \"/etc/filebeat/certs/filebeat.pem\"|" /etc/filebeat/filebeat.yml
     sed -i "s|ssl\.key:.*|ssl.key: \"/etc/filebeat/certs/filebeat.key\"|" /etc/filebeat/filebeat.yml
   else
