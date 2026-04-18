@@ -1181,7 +1181,8 @@ EOF
   log "Waiting for Wazuh Manager API on port 55000..."
   API_OK=false
   for i in $(seq 1 30); do
-    if curl -sk -u "${API_USERNAME}:${API_PASSWORD}" \
+    # Probe with factory default — API is ready the moment this works. Rotation happens below.
+    if curl -sk -u "${API_USERNAME}:${API_USERNAME}" \
         "https://localhost:55000/security/user/authenticate?raw=true" \
         --connect-timeout 5 --max-time 10 >/dev/null 2>&1; then
       log "Manager API ready after $((i * 10))s"
@@ -1196,10 +1197,13 @@ EOF
     # Set Wazuh API credentials via REST
     # -----------------------------------------------------------------------
     log "Updating Wazuh API user password..."
-    TOKEN="$(curl -sfk \
-      -u "${API_USERNAME}:${API_PASSWORD}" \
-      -X GET "https://localhost:55000/security/user/authenticate?raw=true" \
-      2>/dev/null || true)"
+    TOKEN="$(curl -sfk -u "${API_USERNAME}:${API_USERNAME}" \
+      "https://localhost:55000/security/user/authenticate?raw=true" 2>/dev/null || true)"
+    if [[ -z "${TOKEN}" ]]; then
+      TOKEN="$(curl -sfk -u "${API_USERNAME}:${API_PASSWORD}" \
+        "https://localhost:55000/security/user/authenticate?raw=true" 2>/dev/null || true)"
+      [[ -n "${TOKEN}" ]] && log "Password already rotated (idempotent re-run), verifying only."
+    fi
 
     if [[ -n "${TOKEN}" ]]; then
       # Get the user ID for API_USERNAME
@@ -1219,6 +1223,13 @@ EOF
           -d "{\"password\": \"${API_PASSWORD}\"}" \
           >/dev/null 2>&1 && log "API user password updated." \
           || log "WARNING: API password update failed — verify manually"
+
+        # Verify new credential works before declaring success
+        VERIFY="$(curl -sfk -u "${API_USERNAME}:${API_PASSWORD}" \
+          "https://localhost:55000/security/user/authenticate?raw=true" \
+          --connect-timeout 5 --max-time 10 2>/dev/null || true)"
+        [[ -n "${VERIFY}" ]] || fail "Post-rotation verify failed: new password does not authenticate"
+        log "Post-rotation verify: new credential confirmed working."
       else
         log "WARNING: Could not find user ID for ${API_USERNAME}"
       fi
@@ -1233,7 +1244,7 @@ EOF
       log "WARNING: Could not obtain API token for post-install tasks"
     fi
   else
-    log "WARNING: Manager API did not become available within 300s — post-install API tasks skipped"
+    fail "Manager API did not respond within 300s — password sync not performed. Install incomplete."
   fi
 
   # Enable MISP sync timer
@@ -1242,6 +1253,150 @@ EOF
     || log "WARNING: misp-ioc-sync.timer enable failed — retry manually after confirming MISP is reachable"
 
   log "=== [MANAGER] Installation complete ==="
+fi
+
+# ---------------------------------------------------------------------------
+# *** FILEBEAT ROLE ***
+# Ships wazuh-alerts from the manager to the indexer. Required on all_in_one
+# and manager roles — without it, no wazuh-alerts-* indices appear in the
+# indexer and the dashboard shows "no template / no matching indices".
+# ---------------------------------------------------------------------------
+if [[ "${HOST_ROLE}" == "all_in_one" || "${HOST_ROLE}" == "manager" ]]; then
+  log "=== [FILEBEAT] Installing filebeat-oss ==="
+
+  # -------------------------------------------------------------------------
+  # Indexer IP for this role: reuse the variable already set in the manager
+  # section above. all_in_one = 127.0.0.1; standalone manager = discovered IP.
+  # -------------------------------------------------------------------------
+  [[ -n "${INDEXER_IP}" ]] || fail "INDEXER_IP not set — filebeat section requires manager section to have run first"
+
+  # -------------------------------------------------------------------------
+  # Add Elastic OSS 7.x yum repo if not already present
+  # -------------------------------------------------------------------------
+  if ! rpm -q filebeat 2>/dev/null | grep -q "filebeat-7.10.2"; then
+    if [[ ! -f /etc/yum.repos.d/elastic-7.x.repo ]]; then
+      rpm --import "https://artifacts.elastic.co/GPG-KEY-elasticsearch"
+      cat > /etc/yum.repos.d/elastic-7.x.repo <<'REPO'
+[elasticsearch-7.x]
+name=Elasticsearch repository for 7.x packages
+baseurl=https://artifacts.elastic.co/packages/oss-7.x/yum
+gpgcheck=1
+gpgkey=https://artifacts.elastic.co/GPG-KEY-elasticsearch
+enabled=1
+autorefresh=1
+type=rpm-md
+REPO
+    fi
+
+    dnf install -y "filebeat-7.10.2" \
+      || fail "filebeat-oss-7.10.2 package installation failed"
+    log "filebeat 7.10.2 installed."
+  else
+    log "filebeat 7.10.2 already installed — skipping package install."
+  fi
+  rpm -q filebeat | grep -q "7.10.2" || fail "filebeat rpm version check failed — unexpected version installed"
+
+  # -------------------------------------------------------------------------
+  # Pull config, module, and template from Wazuh CDN
+  # -------------------------------------------------------------------------
+  log "Downloading filebeat.yml from Wazuh 4.9 template..."
+  curl -fsSL "https://packages.wazuh.com/4.9/tpl/wazuh/filebeat/filebeat.yml" \
+    -o /etc/filebeat/filebeat.yml \
+    || fail "Failed to download filebeat.yml from packages.wazuh.com"
+
+  log "Extracting wazuh-filebeat module..."
+  mkdir -p /usr/share/filebeat/module
+  curl -fsSL "https://packages.wazuh.com/4.x/filebeat/wazuh-filebeat-0.4.tar.gz" \
+    | tar -xz -C /usr/share/filebeat/module \
+    || fail "Failed to download or extract wazuh-filebeat-0.4.tar.gz"
+
+  log "Downloading wazuh OpenSearch template..."
+  curl -fsSL "https://raw.githubusercontent.com/wazuh/wazuh/v4.9.2/extensions/elasticsearch/7.x/wazuh-template.json" \
+    -o /etc/filebeat/wazuh-template.json \
+    || fail "Failed to download wazuh-template.json from github.com/wazuh/wazuh"
+
+  # -------------------------------------------------------------------------
+  # Certs: copy from /var/ossec/etc/ (written by manager cert section above)
+  # -------------------------------------------------------------------------
+  log "Installing filebeat TLS certs..."
+  mkdir -p /etc/filebeat/certs
+  cp /var/ossec/etc/root-ca.pem  /etc/filebeat/certs/root-ca.pem
+  cp /var/ossec/etc/filebeat.pem /etc/filebeat/certs/filebeat.pem
+  cp /var/ossec/etc/filebeat.key /etc/filebeat/certs/filebeat.key
+  chown root:root /etc/filebeat/certs/root-ca.pem \
+                  /etc/filebeat/certs/filebeat.pem \
+                  /etc/filebeat/certs/filebeat.key
+  chmod 0444 /etc/filebeat/certs/root-ca.pem /etc/filebeat/certs/filebeat.pem
+  chmod 0400 /etc/filebeat/certs/filebeat.key
+  log "Filebeat certs installed."
+
+  # -------------------------------------------------------------------------
+  # Patch filebeat.yml: indexer host + TLS paths
+  # sed -i is safe here — matching known upstream template keys
+  # -------------------------------------------------------------------------
+  log "Patching filebeat.yml with indexer host and TLS config..."
+  sed -i "s|hosts:.*\[.*\]|hosts: [\"https://${INDEXER_IP}:9200\"]|" /etc/filebeat/filebeat.yml
+  # Patch or append ssl block under output.elasticsearch
+  if grep -q "ssl.certificate_authorities" /etc/filebeat/filebeat.yml; then
+    sed -i "s|ssl\.certificate_authorities:.*|ssl.certificate_authorities: [\"/etc/filebeat/certs/root-ca.pem\"]|" /etc/filebeat/filebeat.yml
+    sed -i "s|ssl\.certificate:.*|ssl.certificate: \"/etc/filebeat/certs/filebeat.pem\"|" /etc/filebeat/filebeat.yml
+    sed -i "s|ssl\.key:.*|ssl.key: \"/etc/filebeat/certs/filebeat.key\"|" /etc/filebeat/filebeat.yml
+  else
+    # Template may not have ssl block — append it under output.elasticsearch
+    cat >> /etc/filebeat/filebeat.yml <<'SSLBLOCK'
+  ssl.certificate_authorities: ["/etc/filebeat/certs/root-ca.pem"]
+  ssl.certificate: "/etc/filebeat/certs/filebeat.pem"
+  ssl.key: "/etc/filebeat/certs/filebeat.key"
+SSLBLOCK
+  fi
+  log "filebeat.yml patched."
+
+  # -------------------------------------------------------------------------
+  # Keystore: store output credentials — never write password to disk
+  # -------------------------------------------------------------------------
+  log "Populating filebeat keystore..."
+  filebeat keystore create --force
+  printf '%s' "admin"               | filebeat keystore add --stdin --force output.elasticsearch.username
+  printf '%s' "${INDEXER_PASSWORD}" | filebeat keystore add --stdin --force output.elasticsearch.password
+  log "Filebeat keystore populated."
+
+  # -------------------------------------------------------------------------
+  # Validate config and connectivity before starting
+  # -------------------------------------------------------------------------
+  filebeat test config  || fail "filebeat test config failed"
+  filebeat test output  || fail "filebeat test output failed — indexer unreachable or creds wrong"
+
+  # -------------------------------------------------------------------------
+  # Enable and start — bounded wait, no infinite loop
+  # -------------------------------------------------------------------------
+  systemctl daemon-reload
+  systemctl enable filebeat
+  systemctl start filebeat
+
+  # Bounded single-shot verification — no unbounded wait loop.
+  for i in $(seq 1 6); do
+    sleep 5
+    if systemctl is-active --quiet filebeat; then break; fi
+  done
+  systemctl is-active --quiet filebeat \
+    || { journalctl -u filebeat --no-pager -n 40; fail "filebeat did not become active within 30s"; }
+  log "filebeat is active."
+
+  # -------------------------------------------------------------------------
+  # Verify template and initial indices (informational — no fail on absence;
+  # manager may have no agents yet so no alerts to ship)
+  # -------------------------------------------------------------------------
+  log "Waiting 30s for filebeat to ship template and initial events..."
+  sleep 30
+  curl -sfk -u "admin:${INDEXER_PASSWORD}" \
+    "https://${INDEXER_IP}:9200/_cat/templates?v" \
+    | grep -qi wazuh \
+    || log "WARNING: wazuh template not yet visible (will load on first index creation)"
+  curl -sfk -u "admin:${INDEXER_PASSWORD}" \
+    "https://${INDEXER_IP}:9200/_cat/indices/wazuh-alerts-*?v" \
+    | tee -a /var/log/wazuh-install.log
+
+  log "=== [FILEBEAT] Installation complete ==="
 fi
 
 # ---------------------------------------------------------------------------
