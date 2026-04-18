@@ -13,10 +13,10 @@ env:
 
 jobs:
   # ---------------------------------------------------------------
-  # Step 1: bc-ctrl (The Brain) — VPC + EC2 infra (no EKS)
-  # Runs on ubuntu-latest (public AWS APIs only, no K8s endpoint).
-  # Manages: VPC, peering, fck-nat, github runner VM, security tools
-  # VM, wazuh EC2 instances, MISP EC2 instance, Route53, ACM.
+  # Step 1: bc-ctrl (The Brain) — VPC + EC2 + EKS infra
+  # Runs on ubuntu-latest (public AWS APIs only).
+  # Manages: VPC, peering, fck-nat, github runner VM, wazuh EC2
+  # instances, MISP EC2 instance, Route53, EKS + Helm security stack.
   # ---------------------------------------------------------------
   ctrl-plane:
     name: Deploy Control Plane (The Brain)
@@ -53,15 +53,7 @@ jobs:
             -target=aws_iam_role.github_runner \
             -target=aws_iam_role_policy_attachment.runner_admin \
             -target=aws_iam_instance_profile.github_runner \
-            -target=aws_instance.github_runner \
-            -target=aws_security_group.security_tools \
-            -target=aws_iam_role.security_tools \
-            -target=aws_iam_role_policy_attachment.ssm \
-            -target=aws_iam_instance_profile.security_tools \
-            -target=aws_instance.security_tools \
-            -target=tls_private_key.wazuh_dashboard \
-            -target=tls_self_signed_cert.wazuh_dashboard \
-            -target=aws_acm_certificate.wazuh_dashboard
+            -target=aws_instance.github_runner
 
       - name: "Terraform Apply (Ctrl) — Stage 2: Reconcile"
         working-directory: new-infra/environments/bc-ctrl/eu-central-1

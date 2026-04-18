@@ -2,9 +2,8 @@
 # Private Hosted Zone — bc-ctrl.internal
 #
 # Used by:
-#   - external-dns (writing wazuh-manager.bc-ctrl.internal → NLB DNS)
 #   - Wazuh agents in bc-prd resolving wazuh-manager.bc-ctrl.internal
-#   - MISP sidecar in bc-ctrl resolving misp.bc-ctrl.internal
+#   - Resources in bc-ctrl resolving misp.bc-ctrl.internal
 #
 # Must be associated with BOTH VPCs:
 #   - bc-ctrl: so resources in this VPC can resolve the zone
@@ -32,6 +31,6 @@ resource "aws_route53_zone_association" "bc_ctrl_internal_prd" {
 }
 
 output "route53_bc_ctrl_internal_zone_id" {
-  description = "Route53 private zone ID for bc-ctrl.internal — pass to external-dns"
+  description = "Route53 private zone ID for bc-ctrl.internal"
   value       = aws_route53_zone.bc_ctrl_internal.zone_id
 }

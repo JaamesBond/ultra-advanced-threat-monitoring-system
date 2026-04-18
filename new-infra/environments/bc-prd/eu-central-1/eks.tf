@@ -105,9 +105,6 @@ module "eks" {
         }
       })
     }
-    amazon-cloudwatch-observability = {
-      most_recent = true
-    }
   }
 
   eks_managed_node_groups = {
@@ -122,59 +119,3 @@ module "eks" {
   tags = local.common_tags
 }
 
-# Test EC2 in PRD
-resource "aws_security_group" "test_ec2" {
-  name        = "prd-test-ec2-sg"
-  description = "PRD test instance"
-  vpc_id      = module.vpc.vpc_id
-
-  ingress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["10.0.0.0/8"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = local.common_tags
-}
-
-resource "aws_instance" "test_ec2" {
-  ami           = "ami-0a457777ab864ed6f" # Amazon Linux 2023 x86_64
-  instance_type = "t3.nano"
-  subnet_id     = module.vpc.private_subnet_ids[0]
-
-  vpc_security_group_ids = [aws_security_group.test_ec2.id]
-  iam_instance_profile   = aws_iam_instance_profile.test_ec2.name
-
-  tags = merge(local.common_tags, { Name = "prd-test-instance" })
-}
-
-resource "aws_iam_role" "test_ec2" {
-  name = "prd-test-ec2-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
-      Principal = { Service = "ec2.amazonaws.com" }
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "test_ssm" {
-  role       = aws_iam_role.test_ec2.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-}
-
-resource "aws_iam_instance_profile" "test_ec2" {
-  name = "prd-test-ec2-profile"
-  role = aws_iam_role.test_ec2.name
-}

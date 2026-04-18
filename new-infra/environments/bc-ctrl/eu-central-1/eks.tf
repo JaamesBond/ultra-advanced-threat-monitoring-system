@@ -106,12 +106,8 @@ module "eks" {
   }
 
   addons = {
-    eks-pod-identity-agent = {
-      most_recent    = true
-      before_compute = true                     # Must be present before node bootstrap
-    }                                           # required for Pod Identity (LBC, ext-secrets)
-    coredns            = { most_recent = true }
-    kube-proxy         = { most_recent = true }
+    coredns    = { most_recent = true }
+    kube-proxy = { most_recent = true }
     vpc-cni = {
       most_recent    = true
       before_compute = true # CNI must exist before nodes boot; without this, NetworkPluginNotReady
@@ -126,7 +122,7 @@ module "eks" {
 
   eks_managed_node_groups = {
     security = {
-      instance_types = ["t3.large"]
+      instance_types = ["t3.medium"]
       min_size       = 1
       max_size       = 2
       desired_size   = 2
@@ -134,41 +130,6 @@ module "eks" {
       labels         = { role = "security" }
     }
   }
-
-  tags = local.common_tags
-}
-
-#--------------------------------------------------------------
-# EKS Addons — AWS LBC + external-secrets + cert-manager + external-dns
-#
-# AWS LBC:          creates internal NLB for wazuh-manager Service
-# external-secrets: syncs AWS Secrets Manager → K8s Secrets (Wazuh creds)
-# cert-manager:     issues TLS certs for Wazuh Indexer inter-node comms
-# external-dns:     writes wazuh-manager.bc-ctrl.internal → NLB DNS
-#                   into the Route53 private zone (route53.tf)
-#--------------------------------------------------------------
-module "eks_addons" {
-  source = "../../../modules/eks-addons"
-
-  cluster_name                       = module.eks.cluster_name
-  cluster_endpoint                   = module.eks.cluster_endpoint
-  cluster_certificate_authority_data = module.eks.cluster_certificate_authority_data
-  oidc_provider_arn                  = module.eks.oidc_provider_arn
-  vpc_id                             = module.vpc.vpc_id
-  region                             = local.region
-
-  deploy_helm_releases             = true
-  install_load_balancer_controller = true
-  install_external_secrets         = true
-  install_cert_manager             = true
-  install_external_dns             = true
-
-  # Scope external-dns to bc-ctrl.internal zone only
-  external_dns_route53_zone_arns = [aws_route53_zone.bc_ctrl_internal.arn]
-  external_dns_domain_filter     = "bc-ctrl.internal"
-
-  # bc-ctrl has one node group — no dedicated "platform" taint
-  platform_node_label = { role = "security" }
 
   tags = local.common_tags
 }
