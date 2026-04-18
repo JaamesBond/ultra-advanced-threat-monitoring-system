@@ -81,7 +81,7 @@ resource "helm_release" "falco" {
   }
   set {
     name  = "collectors.containerEngine.enabled"
-    value = "false"
+    value = "true"
   }
 }
 
