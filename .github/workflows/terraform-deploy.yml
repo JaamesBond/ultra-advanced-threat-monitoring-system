@@ -136,11 +136,23 @@ jobs:
       - name: Resolve Shuffle Helm dependencies
         run: helm dependency update new-infra/k8s/shuffle
 
-      - name: Terraform Apply (Prd)
+      - name: "Terraform Apply (Prd) — Stage 1: Infra (VPC + EKS)"
         working-directory: new-infra/environments/bc-prd/eu-central-1
         run: |
           terraform init
-          terraform apply -auto-approve
+          terraform apply -auto-approve \
+            -target=module.vpc \
+            -target=module.vpc_endpoints \
+            -target=aws_security_group.fck_nat_prd \
+            -target=aws_iam_role.fck_nat_prd \
+            -target=aws_iam_role_policy_attachment.fck_nat_prd_ssm \
+            -target=aws_iam_instance_profile.fck_nat_prd \
+            -target=aws_instance.fck_nat_prd \
+            -target=aws_route.private_nat_prd \
+            -target=module.peering_requester \
+            -target=module.peering_accepter \
+            -target=aws_route53_zone_association.bc_ctrl_internal_prd \
+            -target=module.eks
 
       - name: Configure kubectl (bc-prd-eks)
         run: |
