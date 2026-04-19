@@ -11,7 +11,11 @@
 #
 # Optional env vars:
 #   REGION      — AWS region (default: eu-central-1, overridden by IMDSv2)
-#   WAZUH_VERSION — Wazuh package version (default: 4.9.2)
+#   WAZUH_VERSION — Wazuh package version (default: 4.14.4)
+#                   PINNING INVARIANT: indexer, manager, and dashboard MUST all
+#                   use the same version. Mismatched versions cause OpenSearch
+#                   Dashboards compatibility errors at startup. When bumping,
+#                   update all three together AND test the certs-tool URL.
 #
 # Secrets Manager paths (from external-secrets.yaml):
 #   bc/wazuh/manager  — INDEXER_PASSWORD, API_PASSWORD, PLACEHOLDER_CLUSTER_KEY,
@@ -27,7 +31,11 @@ set -euo pipefail
 # Globals
 # ---------------------------------------------------------------------------
 REGION="${REGION:-eu-central-1}"
-WAZUH_VERSION="${WAZUH_VERSION:-4.9.2}"
+# Bug C fix: pinned to 4.14.4 across indexer+manager+dashboard.
+# 4.9.x packages.wazuh.com/4.9/ returned HTTP 403 (repo retired).
+# The 4.x rolling repo serves 4.14.4 as of 2026-04; all three packages
+# must stay in sync — see PINNING INVARIANT comment above.
+WAZUH_VERSION="${WAZUH_VERSION:-4.14.4}"
 WAZUH_SECRET="bc/wazuh/manager"
 CERT_BUCKET="bc-uatms-wazuh-snapshots"
 CERT_DATE="$(date +%Y%m%d)"
@@ -39,6 +47,10 @@ SCRIPT_NAME="$(basename "$0")"
 # ---------------------------------------------------------------------------
 log()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${SCRIPT_NAME}] $*"; }
 fail() { log "FATAL: $1"; exit 1; }
+
+# Bug E fix: ERR trap — print the failing line number so set -e aborts are
+# visible in CloudWatch / user-data logs instead of silently stopping.
+trap 'log "FATAL: script aborted at line ${LINENO} (last command exited $?)"' ERR
 
 require_env() {
   local var="$1"
@@ -236,7 +248,8 @@ EOF
   # Generate TLS certificates using wazuh-certs-tool.sh (single-node)
   # -------------------------------------------------------------------------
   log "Generating TLS certificates with wazuh-certs-tool.sh..."
-  CERTS_TOOL_URL="https://packages.wazuh.com/4.9/wazuh-certs-tool.sh"
+  # Bug C fix: use the 4.x rolling URL; the 4.9/ versioned path is retired (403).
+  CERTS_TOOL_URL="https://packages.wazuh.com/4.x/wazuh-certs-tool.sh"
   CERTS_WORK="/tmp/wazuh-certs-gen"
   mkdir -p "${CERTS_WORK}"
 
@@ -482,22 +495,57 @@ EOF
 
   # -------------------------------------------------------------------------
   # Set admin password via the OpenSearch Security API
+  # Bug D fix: on first install the security index is initialised with the
+  # default password "admin". The previous code authenticated with the
+  # *target* password which doesn't exist yet — so the API call returned 401
+  # and the rotation was silently skipped (WARNING only, no fail). We now
+  # probe with both the default and the target credential, use whichever works,
+  # then verify the new password is accepted before continuing.
   # -------------------------------------------------------------------------
   log "Setting admin password from secrets..."
   sleep 5  # allow security plugin to settle after init
 
+  # Determine which credential currently works (default="admin" or already rotated)
+  CURRENT_INDEXER_PASS=""
+  if curl -sk -u "${INDEXER_USERNAME}:admin" \
+      "https://localhost:9200/_cluster/health" \
+      --connect-timeout 5 --max-time 10 >/dev/null 2>&1; then
+    CURRENT_INDEXER_PASS="admin"
+    log "Indexer using default password — will rotate to secrets value."
+  elif curl -sk -u "${INDEXER_USERNAME}:${INDEXER_PASSWORD}" \
+      "https://localhost:9200/_cluster/health" \
+      --connect-timeout 5 --max-time 10 >/dev/null 2>&1; then
+    CURRENT_INDEXER_PASS="${INDEXER_PASSWORD}"
+    log "Indexer already using secrets password — rotation is idempotent."
+  else
+    fail "Cannot authenticate to indexer with either default or secrets password — manual intervention required"
+  fi
+
   CHANGE_PASS_RESP="$(curl -sk \
-    -u "${INDEXER_USERNAME}:${INDEXER_PASSWORD}" \
+    -u "${INDEXER_USERNAME}:${CURRENT_INDEXER_PASS}" \
     -X PUT "https://localhost:9200/_plugins/_security/api/internalusers/${INDEXER_USERNAME}" \
     -H 'Content-Type: application/json' \
     -d "{\"password\": \"${INDEXER_PASSWORD}\", \"backend_roles\": [\"admin\"]}" \
     --connect-timeout 10 --max-time 20 2>/dev/null || echo '{}')"
 
   if echo "${CHANGE_PASS_RESP}" | jq -e '.status == "OK" or .status == "CREATED"' >/dev/null 2>&1; then
-    log "Admin password set/confirmed successfully."
+    log "Admin password set successfully via Security API."
   else
-    log "WARNING: Password change response: ${CHANGE_PASS_RESP} — may need manual confirmation"
+    log "WARNING: Password change response: ${CHANGE_PASS_RESP}"
+    # Only fail if we were trying to rotate from default — if already on the
+    # target password the PUT may return 200 without a status field.
+    if [[ "${CURRENT_INDEXER_PASS}" == "admin" ]]; then
+      fail "Admin password rotation failed — response did not indicate success"
+    fi
   fi
+
+  # Post-rotation verify: new password MUST work — fail hard if not.
+  if ! curl -sk -u "${INDEXER_USERNAME}:${INDEXER_PASSWORD}" \
+      "https://localhost:9200/_cluster/health" \
+      --connect-timeout 5 --max-time 10 >/dev/null 2>&1; then
+    fail "Post-rotation verify failed: indexer does not accept new password from Secrets Manager"
+  fi
+  log "Post-rotation verify: new indexer credential confirmed working."
 
   log "=== [INDEXER] Installation complete ==="
 fi
@@ -1327,8 +1375,9 @@ REPO
   # -------------------------------------------------------------------------
   # Pull config, module, and template from Wazuh CDN
   # -------------------------------------------------------------------------
-  log "Downloading filebeat.yml from Wazuh 4.9 template..."
-  curl -fsSL "https://packages.wazuh.com/4.9/tpl/wazuh/filebeat/filebeat.yml" \
+  # Bug C fix: 4.9/ path is retired; use 4.x rolling path.
+  log "Downloading filebeat.yml from Wazuh 4.x template..."
+  curl -fsSL "https://packages.wazuh.com/4.x/tpl/wazuh/filebeat/filebeat.yml" \
     -o /etc/filebeat/filebeat.yml \
     || fail "Failed to download filebeat.yml from packages.wazuh.com"
 
@@ -1339,7 +1388,8 @@ REPO
     || fail "Failed to download or extract wazuh-filebeat-0.4.tar.gz"
 
   log "Downloading wazuh OpenSearch template..."
-  curl -fsSL "https://raw.githubusercontent.com/wazuh/wazuh/v4.9.2/extensions/elasticsearch/7.x/wazuh-template.json" \
+  # Bug C fix: tag updated to match WAZUH_VERSION.
+  curl -fsSL "https://raw.githubusercontent.com/wazuh/wazuh/v${WAZUH_VERSION}/extensions/elasticsearch/7.x/wazuh-template.json" \
     -o /etc/filebeat/wazuh-template.json \
     || fail "Failed to download wazuh-template.json from github.com/wazuh/wazuh"
 
@@ -1386,8 +1436,12 @@ SSLBLOCK
   # -------------------------------------------------------------------------
   log "Populating filebeat keystore..."
   filebeat keystore create --force
-  printf '%s' "admin"               | filebeat keystore add --stdin --force output.elasticsearch.username
-  printf '%s' "${INDEXER_PASSWORD}" | filebeat keystore add --stdin --force output.elasticsearch.password
+  # Bug A fix: the Wazuh filebeat.yml template references ${username} and
+  # ${password} (not ${output.elasticsearch.username/password}). Using the
+  # wrong key names causes filebeat to exit with "missing field accessing
+  # 'output.elasticsearch.username'" which aborts the script via set -e.
+  printf '%s' "admin"               | filebeat keystore add --stdin --force username
+  printf '%s' "${INDEXER_PASSWORD}" | filebeat keystore add --stdin --force password
   log "Filebeat keystore populated."
 
   # -------------------------------------------------------------------------
@@ -1467,11 +1521,22 @@ if [[ "${HOST_ROLE}" == "dashboard" || "${HOST_ROLE}" == "all_in_one" ]]; then
   fi
 
   DASH_CERT_DIR="/etc/wazuh-dashboard/certs"
+  # Bug B fix: create the certs dir and copy all three required certs without
+  # || true suppression. opensearch_dashboards.yml references all three paths
+  # and the dashboard crash-loops with ENOENT if any are absent. The certs-tool
+  # config.yml names the dashboard node "wazuh-dashboard", so certs-tool emits
+  # wazuh-dashboard.pem + wazuh-dashboard-key.pem. Fail hard if they are missing
+  # so a broken cert generation is caught here rather than at service start.
   mkdir -p "${DASH_CERT_DIR}"
-  cp "${CERTS_WORK}/wazuh-certificates/wazuh-dashboard.pem"     "${DASH_CERT_DIR}/dashboard.pem"   2>/dev/null || true
-  cp "${CERTS_WORK}/wazuh-certificates/wazuh-dashboard-key.pem" "${DASH_CERT_DIR}/dashboard-key.pem" 2>/dev/null || true
-  cp "${CERTS_WORK}/wazuh-certificates/root-ca.pem"             "${DASH_CERT_DIR}/root-ca.pem"
-  chmod 440 "${DASH_CERT_DIR}"/*
+  cp "${CERTS_WORK}/wazuh-certificates/wazuh-dashboard.pem"     "${DASH_CERT_DIR}/dashboard.pem" \
+    || fail "Dashboard cert wazuh-dashboard.pem not found in certs-tool output — check /tmp/wazuh-certs-tool.log"
+  cp "${CERTS_WORK}/wazuh-certificates/wazuh-dashboard-key.pem" "${DASH_CERT_DIR}/dashboard-key.pem" \
+    || fail "Dashboard key wazuh-dashboard-key.pem not found in certs-tool output — check /tmp/wazuh-certs-tool.log"
+  cp "${CERTS_WORK}/wazuh-certificates/root-ca.pem"             "${DASH_CERT_DIR}/root-ca.pem" \
+    || fail "root-ca.pem not found in certs-tool output — check /tmp/wazuh-certs-tool.log"
+  chmod 400 "${DASH_CERT_DIR}/dashboard.pem" \
+            "${DASH_CERT_DIR}/dashboard-key.pem" \
+            "${DASH_CERT_DIR}/root-ca.pem"
   chown -R wazuh-dashboard:wazuh-dashboard "${DASH_CERT_DIR}"
   log "TLS certs installed to ${DASH_CERT_DIR}"
 
