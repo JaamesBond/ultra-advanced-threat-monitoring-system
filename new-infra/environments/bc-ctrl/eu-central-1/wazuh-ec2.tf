@@ -281,6 +281,8 @@ resource "aws_instance" "wazuh" {
     set -euo pipefail
     exec > >(tee /var/log/wazuh-install.log | logger -t wazuh-install) 2>&1
 
+    # Script etag (forces instance replacement when script changes): ${aws_s3_object.wazuh_install_script.etag}
+
     dnf update -y
     dnf install -y unzip jq
 

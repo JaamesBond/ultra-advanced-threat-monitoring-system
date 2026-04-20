@@ -376,6 +376,9 @@ plugins.security.system_indices.indices:
   - ".opensearch-observability"
   - ".opendistro-asynchronous-search-response*"
   - ".replication-metadata-store"
+
+# Elasticsearch 7.x client compatibility (allows Filebeat 7.x _type parameter)
+compatibility.override_main_response_version: true
 EOF
 
   # -------------------------------------------------------------------------
@@ -1534,6 +1537,7 @@ if [[ "${HOST_ROLE}" == "dashboard" || "${HOST_ROLE}" == "all_in_one" ]]; then
     || fail "Dashboard key wazuh-dashboard-key.pem not found in certs-tool output — check /tmp/wazuh-certs-tool.log"
   cp "${CERTS_WORK}/wazuh-certificates/root-ca.pem"             "${DASH_CERT_DIR}/root-ca.pem" \
     || fail "root-ca.pem not found in certs-tool output — check /tmp/wazuh-certs-tool.log"
+  chmod 500 "${DASH_CERT_DIR}"
   chmod 400 "${DASH_CERT_DIR}/dashboard.pem" \
             "${DASH_CERT_DIR}/dashboard-key.pem" \
             "${DASH_CERT_DIR}/root-ca.pem"

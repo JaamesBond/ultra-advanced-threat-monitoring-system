@@ -51,6 +51,10 @@ spec:
             - mountPath: /host/var/log
               name: var-log
               readOnly: true
+            - mountPath: /var/ossec/etc/ossec.conf
+              name: agent-config
+              subPath: ossec.conf
+              readOnly: true
       volumes:
         - name: var-run
           hostPath:
@@ -64,3 +68,6 @@ spec:
         - name: var-log
           hostPath:
             path: /var/log
+        - name: agent-config
+          configMap:
+            name: wazuh-agent-config

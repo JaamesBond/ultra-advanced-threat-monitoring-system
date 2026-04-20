@@ -1,0 +1,96 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wazuh-agent-config
+  namespace: wazuh
+data:
+  ossec.conf: |
+    <ossec_config>
+      <client>
+        <server>
+          <address>wazuh-manager.bc-ctrl.internal</address>
+          <port>1514</port>
+          <protocol>tcp</protocol>
+        </server>
+        <enrollment>
+          <enabled>yes</enabled>
+          <manager_address>wazuh-manager.bc-ctrl.internal</manager_address>
+        </enrollment>
+      </client>
+
+      <client_buffer>
+        <disabled>no</disabled>
+        <queue_size>5000</queue_size>
+        <events_per_second>500</events_per_second>
+      </client_buffer>
+
+      <!-- Suricata EVE JSON — Wazuh has built-in decoders for this format -->
+      <localfile>
+        <log_format>json</log_format>
+        <location>/host/var/log/suricata/eve.json</location>
+        <label key="source">suricata</label>
+      </localfile>
+
+      <!-- Zeek logs — conn, dns, http, weird, notice shipped as JSON -->
+      <localfile>
+        <log_format>json</log_format>
+        <location>/host/var/log/zeek/conn.log</location>
+        <label key="source">zeek-conn</label>
+      </localfile>
+
+      <localfile>
+        <log_format>json</log_format>
+        <location>/host/var/log/zeek/dns.log</location>
+        <label key="source">zeek-dns</label>
+      </localfile>
+
+      <localfile>
+        <log_format>json</log_format>
+        <location>/host/var/log/zeek/http.log</location>
+        <label key="source">zeek-http</label>
+      </localfile>
+
+      <localfile>
+        <log_format>json</log_format>
+        <location>/host/var/log/zeek/notice.log</location>
+        <label key="source">zeek-notice</label>
+      </localfile>
+
+      <!-- Falco alerts from the host -->
+      <localfile>
+        <log_format>json</log_format>
+        <location>/host/var/log/falco/falco.json</location>
+        <label key="source">falco</label>
+      </localfile>
+
+      <!-- Host syslog -->
+      <localfile>
+        <log_format>syslog</log_format>
+        <location>/host/var/log/messages</location>
+      </localfile>
+
+      <localfile>
+        <log_format>syslog</log_format>
+        <location>/host/var/log/secure</location>
+      </localfile>
+
+      <rootcheck>
+        <disabled>yes</disabled>
+      </rootcheck>
+
+      <syscheck>
+        <disabled>yes</disabled>
+      </syscheck>
+
+      <wodle name="syscollector">
+        <disabled>no</disabled>
+        <interval>1h</interval>
+        <packages>yes</packages>
+        <processes>yes</processes>
+        <network>yes</network>
+      </wodle>
+
+      <logging>
+        <log_format>plain</log_format>
+      </logging>
+    </ossec_config>
