@@ -104,6 +104,8 @@ resource "helm_release" "external_secrets" {
   create_namespace = true
   version          = "0.10.7"
   cleanup_on_fail  = true
+  wait             = false
+  timeout          = 600
 
   depends_on = [module.eks]
 
