@@ -1,0 +1,28 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: suricata-netpol
+  namespace: suricata
+spec:
+  endpointSelector:
+    matchLabels:
+      app: suricata
+  ingress: []
+  egress:
+    # Allow DNS — toEntities:all covers both kube-dns (cluster) and
+    # VPC DNS at 169.254.169.253 (used by hostNetwork pods)
+    - toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+      toEntities:
+        - all
+    # Allow HTTPS and HTTP to internet for ET Open rule refreshes
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP

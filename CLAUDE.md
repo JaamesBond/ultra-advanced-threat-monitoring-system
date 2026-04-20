@@ -53,7 +53,8 @@ For simple, single-domain tasks, skip step 1 — dispatch domain agent directly,
 - **Networking Logic**: `new-infra/environments/bc-prd/eu-central-1/vpc.tf` (Peering + local fck-nat).
 - **Security Logic**: `new-infra/environments/bc-prd/eu-central-1/helm-security.tf` (Mandatory Stack).
 - **Runner Setup**: `new-infra/environments/bc-ctrl/eu-central-1/vm.tf` (GitHub Runner bootstrap).
-- **K8s Manifests**: `new-infra/k8s/{wazuh,suricata,zeek,misp}/`
+- **K8s Manifests**: `new-infra/k8s/{wazuh-agent,suricata,zeek,shuffle,tetragon}/`
+- **Wazuh EC2**: `new-infra/environments/bc-ctrl/eu-central-1/wazuh-ec2.tf` (all-in-one Manager+Indexer+Dashboard, t3.xlarge, bc-ctrl private subnet)
 
 ## Critical AI Guardrails
 - **Mandatory Stack**: bc-prd EKS MUST run Cilium, Falco, and Tetragon. bc-ctrl has no EKS cluster.
@@ -74,9 +75,11 @@ For simple, single-domain tasks, skip step 1 — dispatch domain agent directly,
 - **Step 2 (Prd)**: `cd new-infra/environments/bc-prd/eu-central-1 && terraform apply`
 
 ## Security Stack Verification
+All commands target bc-prd EKS (bc-ctrl has no EKS cluster).
 - **Falco**: `kubectl -n falco logs -l app.kubernetes.io/name=falco -c falco`
 - **Cilium**: `kubectl -n kube-system exec ds/cilium -- cilium status`
 - **Tetragon**: `kubectl -n kube-system logs ds/tetragon -c export-stdout`
+- **Wazuh (EC2)**: `aws ssm start-session --target <wazuh-instance-id> --region eu-central-1` → check `/var/log/wazuh-install.log` or `systemctl status wazuh-manager`
 
 ## Known Issues & Troubleshooting
 

@@ -17,6 +17,7 @@ kind: Kustomization
 resources:
   - external-secrets.yaml
   - daemonset.yaml
+  - cilium-netpol.yaml
 
 configMapGenerator:
   - name: suricata-config

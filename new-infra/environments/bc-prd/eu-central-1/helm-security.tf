@@ -42,7 +42,7 @@ resource "helm_release" "cilium" {
   }
   set {
     name  = "hubble.ui.enabled"
-    value = "false"
+    value = "true"
   }
   set {
     name  = "policyEnforcementMode"

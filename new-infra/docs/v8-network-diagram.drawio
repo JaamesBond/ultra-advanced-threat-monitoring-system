@@ -1,23 +1,23 @@
-<mxfile host="Electron" modified="2026-04-16T12:00:00.000Z" agent="5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/24.2.5 Chrome/120.0.6099.109 Electron/28.1.0 Safari/537.36" etag="v8-uatms-diag" version="24.2.5" type="device">
+<mxfile host="Electron" modified="2026-04-20T12:00:00.000Z" agent="5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/24.2.5 Chrome/120.0.6099.109 Electron/28.1.0 Safari/537.36" etag="v8-uatms-diag-r2" version="24.2.5" type="device">
   <diagram id="v8-brain-data" name="BC-UATMS-V8-Networking">
     <mxGraphModel dx="1422" dy="798" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        
+
         <!-- AWS Region Box -->
         <mxCell id="region" value="AWS Region: eu-central-1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;verticalAlign=top;align=left;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="40" y="40" width="1080" height="740" as="geometry" />
+          <mxGeometry x="40" y="40" width="1080" height="780" as="geometry" />
         </mxCell>
 
         <!-- bc-ctrl VPC (The Brain) -->
-        <mxCell id="vpc-ctrl" value="VPC: bc-ctrl (The Brain)&#xa;CIDR: 10.0.0.0/16" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=top;align=left;spacingLeft=10;fontStyle=1" vertex="1" parent="1">
-          <mxGeometry x="80" y="100" width="460" height="520" as="geometry" />
+        <mxCell id="vpc-ctrl" value="VPC: bc-ctrl (The Brain)&#xa;CIDR: 10.0.0.0/16&#xa;No EKS — bare EC2 workloads" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=top;align=left;spacingLeft=10;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="80" y="100" width="460" height="680" as="geometry" />
         </mxCell>
 
         <!-- bc-prd VPC (The Data Plane) -->
         <mxCell id="vpc-prd" value="VPC: bc-prd (The Data Plane)&#xa;CIDR: 10.30.0.0/16" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;verticalAlign=top;align=left;spacingLeft=10;fontStyle=1" vertex="1" parent="1">
-          <mxGeometry x="620" y="100" width="460" height="640" as="geometry" />
+          <mxGeometry x="620" y="100" width="460" height="680" as="geometry" />
         </mxCell>
 
         <!-- VPC Peering Link -->
@@ -29,11 +29,11 @@
         </mxCell>
 
         <!-- bc-ctrl Subnets -->
-        <mxCell id="ctrl-pub" value="Public Subnet (10.0.0.0/24)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;verticalAlign=top;" vertex="1" parent="1">
+        <mxCell id="ctrl-pub" value="Public Subnets (10.0.0.0/24, 10.0.1.0/24)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;verticalAlign=top;" vertex="1" parent="1">
           <mxGeometry x="100" y="160" width="420" height="180" as="geometry" />
         </mxCell>
-        <mxCell id="ctrl-priv" value="Private Subnet (10.0.10.0/24)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;verticalAlign=top;" vertex="1" parent="1">
-          <mxGeometry x="100" y="360" width="420" height="240" as="geometry" />
+        <mxCell id="ctrl-priv" value="Private Subnets (10.0.10.0/24, 10.0.11.0/24)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="100" y="360" width="420" height="400" as="geometry" />
         </mxCell>
 
         <!-- bc-prd Subnets -->
@@ -41,48 +41,70 @@
           <mxGeometry x="640" y="160" width="420" height="180" as="geometry" />
         </mxCell>
         <mxCell id="prd-priv" value="Private Subnets (10.30.10.0/24, 10.30.11.0/24)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;verticalAlign=top;" vertex="1" parent="1">
-          <mxGeometry x="640" y="360" width="420" height="360" as="geometry" />
+          <mxGeometry x="640" y="360" width="420" height="400" as="geometry" />
         </mxCell>
 
-        <!-- bc-ctrl Components -->
+        <!-- bc-ctrl Public Components -->
         <mxCell id="fck-nat-shared" value="fck-nat-shared&#xa;(t4g.nano)&#xa;EIP: 3.123.x.x" style="shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;imageAspect=0;aspect=fixed;image=https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v18.0/dist/Compute/AmazonEC2.png;" vertex="1" parent="1">
           <mxGeometry x="140" y="210" width="60" height="60" as="geometry" />
         </mxCell>
         <mxCell id="gh-runner" value="github-runner-ctrl&#xa;(t3.small)&#xa;EIP Associated" style="shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;imageAspect=0;aspect=fixed;image=https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v18.0/dist/Compute/AmazonEC2.png;" vertex="1" parent="1">
           <mxGeometry x="360" y="210" width="60" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="sec-tools" value="security-tools-brain&#xa;(t3.nano)&#xa;Docker Host" style="shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;imageAspect=0;aspect=fixed;image=https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v18.0/dist/Compute/AmazonEC2.png;" vertex="1" parent="1">
-          <mxGeometry x="280" y="440" width="60" height="60" as="geometry" />
+
+        <!-- bc-ctrl Private Components: Wazuh EC2 all-in-one -->
+        <mxCell id="wazuh-ec2" value="wazuh-ctrl (t3.xlarge)&#xa;Manager + Indexer + Dashboard&#xa;200 GiB gp3 EBS (KMS)&#xa;wazuh-manager.bc-ctrl.internal&#xa;wazuh-indexer.bc-ctrl.internal&#xa;wazuh-dashboard.bc-ctrl.internal" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;verticalAlign=middle;align=center;" vertex="1" parent="1">
+          <mxGeometry x="120" y="390" width="260" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- MISP EC2 (planned, not yet in TF) -->
+        <mxCell id="misp-ec2" value="misp-ctrl&#xa;(planned — TF not yet written)&#xa;misp.bc-ctrl.internal" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;verticalAlign=middle;align=center;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="120" y="520" width="200" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Route53 annotation -->
+        <mxCell id="route53" value="Route53 Private Zone&#xa;bc-ctrl.internal&#xa;(associated with both VPCs)" style="text;html=1;strokeColor=#6c8ebf;fillColor=#dae8fc;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="120" y="620" width="220" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- VPC Flow Logs annotation -->
+        <mxCell id="flowlogs" value="VPC Flow Logs → S3&#xa;bc-vpcflow-logs" style="text;html=1;strokeColor=#82b366;fillColor=#d5e8d4;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="355" y="620" width="155" height="50" as="geometry" />
         </mxCell>
 
         <!-- bc-prd Components -->
         <mxCell id="fck-nat-prd" value="fck-nat-prd&#xa;(t4g.nano)&#xa;EIP: 18.192.x.x" style="shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;imageAspect=0;aspect=fixed;image=https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v18.0/dist/Compute/AmazonEC2.png;" vertex="1" parent="1">
           <mxGeometry x="680" y="210" width="60" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="eks-cluster" value="EKS Cluster (v1.35)&#xa;bc-uatms-prd-eks" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;verticalAlign=top;fontStyle=1" vertex="1" parent="1">
-          <mxGeometry x="660" y="440" width="380" height="200" as="geometry" />
+
+        <!-- bc-prd EKS Cluster -->
+        <mxCell id="eks-cluster" value="EKS Cluster (v1.35)&#xa;bc-uatms-prd-eks&#xa;Cilium ENI + Falco + Tetragon + Hubble relay&#xa;External Secrets Operator" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;verticalAlign=top;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="660" y="390" width="380" height="290" as="geometry" />
         </mxCell>
-        <mxCell id="node-1" value="Worker Node 1&#xa;(t3.medium)&#xa;Cilium/Falco" style="shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;imageAspect=0;aspect=fixed;image=https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v18.0/dist/Compute/AmazonEC2.png;" vertex="1" parent="1">
-          <mxGeometry x="720" y="520" width="50" height="50" as="geometry" />
+        <mxCell id="node-1" value="Worker Node 1&#xa;(t3.medium)&#xa;Cilium/Falco/wazuh-agent" style="shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;imageAspect=0;aspect=fixed;image=https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v18.0/dist/Compute/AmazonEC2.png;" vertex="1" parent="1">
+          <mxGeometry x="700" y="490" width="50" height="50" as="geometry" />
         </mxCell>
-        <mxCell id="node-2" value="Worker Node 2&#xa;(t3.medium)&#xa;Tetragon" style="shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;imageAspect=0;aspect=fixed;image=https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v18.0/dist/Compute/AmazonEC2.png;" vertex="1" parent="1">
-          <mxGeometry x="900" y="520" width="50" height="50" as="geometry" />
+        <mxCell id="node-2" value="Worker Node 2&#xa;(t3.medium)&#xa;Tetragon/wazuh-agent" style="shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;imageAspect=0;aspect=fixed;image=https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v18.0/dist/Compute/AmazonEC2.png;" vertex="1" parent="1">
+          <mxGeometry x="880" y="490" width="50" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="shuffle-note" value="Shuffle SOAR&#xa;(chart ready, not yet deployed)" style="text;html=1;strokeColor=#999999;fillColor=#f5f5f5;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=10;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="700" y="610" width="160" height="40" as="geometry" />
         </mxCell>
         <mxCell id="prd-test" value="prd-test-instance&#xa;(t3.nano)" style="shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;imageAspect=0;aspect=fixed;image=https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v18.0/dist/Compute/AmazonEC2.png;" vertex="1" parent="1">
-          <mxGeometry x="820" y="660" width="50" height="50" as="geometry" />
+          <mxGeometry x="880" y="630" width="50" height="50" as="geometry" />
         </mxCell>
 
         <!-- VPC Endpoints bc-prd -->
-        <mxCell id="vpce" value="VPC Endpoints&#xa;(ECR, STS, S3, EC2)" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
-          <mxGeometry x="940" y="380" width="100" height="50" as="geometry" />
+        <mxCell id="vpce" value="VPC Endpoints&#xa;(ECR, STS, S3, EC2, SSM, CW, KMS)" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=center;" vertex="1" parent="1">
+          <mxGeometry x="940" y="300" width="120" height="80" as="geometry" />
         </mxCell>
 
         <!-- Routing Annotations -->
-        <mxCell id="rt-ctrl" value="CTRL Routing:&#xa;0.0.0.0/0 -> fck-nat-shared&#xa;10.30.0.0/16 -> Peering" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;" vertex="1" parent="1">
-          <mxGeometry x="110" y="550" width="150" height="40" as="geometry" />
+        <mxCell id="rt-ctrl" value="CTRL Routing:&#xa;0.0.0.0/0 → fck-nat-shared&#xa;10.30.0.0/16 → Peering" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="110" y="720" width="155" height="40" as="geometry" />
         </mxCell>
-        <mxCell id="rt-prd" value="PRD Routing:&#xa;0.0.0.0/0 -> fck-nat-prd&#xa;10.0.0.0/16 -> Peering" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;" vertex="1" parent="1">
-          <mxGeometry x="650" y="680" width="150" height="40" as="geometry" />
+        <mxCell id="rt-prd" value="PRD Routing:&#xa;0.0.0.0/0 → fck-nat-prd&#xa;10.0.0.0/16 → Peering" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="650" y="720" width="155" height="40" as="geometry" />
         </mxCell>
 
         <!-- Internet Gateway Icons -->
@@ -98,6 +120,11 @@
           <mxGeometry width="50" height="50" relative="1" as="geometry" />
         </mxCell>
         <mxCell id="conn2" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#FF3333;" edge="1" parent="1" source="node-1" target="fck-nat-prd">
+          <mxGeometry width="50" height="50" relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Cross-VPC: wazuh-agent → Wazuh EC2 -->
+        <mxCell id="conn-peering-wazuh" value="Wazuh Events (1514) / Enroll (1515)&#xa;wazuh-manager.bc-ctrl.internal" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#FF9900;dashed=1;" edge="1" parent="1" source="eks-cluster" target="wazuh-ec2">
           <mxGeometry width="50" height="50" relative="1" as="geometry" />
         </mxCell>
       </root>
