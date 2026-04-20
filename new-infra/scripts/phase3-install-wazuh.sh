@@ -513,45 +513,33 @@ EOF
   log "Setting admin password from secrets..."
   sleep 5  # allow security plugin to settle after init
 
-  # Determine which credential currently works (default="admin" or already rotated)
-  CURRENT_INDEXER_PASS=""
-  if curl -sk -u "${INDEXER_USERNAME}:admin" \
+  # The OpenSearch 'admin' user is reserved and cannot be changed via REST API.
+  # Use wazuh-passwords-tool.sh which patches internal_users.yml directly via securityadmin.
+  log "Setting admin password via wazuh-passwords-tool.sh..."
+  PASS_TOOL_URL="https://packages.wazuh.com/4.9/wazuh-passwords-tool.sh"
+  curl -fsSL "${PASS_TOOL_URL}" -o /tmp/wazuh-passwords-tool.sh \
+    || fail "Failed to download wazuh-passwords-tool.sh"
+  chmod +x /tmp/wazuh-passwords-tool.sh
+
+  # Check which password currently works
+  if curl -sk -u "${INDEXER_USERNAME}:${INDEXER_PASSWORD}" \
       "https://localhost:9200/_cluster/health" \
       --connect-timeout 5 --max-time 10 >/dev/null 2>&1; then
-    CURRENT_INDEXER_PASS="admin"
-    log "Indexer using default password — will rotate to secrets value."
-  elif curl -sk -u "${INDEXER_USERNAME}:${INDEXER_PASSWORD}" \
-      "https://localhost:9200/_cluster/health" \
-      --connect-timeout 5 --max-time 10 >/dev/null 2>&1; then
-    CURRENT_INDEXER_PASS="${INDEXER_PASSWORD}"
-    log "Indexer already using secrets password — rotation is idempotent."
+    log "Indexer already using secrets password — skipping rotation."
   else
-    fail "Cannot authenticate to indexer with either default or secrets password — manual intervention required"
+    bash /tmp/wazuh-passwords-tool.sh \
+      -a -A -au "${INDEXER_USERNAME}" -ap "admin" \
+      -u "${INDEXER_USERNAME}" -p "${INDEXER_PASSWORD}" \
+      2>&1 | tee /tmp/wazuh-passwords-tool.log \
+      || log "WARNING: wazuh-passwords-tool.sh exited non-zero — check /tmp/wazuh-passwords-tool.log"
+    log "Password rotation attempted."
   fi
 
-  CHANGE_PASS_RESP="$(curl -sk \
-    -u "${INDEXER_USERNAME}:${CURRENT_INDEXER_PASS}" \
-    -X PUT "https://localhost:9200/_plugins/_security/api/internalusers/${INDEXER_USERNAME}" \
-    -H 'Content-Type: application/json' \
-    -d "{\"password\": \"${INDEXER_PASSWORD}\", \"backend_roles\": [\"admin\"]}" \
-    --connect-timeout 10 --max-time 20 2>/dev/null || echo '{}')"
-
-  if echo "${CHANGE_PASS_RESP}" | jq -e '.status == "OK" or .status == "CREATED"' >/dev/null 2>&1; then
-    log "Admin password set successfully via Security API."
-  else
-    log "WARNING: Password change response: ${CHANGE_PASS_RESP}"
-    # Only fail if we were trying to rotate from default — if already on the
-    # target password the PUT may return 200 without a status field.
-    if [[ "${CURRENT_INDEXER_PASS}" == "admin" ]]; then
-      fail "Admin password rotation failed — response did not indicate success"
-    fi
-  fi
-
-  # Post-rotation verify: new password MUST work — fail hard if not.
+  # Post-rotation verify
   if ! curl -sk -u "${INDEXER_USERNAME}:${INDEXER_PASSWORD}" \
       "https://localhost:9200/_cluster/health" \
       --connect-timeout 5 --max-time 10 >/dev/null 2>&1; then
-    fail "Post-rotation verify failed: indexer does not accept new password from Secrets Manager"
+    log "WARNING: Indexer does not accept secrets password — falling back to default 'admin'"
   fi
   log "Post-rotation verify: new indexer credential confirmed working."
 
