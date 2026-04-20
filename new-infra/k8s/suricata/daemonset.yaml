@@ -257,7 +257,7 @@ spec:
                 - sh
                 - -c
                 - |
-                  IFACE=$(ls /sys/class/net/ | grep -E '^(eth|ens|enp)' | head -1); suricatasc /var/run/suricata/suricata-command.socket -c iface-stat $IFACE 2>/dev/null | grep -q pkts
+                  IFACE=$(ls /sys/class/net/ | grep -E '^(eth|ens|enp)' | head -1); suricatasc /var/run/suricata/suricata-command.socket -c "iface-stat $IFACE" 2>/dev/null | grep -q pkts
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 3
