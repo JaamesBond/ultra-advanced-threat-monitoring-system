@@ -235,7 +235,7 @@ spec:
                 - |
                   # Startup takes a while on cold boot (rule compile)
                   test -S /var/run/suricata/suricata-command.socket && \
-                  suricatasc -c uptime /var/run/suricata/suricata-command.socket 2>/dev/null | grep -q message
+                  suricatasc /var/run/suricata/suricata-command.socket -c uptime 2>/dev/null | grep -q message
             initialDelaySeconds: 30
             periodSeconds: 15
             failureThreshold: 40   # 40 × 15s = 10 min for rule compile
@@ -246,7 +246,7 @@ spec:
                 - sh
                 - -c
                 - |
-                  suricatasc -c uptime /var/run/suricata/suricata-command.socket 2>/dev/null | grep -q message
+                  suricatasc /var/run/suricata/suricata-command.socket -c uptime 2>/dev/null | grep -q message
             periodSeconds: 60
             timeoutSeconds: 15
             failureThreshold: 3
@@ -257,7 +257,7 @@ spec:
                 - sh
                 - -c
                 - |
-                  IFACE=$(ls /sys/class/net/ | grep -E '^(eth|ens|enp)' | head -1); suricatasc -c iface-stat $IFACE /var/run/suricata/suricata-command.socket 2>/dev/null | grep -q pkts
+                  IFACE=$(ls /sys/class/net/ | grep -E '^(eth|ens|enp)' | head -1); suricatasc /var/run/suricata/suricata-command.socket -c iface-stat $IFACE 2>/dev/null | grep -q pkts
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 3
@@ -269,7 +269,7 @@ spec:
                   - sh
                   - -c
                   - |
-                    suricatasc -c shutdown /var/run/suricata/suricata-command.socket 2>/dev/null || \
+                    suricatasc /var/run/suricata/suricata-command.socket -c shutdown 2>/dev/null || \
                     kill -TERM 1
 
         #--------------------------------------------------------------
@@ -427,7 +427,7 @@ spec:
                   }
                 echo "[$(date -Iseconds)] Signalling main container for live reload"
                 if [ -S /var/run/suricata/suricata-command.socket ]; then
-                  suricatasc -c reload-rules /var/run/suricata/suricata-command.socket || true
+                  suricatasc /var/run/suricata/suricata-command.socket -c reload-rules || true
                 else
                   echo "Command socket not found, skipping reload"
                 fi
