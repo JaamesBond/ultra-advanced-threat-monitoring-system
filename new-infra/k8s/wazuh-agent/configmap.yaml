@@ -15,7 +15,6 @@ data:
         <enrollment>
           <enabled>yes</enabled>
           <manager_address>wazuh-manager.bc-ctrl.internal</manager_address>
-          <force_manager>yes</force_manager>
         </enrollment>
       </client>
 
