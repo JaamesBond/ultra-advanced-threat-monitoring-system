@@ -111,7 +111,7 @@ spec:
       #--------------------------------------------------------------
       initContainers:
         - name: rule-updater
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/jasonish/suricata:7.0.7
+          image: jasonish/suricata:7.0.7
           command:
             - sh
             - -c
@@ -158,7 +158,7 @@ spec:
         # Main container — Suricata IDS/IPS
         #--------------------------------------------------------------
         - name: suricata
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/jasonish/suricata:7.0.7
+          image: jasonish/suricata:7.0.7
           imagePullPolicy: IfNotPresent
           command:
             - /usr/bin/suricata
@@ -287,7 +287,7 @@ spec:
         # custom bc rules (10000000+).
         #--------------------------------------------------------------
         - name: misp-rule-sync
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/alpine:3.20
+          image: alpine:3.20
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -407,7 +407,7 @@ spec:
         # live reload without dropping packets.
         #--------------------------------------------------------------
         - name: rule-refresher
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/jasonish/suricata:7.0.7
+          image: jasonish/suricata:7.0.7
           command:
             - sh
             - -c

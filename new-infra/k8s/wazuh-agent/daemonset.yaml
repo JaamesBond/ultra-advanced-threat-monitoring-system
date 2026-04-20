@@ -30,7 +30,7 @@ spec:
           operator: Exists
       containers:
         - name: wazuh-agent
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/wazuh/wazuh-agent:4.9.0
+          image: wazuh/wazuh-agent:4.9.0
           securityContext:
             privileged: true
           env:

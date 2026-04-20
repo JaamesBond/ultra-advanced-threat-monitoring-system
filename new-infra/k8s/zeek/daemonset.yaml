@@ -69,7 +69,7 @@ spec:
       #--------------------------------------------------------------
       initContainers:
         - name: init-intel
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/busybox:1.37.0
+          image: busybox:1.37.0
           command:
             - sh
             - -c
@@ -89,7 +89,7 @@ spec:
         # Main — Zeek network sensor
         #--------------------------------------------------------------
         - name: zeek
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/zeek/zeek:7.0.5
+          image: zeek/zeek:7.0.5
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -143,7 +143,7 @@ spec:
         # Zeek re-reads the file via the Intel framework automatically.
         #--------------------------------------------------------------
         - name: misp-intel-sync
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/docker-hub/library/alpine:3.20
+          image: alpine:3.20
           imagePullPolicy: IfNotPresent
           command:
             - sh
