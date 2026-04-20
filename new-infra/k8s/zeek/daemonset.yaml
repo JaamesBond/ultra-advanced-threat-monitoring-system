@@ -96,9 +96,11 @@ spec:
             - -c
             - |
               set -e
-              # Detect primary interface (first non-loopback UP interface)
-              IFACE=$(ls /sys/class/net/ | grep -v lo | head -1)
+              # Pick first physical ENI (eth*/ens*/enp*), skip virtual Cilium/tunnel ifaces
+              IFACE=$(ls /sys/class/net/ | grep -E '^(eth|ens|enp)' | head -1)
               echo "Starting Zeek on interface: $IFACE"
+              mkdir -p /var/log/zeek
+              cd /var/log/zeek
               exec zeek -i "$IFACE" -C local
 
           securityContext:
