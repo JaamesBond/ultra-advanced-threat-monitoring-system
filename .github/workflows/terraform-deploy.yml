@@ -187,7 +187,7 @@ jobs:
             crd/externalsecrets.external-secrets.io
 
       - name: Wait for external-secrets webhook
-        run: kubectl -n external-secrets rollout status deployment/external-secrets-webhook --timeout=120s
+        run: kubectl -n external-secrets rollout status deployment/external-secrets-webhook --timeout=300s
 
       - name: Verify security stack (bc-prd)
         run: |
