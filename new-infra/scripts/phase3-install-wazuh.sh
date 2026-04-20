@@ -248,16 +248,21 @@ EOF
   # Generate TLS certificates using wazuh-certs-tool.sh (single-node)
   # -------------------------------------------------------------------------
   log "Generating TLS certificates with wazuh-certs-tool.sh..."
-  # Bug C fix: use the 4.x rolling URL; the 4.9/ versioned path is retired (403).
-  CERTS_TOOL_URL="https://packages.wazuh.com/4.x/wazuh-certs-tool.sh"
+  # 4.x rolling URL returns 403; versioned 4.9 path is live.
+  CERTS_TOOL_URL="https://packages.wazuh.com/4.9/wazuh-certs-tool.sh"
   CERTS_WORK="/tmp/wazuh-certs-gen"
   mkdir -p "${CERTS_WORK}"
 
   # Remove leftover certs dir from any previous partial run
   [[ -d "${CERTS_WORK}/wazuh-certificates" ]] && rm -rf "${CERTS_WORK}/wazuh-certificates"
 
-  curl -fsSL "${CERTS_TOOL_URL}" -o "${CERTS_WORK}/wazuh-certs-tool.sh" \
-    || fail "Failed to download wazuh-certs-tool.sh"
+  # Retry up to 5 times — fck-nat iptables may not be ready at early boot
+  for attempt in $(seq 1 5); do
+    curl -fsSL "${CERTS_TOOL_URL}" -o "${CERTS_WORK}/wazuh-certs-tool.sh" && break
+    log "Download attempt ${attempt}/5 failed, retrying in 15s..."
+    sleep 15
+    [[ "${attempt}" -eq 5 ]] && fail "Failed to download wazuh-certs-tool.sh after 5 attempts"
+  done
   chmod +x "${CERTS_WORK}/wazuh-certs-tool.sh"
 
   # Single-node config.yml for wazuh-certs-tool
