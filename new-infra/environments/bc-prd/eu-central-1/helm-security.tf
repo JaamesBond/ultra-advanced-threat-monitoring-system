@@ -111,6 +111,11 @@ resource "helm_release" "external_secrets" {
     name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
     value = aws_iam_role.external_secrets.arn
   }
+
+  set {
+    name  = "webhook.failurePolicy"
+    value = "Ignore"
+  }
 }
 
 resource "aws_iam_role" "external_secrets" {
