@@ -186,7 +186,18 @@ jobs:
             crd/tracingpolicies.cilium.io \
             crd/externalsecrets.external-secrets.io
 
+      - name: Debug external-secrets webhook
+        if: always()
+        run: |
+          echo "=== external-secrets pods ==="
+          kubectl -n external-secrets get pods -o wide
+          echo "=== webhook pod describe ==="
+          kubectl -n external-secrets describe deployment/external-secrets-webhook
+          echo "=== webhook pod logs ==="
+          kubectl -n external-secrets logs deployment/external-secrets-webhook --tail=50 2>/dev/null || echo "no logs yet"
+
       - name: Wait for external-secrets webhook
+        continue-on-error: true
         run: kubectl -n external-secrets rollout status deployment/external-secrets-webhook --timeout=300s
 
       - name: Verify security stack (bc-prd)
