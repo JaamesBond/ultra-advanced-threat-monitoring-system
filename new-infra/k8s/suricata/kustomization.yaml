@@ -14,6 +14,7 @@
 #--------------------------------------------------------------
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+namespace: suricata
 resources:
   - external-secrets.yaml
   - daemonset.yaml
@@ -27,6 +28,6 @@ configMapGenerator:
       - threshold.config=threshold.config
 
 generatorOptions:
-  disableNameSuffixHash: false
+  disableNameSuffixHash: true
   annotations:
     app.kubernetes.io/managed-by: kustomize

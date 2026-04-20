@@ -8,29 +8,12 @@ metadata:
     app.kubernetes.io/part-of: xdr-platform
 data:
   local.zeek: |
-    ##! local.zeek — bc-prd EKS Zeek sensor config
-
     @load base/frameworks/notice
     @load base/protocols/conn
     @load base/protocols/dns
     @load base/protocols/http
     @load base/protocols/ssl
     @load base/protocols/ssh
-    @load base/protocols/smtp
-    @load base/protocols/ftp
-    @load base/protocols/smb
-    @load frameworks/files/hash-all-files
-    @load frameworks/intel/main
-    @load frameworks/intel/seen
-    @load frameworks/intel/do_notice
-    @load policy/frameworks/notice/community-id
-    @load policy/protocols/ssl/validate-certs
     @load policy/tuning/json-logs
-    @load policy/tuning/defaults
 
     redef LogAscii::use_json = T;
-
-    # Intel framework: read MISP IOC feeds synced by misp-intel-sync sidecar.
-    redef Intel::read_files += {
-      "/var/log/zeek/intel/indicators.intel"
-    };

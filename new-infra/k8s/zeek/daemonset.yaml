@@ -97,7 +97,7 @@ spec:
             - |
               set -e
               # Detect primary interface (first non-loopback UP interface)
-              IFACE=$(ip -o link show up | awk -F': ' '!/lo/{print $2; exit}')
+              IFACE=$(ls /sys/class/net/ | grep -v lo | head -1)
               echo "Starting Zeek on interface: $IFACE"
               exec zeek -i "$IFACE" -C local
 
@@ -111,7 +111,7 @@ spec:
 
           resources:
             requests:
-              cpu: "500m"
+              cpu: "200m"
               memory: 512Mi
             limits:
               cpu: "2"

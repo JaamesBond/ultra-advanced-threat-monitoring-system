@@ -161,14 +161,13 @@ spec:
           image: jasonish/suricata:7.0.7
           imagePullPolicy: IfNotPresent
           command:
-            - /usr/bin/suricata
-          args:
+            - /bin/sh
             - -c
-            - /etc/suricata/suricata.yaml
-            - --af-packet=eth0
-            - -v
-            - --set
-            - outputs.1.eve-log.filename=eve.json
+          args:
+            - |
+              IFACE=$(ls /sys/class/net/ | grep -E '^(eth|ens|enp)' | head -1)
+              echo "Using interface: $IFACE"
+              exec /usr/bin/suricata -c /etc/suricata/suricata.yaml --af-packet=$IFACE -v --set magic-file= --set outputs.1.eve-log.filename=eve.json
 
           securityContext:
             privileged: false

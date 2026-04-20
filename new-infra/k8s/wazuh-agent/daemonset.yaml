@@ -30,7 +30,7 @@ spec:
           operator: Exists
       containers:
         - name: wazuh-agent
-          image: wazuh/wazuh-agent:4.9.0
+          image: 286439316079.dkr.ecr.eu-central-1.amazonaws.com/wazuh-agent:4.9.0
           securityContext:
             privileged: true
           env:
