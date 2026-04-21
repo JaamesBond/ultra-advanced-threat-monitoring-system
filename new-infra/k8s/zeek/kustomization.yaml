@@ -1,5 +1,6 @@
 resources:
   - namespace.yaml
+  - external-secrets.yaml
   - configmap.yaml
   - daemonset.yaml
   - cilium-netpol.yaml
