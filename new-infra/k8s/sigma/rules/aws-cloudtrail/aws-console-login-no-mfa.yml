@@ -1,0 +1,24 @@
+title: AWS Console Login Without MFA
+id: a1b2c3d4-0001-0001-0001-000000000001
+status: stable
+description: >
+  Detecteert een succesvolle AWS Console login zonder MFA.
+  In een Zero-Trust omgeving is elke login zonder MFA een incident.
+author: bc-security-team
+date: 2026/04/17
+tags:
+  - attack.initial_access
+  - attack.t1078
+logsource:
+  product: aws
+  service: cloudtrail
+detection:
+  selection:
+    eventSource: signin.amazonaws.com
+    eventName: ConsoleLogin
+    responseElements.ConsoleLogin: Success
+    additionalEventData.MFAUsed: "No"
+  condition: selection
+falsepositives:
+  - Break-glass root accounts (voeg toe aan suppression list)
+level: high
