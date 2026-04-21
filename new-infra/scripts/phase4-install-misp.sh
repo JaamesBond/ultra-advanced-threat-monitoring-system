@@ -264,11 +264,14 @@ MYSQL_USER="$(echo "${SECRET_JSON}" | jq -r '.MYSQL_USER // "misp"')"
 MISP_ADMIN_EMAIL="$(echo "${SECRET_JSON}" | jq -r '.MISP_ADMIN_EMAIL')"
 MISP_ADMIN_PASSPHRASE="$(echo "${SECRET_JSON}" | jq -r '.MISP_ADMIN_PASSPHRASE')"
 SECURITY_SALT="$(echo "${SECRET_JSON}" | jq -r '.SECURITY_SALT')"
+MISP_API_KEY="$(echo "${SECRET_JSON}" | jq -r '.MISP_API_KEY')"
 
 [[ -n "${MYSQL_ROOT_PASSWORD}" && "${MYSQL_ROOT_PASSWORD}" != "null" ]] \
   || fail "MYSQL_ROOT_PASSWORD missing from secret"
 [[ -n "${SECURITY_SALT}"       && "${SECURITY_SALT}"       != "null" ]] \
   || fail "SECURITY_SALT missing from secret"
+[[ -n "${MISP_API_KEY}"        && "${MISP_API_KEY}"        != "null" ]] \
+  || fail "MISP_API_KEY missing from secret bc/misp — add it and re-run"
 
 log "Secrets fetched."
 echo ""
@@ -644,11 +647,29 @@ INSERT IGNORE INTO users
    date_created, date_modified)
 VALUES
   (1, 1, '${MISP_ADMIN_EMAIL}', '${ADMIN_HASH}', '${ADMIN_SALT}',
-   '$(python3 -c "import secrets, string; chars=string.ascii_letters+string.digits; print(''.join(secrets.choice(chars) for _ in range(40)))")',
+   '${MISP_API_KEY}',
    1, 0, 1, 1,
    UNIX_TIMESTAMP(), UNIX_TIMESTAMP());
 SQL
-  log "Admin user seeded."
+  log "Admin user seeded with pre-defined API key."
+
+  # Push the same API key to the Suricata and Zeek Secrets Manager secrets
+  # so their misp-rule-sync/misp-intel-sync sidecars work immediately
+  log "Pushing MISP API key to bc/suricata/misp and bc/zeek/misp..."
+  API_SECRET_VALUE="{\"MISP_API_KEY\": \"${MISP_API_KEY}\"}"
+  aws secretsmanager put-secret-value \
+    --region "${REGION}" \
+    --secret-id "bc/suricata/misp" \
+    --secret-string "${API_SECRET_VALUE}" \
+    2>/dev/null \
+    || log "WARNING: Could not update bc/suricata/misp — update manually"
+  aws secretsmanager put-secret-value \
+    --region "${REGION}" \
+    --secret-id "bc/zeek/misp" \
+    --secret-string "${API_SECRET_VALUE}" \
+    2>/dev/null \
+    || log "WARNING: Could not update bc/zeek/misp — update manually"
+  log "Secrets Manager updated — Suricata and Zeek pods will pick up the key on next ExternalSecret refresh (1h) or pod restart."
 else
   log "MISP DB already has ${TABLE_COUNT} tables — skipping schema init."
 fi
