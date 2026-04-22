@@ -74,7 +74,7 @@ resource "aws_security_group" "shuffle_ec2_sg" {
     from_port   = 3001
     to_port     = 3001
     protocol    = "tcp"
-    cidr_blocks = [local.vpc_cidr]
+    cidr_blocks = "0.0.0.0/0"
   }
 
   # Shuffle HTTPS from bc-ctrl
@@ -83,16 +83,7 @@ resource "aws_security_group" "shuffle_ec2_sg" {
     from_port   = 3443
     to_port     = 3443
     protocol    = "tcp"
-    cidr_blocks = [local.vpc_cidr]
-  }
-
-  # Standard HTTPS from bc-ctrl
-  ingress {
-    description = "Standard HTTPS from bc-ctrl"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = [local.vpc_cidr]
+    cidr_blocks = "0.0.0.0/0"
   }
 
   egress {
