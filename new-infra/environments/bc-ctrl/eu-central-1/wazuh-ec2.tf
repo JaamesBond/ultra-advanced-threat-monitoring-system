@@ -269,7 +269,7 @@ resource "aws_instance" "wazuh" {
   }
 
   root_block_device {
-    volume_size           = 30
+    volume_size           = 60
     volume_type           = "gp3"
     encrypted             = true
     kms_key_id            = aws_kms_key.wazuh_ec2.arn
