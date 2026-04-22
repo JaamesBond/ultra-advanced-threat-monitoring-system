@@ -69,22 +69,21 @@ resource "aws_security_group" "shuffle_ec2_sg" {
   vpc_id      = module.vpc.vpc_id
 
   # Shuffle HTTP from bc-ctrl
-  ingress {
-    description = "Shuffle HTTP from bc-ctrl"
-    from_port   = 3001
-    to_port     = 3001
-    protocol    = "tcp"
-    cidr_blocks = "0.0.0.0/0"
-  }
+ingress {
+    description      = "Shuffle HTTP from internet"
+    from_port        = 3001
+    to_port          = 3001
+    protocol         = "tcp"
+    cidr_blocks      = ["0.0.0.0/0"]
+}
 
-  # Shuffle HTTPS from bc-ctrl
-  ingress {
-    description = "Shuffle HTTPS from bc-ctrl"
-    from_port   = 3443
-    to_port     = 3443
-    protocol    = "tcp"
-    cidr_blocks = "0.0.0.0/0"
-  }
+ingress {
+    description      = "Shuffle HTTPS from internet"
+    from_port        = 3443
+    to_port          = 3443
+    protocol         = "tcp"
+    cidr_blocks      = ["0.0.0.0/0"]
+}
 
   egress {
     description = "All outbound"
