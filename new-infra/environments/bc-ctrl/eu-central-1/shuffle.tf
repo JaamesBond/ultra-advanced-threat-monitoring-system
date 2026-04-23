@@ -15,8 +15,8 @@ data "aws_ami" "ubuntu-2404" {
 resource "aws_instance" "shuffle_ec2" {
   ami                         = data.aws_ami.ubuntu-2404.id
   instance_type               = "t3.large"
-  subnet_id                   = module.vpc.public_subnet_ids[0]
-  associate_public_ip_address = true
+  subnet_id                   = module.vpc.private_subnet_ids[0]
+  associate_public_ip_address = false
   vpc_security_group_ids      = [aws_security_group.shuffle_ec2_sg.id]
   iam_instance_profile        = aws_iam_instance_profile.shuffle_ec2.name
 
@@ -67,23 +67,6 @@ resource "aws_security_group" "shuffle_ec2_sg" {
   name        = "shuffle-ec2-sg"
   description = "Shuffle EC2 security group"
   vpc_id      = module.vpc.vpc_id
-
-  # Shuffle HTTP from bc-ctrl
-ingress {
-    description      = "Shuffle HTTP from internet"
-    from_port        = 3001
-    to_port          = 3001
-    protocol         = "tcp"
-    cidr_blocks      = ["0.0.0.0/0"]
-}
-
-ingress {
-    description      = "Shuffle HTTPS from internet"
-    from_port        = 3443
-    to_port          = 3443
-    protocol         = "tcp"
-    cidr_blocks      = ["0.0.0.0/0"]
-}
 
   egress {
     description = "All outbound"
