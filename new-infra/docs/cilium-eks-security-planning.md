@@ -54,8 +54,9 @@ security event in any research cluster is invisible until it hits Wazuh logs. Wi
 you need Hubble accessible as a permanent dashboard, not a port-forward. The current state
 (no ingress, no auth) means Hubble is theoretical visibility, not operational visibility.
 
-**Action**: Prioritise Hubble UI ingress with Keycloak OIDC auth (tracked in deferred list).
-This becomes the network observability plane for the whole platform.
+**Action**: Prioritise Hubble UI ingress. Keycloak is not yet deployed — Phase I uses AWS
+Cognito as the interim OIDC provider for the ALB auth listener. Keycloak swap is a future
+task once Keycloak is running. This becomes the network observability plane for the whole platform.
 
 ---
 
@@ -65,18 +66,21 @@ This becomes the network observability plane for the whole platform.
 **Current**: Off.  
 **With full platform**: **Must enable.**
 
-This is the most important gap in the current security posture for the following reason: when
-Wazuh agents in any research VPC ship telemetry to bc-ctrl's Wazuh manager, that traffic
-crosses a VPC peering link as plaintext TCP 1514. The content of that stream includes raw log
-data, host state, and potentially memory samples from processes on the research nodes. For
-chemistry research data, this is sensitive. For a security XDR platform specifically, shipping
-unencrypted telemetry is a contradiction in terms.
+WireGuard (`encryption.type=wireguard`, `encryption.nodeEncryption=true`) encrypts pod-to-pod
+traffic **within** a cluster (inter-node east-west). It does NOT encrypt traffic leaving the
+node toward VPC-peered destinations — the WireGuard mesh terminates at the source node, and
+cross-VPC traffic exits unencrypted by Cilium (bc-ctrl EC2 has no Cilium agent to terminate
+the tunnel).
 
-WireGuard (`encryption.type=wireguard`, `encryption.nodeEncryption=true`) encrypts all
-node-to-node traffic within a cluster AND, with the right configuration, traffic leaving the
-node toward peered VPC destinations. CPU cost on t3.medium is roughly 5–15% at high
-throughput, negligible at low throughput. On a research cluster that does chemistry simulation,
-most CPU is consumed by the job itself, not network I/O.
+For Wazuh telemetry specifically: the agent–manager stream on TCP 1514 crosses VPC peering
+outside the WireGuard mesh. However, Wazuh's own protocol encrypts this traffic at the
+application layer via AES-256 (`<crypto_method>aes</crypto_method>` in ossec.conf). Verify
+this is configured before enabling WireGuard. The primary value of Phase H WireGuard is
+intra-cluster east-west encryption and defence-in-depth — not cross-VPC coverage.
+
+CPU cost on t3.medium is roughly 5–15% at high throughput, negligible at low throughput. On
+a research cluster that does chemistry simulation, most CPU is consumed by the job itself, not
+network I/O.
 
 **When to enable**: After Phase D and the `policyEnforcementMode=always` flip are stable.
 Enable it per-cluster starting with bc-prd, then carry it as a default into the
@@ -532,32 +536,52 @@ anyway for chemistry simulation), not to skip the stack.
 
 ---
 
-### Open questions that need answers before Phase F
+### Open questions — status
 
-1. **Will research VPCs be in the same AWS account (`286439316079`) or separate accounts?**  
-   If separate accounts, the IRSA OIDC trust, Secrets Manager paths, and IAM roles need
-   cross-account plumbing. The module design changes significantly.
+1. **Will research VPCs be in the same AWS account or separate accounts?**  
+   **Decided: Separate accounts per research VPC** (aligns with LZA multi-account model).
+   Account-level blast radius isolation is the only hard boundary. A student workload
+   compromise in a research account cannot affect bc-ctrl or bc-prd secrets, IAM roles, or
+   CloudTrail.  
+   **MVP concession:** the first research VPC may deploy into account `286439316079` provided
+   the module accepts `account_id` as a variable from day one. No refactor when the second
+   VPC goes to a separate account.  
+   **Module implication:** `eks-security-stack` must accept `account_id` as a variable. The
+   Secrets Manager resource policy on `bc/wazuh/*` needs a
+   `Principal: arn:aws:iam::<research-account-id>:root` statement so the research cluster's
+   External Secrets IRSA role can read it.
 
 2. **Who provisions research VPCs — this repo's CI or separate repos?**  
-   If separate repos, the `eks-security-stack` module must be published as a Terraform
-   Registry module or sourced via Git ref, not a local path.
+   **Decided: This repo owns the module; each research VPC has its own repo consuming it via
+   Git ref.**  
+   ```hcl
+   module "eks_security_stack" {
+     source = "git::https://github.com/bigchemistry/uatms.git//new-infra/modules/eks-security-stack?ref=v1.2.0"
+   }
+   ```
+   The security team controls version bumps. Research VPC repos pin to a semver tag and do
+   not auto-update. Each research account has its own OIDC role (`GitHubActionsDeployRole-<env>`).
 
-3. **What Nomad version and deployment pattern?**  
-   Nomad on EKS can run as a DaemonSet (Nomad client per node) or as a separate deployment.
-   The security stack's CNPs need to know Nomad's port requirements (default: 4646 HTTP,
-   4647 RPC, 4648 Serf).
+3. **What Nomad deployment pattern on EKS?**  
+   **Decided: DaemonSet for Nomad clients (one per node), Deployment (3 replicas) for Nomad
+   servers.** Matches the existing pattern of Suricata, Zeek, and wazuh-agent DaemonSets.
+   Every node becomes a Nomad client, maximising scheduling fidelity and GPU access.  
+   **CNP port requirements for research cluster module:**
+   - Nomad server: ingress 4646 (HTTP API), 4647 (RPC), 4648 (Serf gossip) from cluster
+   - Nomad client: egress to servers on 4647/4648, egress on job-specific ports per namespace
+   - Nomad UI: ingress 4646 from ALB only
 
 4. **Network isolation between research VPCs — intentional?**  
-   If research groups must be isolated from each other (different organisations, competitive
-   research), then research VPCs must NOT peer with each other — only with bc-ctrl. The
-   MISP sync sidecars must reach `misp.bc-ctrl.internal`, not each other's MISP (if each
-   research VPC ever gets its own MISP instance in the future).
+   Yes. Research VPCs must NOT peer with each other — only with bc-ctrl. The MISP sync sidecars
+   reach `misp.bc-ctrl.internal` via the bc-ctrl peering link. If a research VPC ever gets its
+   own MISP instance, its sidecars should point at that local MISP, not cross-VPC.
 
 5. **Hubble multi-cluster view?**  
    With N research clusters, operating Hubble UI per-cluster is impractical. Hubble Enterprise
    (Isovalent) provides a multi-cluster view, but it's commercial. The open-source alternative
    is shipping Hubble flow data to a central Loki/Grafana stack. This should be a design
-   decision before research VPCs are built, not a retrofit.
+   decision before research VPCs are built, not a retrofit. **Unresolved — flag for research
+   VPC design phase.**
 
 ---
 
