@@ -1,24 +1,24 @@
+#--------------------------------------------------------------
+# Phase D.5 fallback — apply ONLY if D.9 Hubble check shows
+# that hostNetwork: true pods are assigned reserved:host identity
+# instead of their pod-label identity. If applied, delete the
+# namespaced CNP (suricata-netpol) to avoid conflict.
+#--------------------------------------------------------------
 apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
+kind: CiliumClusterwideNetworkPolicy
 metadata:
-  name: suricata-netpol
-  namespace: suricata
+  name: suricata-node-egress
 spec:
-  endpointSelector:
+  nodeSelector:
     matchLabels:
-      app: suricata
-  ingress: []
+      role: workload
   egress:
-    # Allow DNS — toEntities:all covers both kube-dns (cluster) and
-    # VPC DNS at 169.254.169.253 (used by hostNetwork pods)
     - toPorts:
         - ports:
             - port: "53"
               protocol: ANY
       toEntities:
         - all
-    # Allow HTTPS and HTTP to internet for ET Open rule refreshes
-    # Phase J will tighten this to toFQDNs: rules.emergingthreats.net only
     - toEntities:
         - world
       toPorts:
@@ -27,7 +27,6 @@ spec:
               protocol: TCP
             - port: "80"
               protocol: TCP
-    # misp-rule-sync sidecar → misp.bc-ctrl.internal via VPC peering
     - toCIDRSet:
         - cidr: 10.0.10.0/24
         - cidr: 10.0.11.0/24

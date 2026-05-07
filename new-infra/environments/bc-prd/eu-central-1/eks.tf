@@ -116,6 +116,9 @@ module "eks" {
       min_size     = 2
       max_size     = 2
       desired_size = 2
+      labels = {
+        role = "workload"
+      }
       # iam_role_additional_policies = {
       #   ebs_csi = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
       # }
