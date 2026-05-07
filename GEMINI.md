@@ -21,6 +21,7 @@ For AI agents and engineers navigating this repository:
 ### 🏗 Architecture Highlights (v8)
 - **VPC Peering**: Replaces Transit Gateway for lower cost. **Note**: Transitive routing is NOT supported; each VPC has its own local egress.
 - **bc-ctrl (The Brain)**:
+    - **EKS Cluster (v1.35)**: `bc-uatms-ctrl-eks` with `t3.xlarge` nodes hosting Wazuh (Manager, Indexer, Dashboard) and an Internal NLB for VPC Peering traffic.
     - **fck-nat-shared** (`t4g.nano`): Handles NAT for management subnets.
     - **GitHub Actions Runner**: Self-hosted `t3.small` with Node.js, Terraform, and kubectl pre-installed.
     - **Security Tools**: Dedicated `t3.nano` Docker host.
