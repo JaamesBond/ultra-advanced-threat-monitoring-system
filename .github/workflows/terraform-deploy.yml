@@ -222,6 +222,20 @@ jobs:
             | sed "s/\${AWS_ACCOUNT_ID}/${{ env.AWS_ACCOUNT_ID }}/g" \
             | kubectl apply -f -
 
+
+      - name: Build and push wazuh-agent image to ECR
+        run: |
+          ECR_REGISTRY="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+          ECR_REPO="wazuh-agent"
+          IMAGE_TAG="4.14.4"
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} \
+            | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
+          docker build \
+            --build-arg WAZUH_VERSION="${IMAGE_TAG}" \
+            -t "${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}" \
+            new-infra/docker/wazuh-agent/
+          docker push "${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
+
       - name: Deploy Wazuh agent (bc-prd)
         run: |
           kubectl kustomize new-infra/k8s/wazuh-agent \
