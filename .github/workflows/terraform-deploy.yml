@@ -207,8 +207,24 @@ jobs:
           kubectl -n external-secrets logs deployment/external-secrets-webhook --tail=50 2>/dev/null || echo "no logs yet"
 
       - name: Wait for external-secrets webhook
-        continue-on-error: true
-        run: kubectl -n external-secrets rollout status deployment/external-secrets-webhook --timeout=300s
+        run: |
+          kubectl -n external-secrets rollout status deployment/external-secrets-webhook --timeout=300s
+          # Rollout Ready != Endpoints populated. Wait until the service has at least one endpoint IP.
+          for i in $(seq 1 60); do
+            ENDPOINTS=$(kubectl get endpoints -n external-secrets external-secrets-webhook \
+              -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null)
+            if [ -n "$ENDPOINTS" ]; then
+              echo "Webhook endpoint ready: $ENDPOINTS"
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "ERROR: external-secrets-webhook endpoint not ready after 300s"
+              kubectl -n external-secrets get pods,endpoints -o wide
+              exit 1
+            fi
+            echo "Waiting for webhook endpoint (attempt $i/60)..."
+            sleep 5
+          done
 
       - name: Verify security stack (bc-prd)
         continue-on-error: true
