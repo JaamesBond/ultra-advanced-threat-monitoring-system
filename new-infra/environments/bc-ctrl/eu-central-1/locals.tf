@@ -15,4 +15,6 @@ locals {
     IACTool     = "Terraform"
   }
 
+  # Globally unique bucket name (old name bc-uatms-wazuh-snapshots still owned by previous account)
+  wazuh_bucket = "bc-uatms-wazuh-snapshots-${data.aws_caller_identity.current.account_id}"
 }

@@ -30,7 +30,7 @@ spec:
           operator: Exists
       containers:
         - name: wazuh-agent
-          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/wazuh-agent:4.9.0
+          image: ${AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/wazuh-agent:4.14.4
           command:
             - /bin/bash
             - -c

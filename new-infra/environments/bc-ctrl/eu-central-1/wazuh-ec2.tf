@@ -140,8 +140,8 @@ resource "aws_iam_role_policy" "wazuh_ec2_inline" {
           "s3:ListBucket"
         ]
         Resource = [
-          "arn:aws:s3:::bc-uatms-wazuh-snapshots",
-          "arn:aws:s3:::bc-uatms-wazuh-snapshots/*"
+          "arn:aws:s3:::${local.wazuh_bucket}",
+          "arn:aws:s3:::${local.wazuh_bucket}/*"
         ]
       },
       {
@@ -237,7 +237,7 @@ resource "aws_kms_alias" "wazuh_ec2" {
 ###############################################################
 
 resource "aws_s3_object" "wazuh_install_script" {
-  bucket                 = "bc-uatms-wazuh-snapshots"
+  bucket                 = local.wazuh_bucket
   key                    = "scripts/phase3-install-wazuh.sh"
   source                 = "${path.module}/../../../scripts/phase3-install-wazuh.sh"
   source_hash            = filemd5("${path.module}/../../../scripts/phase3-install-wazuh.sh")
