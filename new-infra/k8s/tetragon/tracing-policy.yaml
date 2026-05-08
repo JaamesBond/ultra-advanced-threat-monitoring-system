@@ -12,7 +12,7 @@ spec:
     selectors:
     - matchArgs:
       - index: 0
-        operator: "Contains"
+        operator: "Equal"
         values:
         - "/usr/bin/nc"
         - "/usr/bin/nmap"
