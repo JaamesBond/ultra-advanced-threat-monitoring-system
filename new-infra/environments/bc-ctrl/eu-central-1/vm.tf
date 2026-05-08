@@ -28,6 +28,7 @@ resource "aws_instance" "github_runner" {
               yum update -y
               yum install -y docker git jq libicu nodejs
               systemctl enable --now docker
+              usermod -aG docker ec2-user
 
               # GitHub Runner Setup
               mkdir -p /home/ec2-user/actions-runner && cd /home/ec2-user/actions-runner
