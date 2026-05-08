@@ -22,3 +22,9 @@ spec:
         - ports:
             - port: "4244"
               protocol: TCP
+    - toEntities:
+        - cluster
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
