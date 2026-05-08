@@ -15,12 +15,12 @@ module "eks" {
   enable_cluster_creator_admin_permissions = false
 
   # Pin KMS admin to CI role so local plans don't flip-flop the policy on apply
-  kms_key_administrators = ["arn:aws:iam::286439316079:role/GitHubActionsDeployRole"]
+  kms_key_administrators = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/GitHubActionsDeployRole"]
 
   access_entries = {
     # 1. Manual entry for local management
     matei = {
-      principal_arn     = "arn:aws:iam::286439316079:user/Matei"
+      principal_arn     = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/Matei"
       policy_associations = {
         admin = {
           policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
@@ -29,7 +29,7 @@ module "eks" {
       }
     }
     afonso = {
-      principal_arn     = "arn:aws:iam::286439316079:user/Afonso"
+      principal_arn     = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/Afonso"
       policy_associations = {
         admin = {
           policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
@@ -39,7 +39,7 @@ module "eks" {
     }
     # 2. Grant access to the role assumed by GitHub Actions
     gh_deploy = {
-      principal_arn     = "arn:aws:iam::286439316079:role/GitHubActionsDeployRole"
+      principal_arn     = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/GitHubActionsDeployRole"
       policy_associations = {
         admin = {
           policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
@@ -49,7 +49,7 @@ module "eks" {
     }
     # 3. Grant access to the Runner Instance Profile
     runner = {
-      principal_arn     = "arn:aws:iam::286439316079:role/github-runner-role"
+      principal_arn     = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/github-runner-role"
       policy_associations = {
         admin = {
           policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"

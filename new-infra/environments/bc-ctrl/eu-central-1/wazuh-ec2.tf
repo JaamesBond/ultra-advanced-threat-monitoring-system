@@ -127,8 +127,8 @@ resource "aws_iam_role_policy" "wazuh_ec2_inline" {
           "secretsmanager:DescribeSecret"
         ]
         Resource = [
-          "arn:aws:secretsmanager:eu-central-1:286439316079:secret:bc/wazuh/*",
-          "arn:aws:secretsmanager:eu-central-1:286439316079:secret:bc/misp*"
+          "arn:aws:secretsmanager:eu-central-1:${data.aws_caller_identity.current.account_id}:secret:bc/wazuh/*",
+          "arn:aws:secretsmanager:eu-central-1:${data.aws_caller_identity.current.account_id}:secret:bc/misp*"
         ]
       },
       {
@@ -201,7 +201,7 @@ resource "aws_kms_key" "wazuh_ec2" {
         Sid    = "RootFullAccess"
         Effect = "Allow"
         Principal = {
-          AWS = "arn:aws:iam::286439316079:root"
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
         }
         Action   = "kms:*"
         Resource = "*"

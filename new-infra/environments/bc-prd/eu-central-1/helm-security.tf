@@ -156,7 +156,7 @@ resource "aws_iam_role_policy" "external_secrets_secrets_manager" {
           "secretsmanager:GetSecretValue",
           "secretsmanager:DescribeSecret"
         ]
-        Resource = "arn:aws:secretsmanager:eu-central-1:286439316079:secret:bc/wazuh/*"
+        Resource = "arn:aws:secretsmanager:eu-central-1:${data.aws_caller_identity.current.account_id}:secret:bc/wazuh/*"
       }
     ]
   })

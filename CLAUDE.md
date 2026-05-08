@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**UATMS** (Ultra Advanced Threat Monitoring System) — a full XDR platform for Big Chemistry built on AWS `eu-central-1`, account `286439316079`.
+**UATMS** (Ultra Advanced Threat Monitoring System) — a full XDR platform for Big Chemistry built on AWS `eu-central-1`, account `845517756853`.
 
 Architecture: 2-VPC hub-spoke via VPC Peering. No Transit Gateway.
 - **bc-ctrl** (The Brain): `10.0.0.0/16` — Control plane, EC2-only. Wazuh all-in-one, MISP, GitHub Runner.
@@ -109,7 +109,7 @@ Cilium has Hubble relay + UI enabled (`policyEnforcementMode=default`). Falco us
 
 | DaemonSet | Namespace | Image | Purpose |
 |-----------|-----------|-------|---------|
-| `wazuh-agent` | wazuh | `286439316079.dkr.ecr.eu-central-1.amazonaws.com/wazuh-agent:4.9.0` | Ships Suricata/Zeek/Falco/syslog to Wazuh manager |
+| `wazuh-agent` | wazuh | `845517756853.dkr.ecr.eu-central-1.amazonaws.com/wazuh-agent:4.9.0` | Ships Suricata/Zeek/Falco/syslog to Wazuh manager |
 | `zeek` | zeek | `zeek/zeek:7.0.5` | Network NSM. Sidecar: `misp-intel-sync` (Alpine, pulls MISP IOCs → Zeek Intel format every 1h) |
 | `suricata` | suricata | `jasonish/suricata:7.0.7` | IDS/IPS. Sidecars: `misp-rule-sync` (Alpine, MISP → Suricata rules every 1h) + `rule-refresher` (ET Open rules every 6h) |
 
@@ -247,9 +247,9 @@ aws eks update-kubeconfig --region eu-central-1 --name bc-uatms-prd-eks --kubeco
 export KUBECONFIG=/tmp/kubeconfig-prd
 
 # Apply manifests (substituting account ID)
-kubectl kustomize new-infra/k8s/zeek | sed "s/\${AWS_ACCOUNT_ID}/286439316079/g" | kubectl apply -f -
-kubectl kustomize new-infra/k8s/suricata | sed "s/\${AWS_ACCOUNT_ID}/286439316079/g" | kubectl apply -f -
-kubectl kustomize new-infra/k8s/wazuh-agent | sed "s/\${AWS_ACCOUNT_ID}/286439316079/g" | kubectl apply -f -
+kubectl kustomize new-infra/k8s/zeek | sed "s/\${AWS_ACCOUNT_ID}/845517756853/g" | kubectl apply -f -
+kubectl kustomize new-infra/k8s/suricata | sed "s/\${AWS_ACCOUNT_ID}/845517756853/g" | kubectl apply -f -
+kubectl kustomize new-infra/k8s/wazuh-agent | sed "s/\${AWS_ACCOUNT_ID}/845517756853/g" | kubectl apply -f -
 ```
 
 ---
@@ -310,6 +310,22 @@ kubectl -n suricata get externalsecret,secret
 
 ---
 
+## Pre-Production Gaps
+
+**See [`PRE_PROD_GAPS.md`](PRE_PROD_GAPS.md) for the full list of known, accepted gaps that MUST be resolved before any production deployment.**
+
+Summary of open gaps:
+- **GAP-001**: Wazuh agent→manager TCP 1514 is unencrypted — enable `secure` mode with self-signed CA
+- **GAP-002**: MISP sidecars use `curl -k` — certificate validation disabled, MITM risk
+- **GAP-003**: No container image signing or admission control — supply chain unverified
+- **GAP-004**: Wazuh all-in-one is a single point of failure for the entire telemetry pipeline
+- **GAP-005**: Shuffle EC2 has no SSM instance profile — no out-of-band access
+- **GAP-006**: No Wazuh active response configured — detection only, no automated enforcement
+- **GAP-007**: No certificate rotation plan for when GAP-001/002 are fixed
+- **GAP-008**: No OpenSearch S3 snapshot repository — historical alerts lost on EC2 failure, no compliance archive
+
+---
+
 ## Known Issues & Troubleshooting
 
 ### Wazuh (EC2)
@@ -321,7 +337,7 @@ kubectl -n suricata get externalsecret,secret
 ### MISP (EC2)
 - **Install log**: `/var/log/misp-install.log`
 - **API key**: Stored in `bc/misp*` Secrets Manager paths. Zeek and Suricata sidecars pull this via External Secrets.
-- **Self-signed cert**: MISP uses a self-signed cert. Sidecars use `curl -k` — this is a known gap (tracked in deferred list).
+- **Self-signed cert**: MISP uses a self-signed cert. Sidecars use `curl -k` — see **GAP-002** in `PRE_PROD_GAPS.md`.
 
 ### Shuffle (EC2 — bc-ctrl)
 - **Moved off EKS** — now `shuffle-ec2` (t3.large, Ubuntu 24.04, private subnet) in bc-ctrl, running Shuffle v2.2.0 via Docker Compose.
@@ -360,7 +376,7 @@ kubectl -n suricata get externalsecret,secret
 
 | Resource | ID/Name |
 |----------|---------|
-| AWS Account | `286439316079` |
+| AWS Account | `845517756853` |
 | Region | `eu-central-1` |
 | TF State Bucket | `bc-uatms-terraform-state` |
 | Wazuh Snapshots + Scripts | `bc-uatms-wazuh-snapshots` |
@@ -368,7 +384,7 @@ kubectl -n suricata get externalsecret,secret
 | CloudTrail Logs | `bc-cloudtrail-logs` |
 | GuardDuty Logs | `bc-guardduty-logs` |
 | Config Logs | `bc-config-logs` |
-| CI Role | `arn:aws:iam::286439316079:role/GitHubActionsDeployRole` |
+| CI Role | `arn:aws:iam::845517756853:role/GitHubActionsDeployRole` |
 | KMS pin (EKS) | Same CI role ARN in `kms_key_administrators` |
 
 ## Secrets Manager Layout

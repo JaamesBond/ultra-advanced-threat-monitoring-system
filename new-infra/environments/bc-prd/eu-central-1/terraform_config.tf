@@ -23,6 +23,8 @@ provider "aws" {
   region = local.region
 }
 
+data "aws_caller_identity" "current" {}
+
 data "terraform_remote_state" "ctrl" {
   backend = "s3"
   config = {

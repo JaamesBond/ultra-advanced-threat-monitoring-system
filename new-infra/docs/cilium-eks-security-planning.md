@@ -543,7 +543,7 @@ anyway for chemistry simulation), not to skip the stack.
    Account-level blast radius isolation is the only hard boundary. A student workload
    compromise in a research account cannot affect bc-ctrl or bc-prd secrets, IAM roles, or
    CloudTrail.  
-   **MVP concession:** the first research VPC may deploy into account `286439316079` provided
+   **MVP concession:** the first research VPC may deploy into account `845517756853` provided
    the module accepts `account_id` as a variable from day one. No refactor when the second
    VPC goes to a separate account.  
    **Module implication:** `eks-security-stack` must accept `account_id` as a variable. The
