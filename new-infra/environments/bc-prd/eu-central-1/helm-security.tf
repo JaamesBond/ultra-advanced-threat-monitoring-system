@@ -114,9 +114,12 @@ resource "helm_release" "external_secrets" {
     value = aws_iam_role.external_secrets.arn
   }
 
+  # Disable the validating webhook entirely — the reconcile loop does not need it.
+  # The webhook only validates user-submitted manifests; disabling it eliminates the
+  # cert-controller startup race that caused ClusterSecretStore creation to fail.
   set {
-    name  = "webhook.failurePolicy"
-    value = "Ignore"
+    name  = "webhook.create"
+    value = "false"
   }
 }
 

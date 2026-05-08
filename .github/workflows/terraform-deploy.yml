@@ -196,32 +196,6 @@ jobs:
             sleep 10
           done
 
-      # Helm 0.10.x does not apply webhook.failurePolicy uniformly to all webhook entries.
-      # Patch every entry to Ignore explicitly so sensor manifests can be applied even
-      # if the webhook pod is not yet Ready (External Secrets will reconcile once it is).
-      # Wait loop: helm_release runs with wait=false so the VWC may not exist yet when
-      # this step starts — retry until it appears (up to 150s) before patching.
-      - name: Patch external-secrets webhook failurePolicy to Ignore
-        run: |
-          for i in $(seq 1 30); do
-            COUNT=$(kubectl get validatingwebhookconfiguration external-secrets-webhook \
-              -o jsonpath='{.webhooks}' 2>/dev/null | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
-            [ "$COUNT" -gt 0 ] && break
-            echo "ValidatingWebhookConfiguration not found yet (attempt $i/30), waiting 5s..."
-            sleep 5
-          done
-          COUNT=$(kubectl get validatingwebhookconfiguration external-secrets-webhook \
-            -o jsonpath='{.webhooks}' 2>/dev/null | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
-          if [ "$COUNT" -eq 0 ]; then
-            echo "ValidatingWebhookConfiguration not found after 150s — skipping patch"
-          else
-            PATCH=$(python3 -c "import sys; n=int('$COUNT'); print('[' + ','.join('{\"op\":\"replace\",\"path\":\"/webhooks/%d/failurePolicy\",\"value\":\"Ignore\"}' % i for i in range(n)) + ']')")
-            kubectl patch validatingwebhookconfiguration external-secrets-webhook --type=json -p="$PATCH"
-            echo "After patch:"
-            kubectl get validatingwebhookconfiguration external-secrets-webhook \
-              -o jsonpath='{range .webhooks[*]}{.name}{": "}{.failurePolicy}{"\n"}{end}'
-          fi
-
       - name: Verify security stack (bc-prd)
         continue-on-error: true
         run: |
