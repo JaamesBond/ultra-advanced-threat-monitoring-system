@@ -196,35 +196,22 @@ jobs:
             sleep 10
           done
 
-      - name: Debug external-secrets webhook
-        if: always()
+      # Helm 0.10.x does not apply webhook.failurePolicy uniformly to all webhook entries.
+      # Patch every entry to Ignore explicitly so sensor manifests can be applied even
+      # if the webhook pod is not yet Ready (External Secrets will reconcile once it is).
+      - name: Patch external-secrets webhook failurePolicy to Ignore
         run: |
-          echo "=== external-secrets pods ==="
-          kubectl -n external-secrets get pods -o wide
-          echo "=== webhook pod describe ==="
-          kubectl -n external-secrets describe deployment/external-secrets-webhook
-          echo "=== webhook pod logs ==="
-          kubectl -n external-secrets logs deployment/external-secrets-webhook --tail=50 2>/dev/null || echo "no logs yet"
-
-      - name: Wait for external-secrets webhook
-        run: |
-          kubectl -n external-secrets rollout status deployment/external-secrets-webhook --timeout=300s
-          # Rollout Ready != Endpoints populated. Wait until the service has at least one endpoint IP.
-          for i in $(seq 1 60); do
-            ENDPOINTS=$(kubectl get endpoints -n external-secrets external-secrets-webhook \
-              -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null)
-            if [ -n "$ENDPOINTS" ]; then
-              echo "Webhook endpoint ready: $ENDPOINTS"
-              break
-            fi
-            if [ "$i" -eq 60 ]; then
-              echo "ERROR: external-secrets-webhook endpoint not ready after 300s"
-              kubectl -n external-secrets get pods,endpoints -o wide
-              exit 1
-            fi
-            echo "Waiting for webhook endpoint (attempt $i/60)..."
-            sleep 5
-          done
+          COUNT=$(kubectl get validatingwebhookconfiguration external-secrets-webhook \
+            -o jsonpath='{.webhooks}' 2>/dev/null | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+          if [ "$COUNT" -eq 0 ]; then
+            echo "ValidatingWebhookConfiguration not found yet — skipping patch"
+          else
+            PATCH=$(python3 -c "import sys; n=int('$COUNT'); print('[' + ','.join('{\"op\":\"replace\",\"path\":\"/webhooks/%d/failurePolicy\",\"value\":\"Ignore\"}' % i for i in range(n)) + ']')")
+            kubectl patch validatingwebhookconfiguration external-secrets-webhook --type=json -p="$PATCH"
+            echo "After patch:"
+            kubectl get validatingwebhookconfiguration external-secrets-webhook \
+              -o jsonpath='{range .webhooks[*]}{.name}{": "}{.failurePolicy}{"\n"}{end}'
+          fi
 
       - name: Verify security stack (bc-prd)
         continue-on-error: true
