@@ -103,7 +103,7 @@ Wazuh and MISP install via scripts fetched from S3 at boot (`bc-uatms-wazuh-snap
 | Tetragon | cilium/tetragon | 1.6.1 | kube-system |
 | External Secrets | charts.external-secrets.io | 0.10.7 | external-secrets |
 
-Cilium has Hubble relay + UI enabled (`policyEnforcementMode=default`). Falco uses `modern_ebpf` driver.
+Cilium has Hubble relay + UI enabled (`policyEnforcementMode=always`). Falco uses `modern_ebpf` driver.
 
 ### bc-prd DaemonSets (K8s Manifests)
 
@@ -307,6 +307,7 @@ kubectl -n suricata get externalsecret,secret
 - **Wazuh Dashboard "No Indices"**: `filebeat` not running on the manager EC2. SSH in via SSM and run `systemctl start filebeat`.
 - **Wazuh re-provisioning**: If `phase3-install-wazuh.sh` changes, taint the instance: `terraform taint aws_instance.wazuh` then re-apply. The script hash is embedded in user_data as a comment to force replacement detection.
 - **KMS key policy flip-flop**: If plan shows KMS key policy changes on every run, ensure `kms_key_administrators` is pinned to the CI role ARN, not the identity running the plan.
+- **ESO ClusterSecretStore `WebIdentityErr` / STS timeout**: `toFQDNs` is broken in Cilium ENI mode (see Cilium ENI Mode section). The `external-secrets-netpol.yaml` already has the fix: `toCIDRSet` for STS VPC endpoint IPs + `toEntities: world` for Secrets Manager. If these IPs change, update the CIDR rules in `new-infra/k8s/system-netpols/external-secrets-netpol.yaml`.
 
 ---
 
@@ -348,6 +349,8 @@ Summary of open gaps:
 ### Cilium ENI Mode
 - aws-node DaemonSet is kept running but neutered via `nodeSelector: non-existent=true` on the original aws-node pods — Cilium takes over IP management completely.
 - Do NOT switch to chaining mode. ENI mode is stable.
+- **`toFQDNs` is broken in this ENI deployment**: DNS proxy intercepts queries and populates the FQDN cache, but CIDR identities are never inserted into the ipcache for resolved IPs (VPC-internal or public). The compound `fqdn:*.amazonaws.com + reserved:world` BPF rule never fires. Use `toCIDRSet` for stable VPC endpoint IPs and `toEntities: world` for public endpoints instead. Phase J and any future FQDN-based egress rules MUST use this workaround.
+- **STS VPC endpoint IPs** (stable, used in `external-secrets-netpol.yaml`): `10.30.10.209/32`, `10.30.11.123/32` (ENIs `eni-0a05d9050d3fc6f46`, `eni-0af463de2c1bd6b8b`). Verify with: `aws ec2 describe-network-interfaces --network-interface-ids eni-0a05d9050d3fc6f46 eni-0af463de2c1bd6b8b --query "NetworkInterfaces[*].PrivateIpAddress"`
 
 ---
 
@@ -356,11 +359,16 @@ Summary of open gaps:
 | Phase | Status | Summary |
 |-------|--------|---------|
 | Phase A | Done | Suricata memory tuning (requests 2Gi → 512Mi) |
-| Phase B | In progress | Hubble UI enabled — B.7-B.12 pending CI apply to validate |
+| Phase B | Done | Hubble relay + UI running; B.8–B.12 all validated green |
 | Phase C | Superseded | bc-ctrl EKS removed; Wazuh/MISP migrated to EC2 |
-| Phase D | In progress | CiliumNetworkPolicy manifests for wazuh-agent/suricata/zeek |
+| Phase D | Done | CNPs applied; `policyEnforcementMode=always` live; ESO secrets syncing |
 | Phase E | Superseded | Pipeline already rewritten with proper structure |
-| Phase F | Not started | eks-security-stack module to make stack mandatory |
+| Phase F | Not started | eks-security-stack module — blocked on G+D stable |
+| Phase G | Not started | kube-proxy removal + Cilium kubeProxyReplacement |
+| Phase H | Not started | WireGuard node-to-node encryption — D.11 baseline ready |
+| Phase I | Blocked | Hubble UI permanent ingress — blocked on ACM cert |
+| Phase J | Not started | Suricata egress locking — use `toEntities:world` NOT `toFQDNs` |
+| Phase K | Deferred | Host firewall — do NOT start on bc-prd until D+G+H complete |
 
 ---
 
