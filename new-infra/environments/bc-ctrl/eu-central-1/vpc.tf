@@ -92,18 +92,57 @@ resource "aws_route" "private_nat" {
 
 ###############################################################
 # VPC Flow Logs — bc-ctrl
-#
-# Captures ALL traffic (accepted + rejected) and ships to the
-# shared S3 bucket referenced in the Wazuh IAM read-only policy.
 ###############################################################
+
+resource "aws_s3_bucket" "vpcflow_logs" {
+  bucket        = "bc-vpcflow-logs"
+  force_destroy = true
+
+  tags = merge(local.common_tags, { Name = "bc-vpcflow-logs" })
+}
+
+resource "aws_s3_bucket_public_access_block" "vpcflow_logs" {
+  bucket                  = aws_s3_bucket.vpcflow_logs.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_policy" "vpcflow_logs" {
+  bucket = aws_s3_bucket.vpcflow_logs.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AWSLogDeliveryWrite"
+        Effect = "Allow"
+        Principal = { Service = "delivery.logs.amazonaws.com" }
+        Action   = "s3:PutObject"
+        Resource = "${aws_s3_bucket.vpcflow_logs.arn}/AWSLogs/${data.aws_caller_identity.current.account_id}/*"
+        Condition = { StringEquals = { "s3:x-amz-acl" = "bucket-owner-full-control" } }
+      },
+      {
+        Sid    = "AWSLogDeliveryAclCheck"
+        Effect = "Allow"
+        Principal = { Service = "delivery.logs.amazonaws.com" }
+        Action   = "s3:GetBucketAcl"
+        Resource = aws_s3_bucket.vpcflow_logs.arn
+      }
+    ]
+  })
+}
 
 resource "aws_flow_log" "bc_ctrl" {
   vpc_id               = module.vpc.vpc_id
   traffic_type         = "ALL"
   log_destination_type = "s3"
-  log_destination      = "arn:aws:s3:::bc-vpcflow-logs"
+  log_destination      = aws_s3_bucket.vpcflow_logs.arn
 
   tags = merge(local.common_tags, { Name = "bc-ctrl-vpc-flow-log" })
+
+  depends_on = [aws_s3_bucket_policy.vpcflow_logs]
 }
 
 output "vpc_id" {
