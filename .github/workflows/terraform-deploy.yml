@@ -185,10 +185,16 @@ jobs:
 
       - name: Wait for CRDs to propagate
         run: |
-          kubectl wait --for condition=established --timeout=120s \
-            crd/ciliumnetworkpolicies.cilium.io \
-            crd/tracingpolicies.cilium.io \
-            crd/externalsecrets.external-secrets.io
+          # kubectl wait returns NotFound immediately if CRD doesn't exist yet.
+          # Cilium CRDs are written ~1-3s after Helm returns. Retry until ready.
+          for i in $(seq 1 30); do
+            kubectl wait --for condition=established --timeout=30s \
+              crd/ciliumnetworkpolicies.cilium.io \
+              crd/tracingpolicies.cilium.io \
+              crd/externalsecrets.external-secrets.io 2>&1 && break
+            echo "CRDs not ready yet (attempt $i/30), retrying in 10s..."
+            sleep 10
+          done
 
       - name: Debug external-secrets webhook
         if: always()
