@@ -7,6 +7,10 @@ on:
       - "new-infra/**"
   workflow_dispatch:
 
+concurrency:
+  group: terraform-deploy
+  cancel-in-progress: true
+
 env:
   AWS_ACCOUNT_ID: "845517756853"
   AWS_REGION: "eu-central-1"
