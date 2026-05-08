@@ -3,4 +3,8 @@ kind: Kustomization
 resources:
   - coredns-netpol.yaml
   - hubble-relay-netpol.yaml
+  - hubble-ui-netpol.yaml
   - external-secrets-netpol.yaml
+  - cert-controller-netpol.yaml
+  - falco-netpol.yaml
+  - tetragon-operator-netpol.yaml

@@ -233,6 +233,9 @@ jobs:
             new-infra/docker/wazuh-agent/
           docker push "${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
 
+      - name: Apply system network policies (bc-prd)
+        run: kubectl kustomize new-infra/k8s/system-netpols | kubectl apply -f -
+
       - name: Deploy Wazuh agent (bc-prd)
         run: |
           kubectl kustomize new-infra/k8s/wazuh-agent \

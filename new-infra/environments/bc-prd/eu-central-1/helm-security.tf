@@ -46,7 +46,7 @@ resource "helm_release" "cilium" {
   }
   set {
     name  = "policyEnforcementMode"
-    value = "default"
+    value = "always"
   }
 }
 
