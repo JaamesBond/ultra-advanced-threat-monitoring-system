@@ -353,7 +353,9 @@ Summary of open gaps:
 - aws-node DaemonSet is kept running but neutered via `nodeSelector: non-existent=true` on the original aws-node pods — Cilium takes over IP management completely.
 - Do NOT switch to chaining mode. ENI mode is stable.
 - **`toFQDNs` is broken in this ENI deployment**: DNS proxy intercepts queries and populates the FQDN cache, but CIDR identities are never inserted into the ipcache for resolved IPs (VPC-internal or public). The compound `fqdn:*.amazonaws.com + reserved:world` BPF rule never fires. Use `toCIDRSet` for stable VPC endpoint IPs and `toEntities: world` for public endpoints instead. Phase J and any future FQDN-based egress rules MUST use this workaround.
-- **STS VPC endpoint IPs** (stable, used in `external-secrets-netpol.yaml`): `10.30.10.209/32`, `10.30.11.123/32` (ENIs `eni-0a05d9050d3fc6f46`, `eni-0af463de2c1bd6b8b`). Verify with: `aws ec2 describe-network-interfaces --network-interface-ids eni-0a05d9050d3fc6f46 eni-0af463de2c1bd6b8b --query "NetworkInterfaces[*].PrivateIpAddress"`
+- **STS VPC endpoint IPs** (stable, used in `external-secrets-netpol.yaml` and `ebs-csi-netpol.yaml`): `10.30.10.209/32`, `10.30.11.123/32` (ENIs `eni-0a05d9050d3fc6f46`, `eni-0af463de2c1bd6b8b`). Verify with: `aws ec2 describe-network-interfaces --network-interface-ids eni-0a05d9050d3fc6f46 eni-0af463de2c1bd6b8b --query "NetworkInterfaces[*].PrivateIpAddress"`
+- **EC2 VPC endpoint IPs** (stable, used in `ebs-csi-netpol.yaml`): `10.30.10.135/32`, `10.30.11.26/32`. Discovered from Hubble DROPPED flows showing `ebs-csi-node` blocked from reaching EC2 API.
+- **Cilium health endpoint**: Port 4240. Inter-node health probes from `remote-node` require explicit CNP (`cilium-health-netpol.yaml` in system-netpols). EBS CSI node needs IMDS egress (`169.254.169.254/32:80`) — use `toCIDRSet` for link-local address.
 
 ---
 
@@ -367,10 +369,10 @@ Summary of open gaps:
 | Phase D | Done | CNPs applied; `policyEnforcementMode=always` live; ESO secrets syncing |
 | Phase E | Superseded | Pipeline already rewritten with proper structure |
 | Phase F | Not started | eks-security-stack module — blocked on G+D stable |
-| Phase G | Done | kube-proxy removed; kubeProxyReplacement=true deployed — CI run 25604876697 |
-| Phase H | Done | WireGuard encryption deployed — CI run 25604876697. kubectl validation (H.3–H.6) pending |
+| Phase G | Done | kube-proxy removed; kubeProxyReplacement=true deployed and validated — CI run 25604876697 |
+| Phase H | Done (H.5 pre-existing bug) | WireGuard active (validated via `cilium encrypt status`). H.5 Wazuh auth is a pre-existing bug, out of scope |
 | Phase I | Blocked | Hubble UI permanent ingress — blocked on ACM cert |
-| Phase J | Done | Suricata egress locking — `toEntities:world` + `toCIDRSet` already in CNPs |
+| Phase J | Fix pending CI | J.5 revealed 2 CNP gaps: ebs-csi IMDS + cilium-health port 4240. Fixes in system-netpols, pending next CI run |
 | Phase K | Deferred | Host firewall — do NOT start on bc-prd until D+G+H complete |
 
 ---

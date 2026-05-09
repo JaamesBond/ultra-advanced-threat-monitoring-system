@@ -44,12 +44,13 @@ spec:
         - ports:
             - port: "443"
               protocol: TCP
-    # EC2 API and other public AWS endpoints (DescribeAvailabilityZones, AttachVolume, etc.).
-    # A VPC endpoint for EC2 exists (see CLAUDE.md) but its ENI IPs are not yet documented here.
-    # Using toEntities:world is intentionally broader than strictly required; a follow-up should
-    # resolve the EC2 endpoint IPs and replace this with a toCIDRSet rule to close the gap.
-    - toEntities:
-        - world
+    # EC2 VPC endpoint — DescribeAvailabilityZones, AttachVolume, etc.
+    # IPs are stable ENI addresses; toFQDNs cannot be used (see header comment).
+    # Verify with: aws ec2 describe-network-interfaces --query "NetworkInterfaces[*].PrivateIpAddress"
+    #              --filters "Name=description,Values=*ec2*" --region eu-central-1
+    - toCIDRSet:
+        - cidr: 10.30.10.135/32
+        - cidr: 10.30.11.26/32
       toPorts:
         - ports:
             - port: "443"

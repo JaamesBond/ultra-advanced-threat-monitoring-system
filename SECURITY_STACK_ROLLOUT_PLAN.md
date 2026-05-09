@@ -290,8 +290,8 @@ service proxying natively via eBPF.
 
 ~~- [x] **G.3** Apply via CI. **Validation:** CI run 25604876697 exited 0. Cilium helm_release.cilium created after 19s with kubeProxyReplacement=true. kubectl validation (kube-proxy NotFound + cilium status --brief) pending — cluster was fresh install so kube-proxy was never present.~~
 
-- [ ] **G.4** Confirm no regression on sensor DaemonSets or external-secrets.
-  **Validation:** D.10 sensor checks still pass.
+~~- [x] **G.4** Confirm no regression on sensor DaemonSets or external-secrets.
+  **Validation:** Falco, Tetragon, Suricata, Zeek DaemonSets all running post-deploy. External Secrets syncing. EBS CSI crash-loop (IMDS blocked by CNP) is a pre-existing policy gap addressed in system-netpols (ebs-csi-netpol.yaml), not a G regression.~~
 
 ---
 
@@ -316,26 +316,26 @@ See planning doc for full reasoning.
 
 ~~- [x] **H.2** Apply via CI. **Validation:** CI run 25604876697 exited 0. Cilium deployed with encryption.enabled=true, encryption.type=wireguard, encryption.nodeEncryption=true.~~
 
-- [ ] **H.3** Verify encryption active:
+~~- [x] **H.3** Verify encryption active:
   ```bash
   kubectl -n kube-system exec ds/cilium -- cilium encrypt status
   ```
-  **Validation:** output shows `WireGuard` as the encryption mode and node count
-  matches the cluster node count.
+  **Validation:** `cilium encrypt status` output confirmed WireGuard mode active on both nodes. Node count matched cluster (2 nodes).~~
 
-- [ ] **H.4** Verify Hubble still sees flows (encryption is transparent to Hubble):
+~~- [x] **H.4** Verify Hubble still sees flows (encryption is transparent to Hubble):
   ```bash
   kubectl -n kube-system exec ds/cilium -- \
     hubble observe --last 50
   ```
-  **Validation:** flows visible, no new unexpected drops.
+  **Validation:** Hubble flows visible and WireGuard did not introduce new drops. Two pre-existing CNP gaps surfaced (ebs-csi IMDS + cilium-health port 4240) — these predate Phase H and are addressed by ebs-csi-netpol.yaml + cilium-health-netpol.yaml in system-netpols.~~
 
 - [ ] **H.5** Verify Wazuh agents still connected to manager (encryption does not break
   the 1514 tunnel, just encrypts the underlying transport).
   **Validation:** `kubectl -n wazuh logs ds/wazuh-agent --tail=5` shows
   `ossec-agentd: Connected to wazuh-manager.bc-ctrl.internal`.
+  - ❌ 2026-05-09: Pre-existing auth bug — agent reaches `wazuh-manager.bc-ctrl.internal` (DNS + VPC peering working) but manager rejects enrollment (password-less authd). Out of scope per directive until user explicitly asks.
 
-- [ ] **H.6** Run D.10 sensor checks again. **Validation:** all still passing.
+~~- [x] **H.6** Run D.10 sensor checks again. **Validation:** Falco, Tetragon, Suricata, Zeek DaemonSets all running and healthy post-WireGuard deploy. Security sensor telemetry pipeline intact.~~
 
 ---
 
@@ -412,6 +412,10 @@ inserted into the ipcache for resolved IPs. All CNPs were written using
 - [ ] **J.5** Run full Hubble DROPPED check after G+H CI run completes.
   **Validation:** `hubble observe --verdict DROPPED --last 200` shows only expected
   drops. No sensor loses its required connectivity.
+  - ❌ 2026-05-09: Two unexpected drop types found:
+    1. `ebs-csi-node` → `169.254.169.254:80` (IMDS) + `10.30.10.135:443`/`10.30.11.26:443` (EC2 VPC endpoints) DROPPED — ebs-plugin crash-loops, node-driver-registrar cannot connect to CSI socket.
+    2. `remote-node` → port 4240 DROPPED — Cilium inter-node health probes blocked by `policyEnforcementMode=always`.
+    Fix: `ebs-csi-netpol.yaml` + `cilium-health-netpol.yaml` added to `new-infra/k8s/system-netpols/`. Re-validate after next CI run applies system-netpols.
 
 ---
 

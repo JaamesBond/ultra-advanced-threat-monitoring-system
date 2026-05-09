@@ -11,3 +11,4 @@ resources:
   - ebs-csi-netpol.yaml
   - efs-csi-netpol.yaml
   - alb-controller-netpol.yaml
+  - cilium-health-netpol.yaml

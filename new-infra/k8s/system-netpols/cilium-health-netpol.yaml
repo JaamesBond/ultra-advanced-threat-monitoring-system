@@ -1,0 +1,23 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cilium-health-netpol
+  namespace: kube-system
+spec:
+  endpointSelector:
+    matchLabels:
+      k8s-app: cilium-health
+  ingress:
+    - fromEntities:
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "4240"
+              protocol: TCP
+  egress:
+    - toEntities:
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "4240"
+              protocol: TCP
