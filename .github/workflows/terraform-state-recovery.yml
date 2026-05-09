@@ -1,0 +1,459 @@
+name: Terraform State Recovery (bc-prd)
+
+# Manual-trigger only. Never runs on push.
+# Use this to recover from bc-prd Terraform state drift after a cancelled apply
+# left resources in AWS that are not tracked in Terraform state.
+#
+# Two-pass workflow:
+#   Pass 1 (dry_run=true):  init + dump current state list + discover AWS resources.
+#                            No state mutations. Review the output to see the delta.
+#   Pass 2 (dry_run=false): imports every discoverable missing resource, then runs
+#                            `terraform plan` so you can verify no unexpected changes
+#                            before re-running the normal deploy pipeline.
+#
+# Safe by design:
+#   - imports are idempotent (skips resources already in state)
+#   - imports use `|| true` so one failure doesn't abort the whole step
+#   - S3 state versions are never deleted
+#   - produces a full terraform plan at the end for human review
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run — show state inventory only, no imports'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+env:
+  AWS_ACCOUNT_ID: "845517756853"
+  AWS_REGION: "eu-central-1"
+  CLUSTER_NAME: "bc-uatms-prd-eks"
+
+jobs:
+  recover-state:
+    name: Recover bc-prd Terraform State
+    runs-on: self-hosted
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::845517756853:role/GitHubActionsDeployRole
+          aws-region: eu-central-1
+
+      - uses: hashicorp/setup-terraform@v3
+
+      # ----------------------------------------------------------------
+      # Step 1: Show what is currently tracked in Terraform state.
+      # This is always safe — read-only.
+      # ----------------------------------------------------------------
+      - name: Init + dump current state inventory
+        working-directory: new-infra/environments/bc-prd/eu-central-1
+        run: |
+          set -euo pipefail
+          terraform init -reconfigure
+
+          echo ""
+          echo "========================================="
+          echo "  CURRENT TERRAFORM STATE INVENTORY"
+          echo "========================================="
+          terraform state list 2>/dev/null || echo "(state is empty or unreadable)"
+          echo ""
+          echo "EKS cluster in state: $(terraform state list 2>/dev/null | grep -c 'module.eks.aws_eks_cluster' || echo 0)"
+          echo "Total resources in state: $(terraform state list 2>/dev/null | wc -l || echo 0)"
+
+      # ----------------------------------------------------------------
+      # Step 2: Discover what exists in AWS.
+      # Always runs — this is the delta report.
+      # ----------------------------------------------------------------
+      - name: Discover AWS resources (inventory)
+        id: discover
+        run: |
+          set -euo pipefail
+          REGION="${{ env.AWS_REGION }}"
+          CLUSTER="${{ env.CLUSTER_NAME }}"
+          ACCOUNT="${{ env.AWS_ACCOUNT_ID }}"
+
+          echo ""
+          echo "========================================="
+          echo "  AWS RESOURCE DISCOVERY"
+          echo "========================================="
+
+          echo ""
+          echo "--- EKS Cluster ---"
+          aws eks describe-cluster --name "$CLUSTER" --region "$REGION" \
+            --query "{name:cluster.name,endpoint:cluster.endpoint,status:cluster.status,roleArn:cluster.roleArn}" \
+            --output table 2>/dev/null || echo "  NOT FOUND"
+
+          echo ""
+          echo "--- EKS Node Group ---"
+          aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name workload \
+            --region "$REGION" \
+            --query "{nodegroup:nodegroup.nodegroupName,status:nodegroup.status,nodeRole:nodegroup.nodeRole}" \
+            --output table 2>/dev/null || echo "  NOT FOUND"
+
+          echo ""
+          echo "--- EKS Addons ---"
+          aws eks list-addons --cluster-name "$CLUSTER" --region "$REGION" \
+            --query "addons" --output table 2>/dev/null || echo "  NOT FOUND"
+
+          echo ""
+          echo "--- EKS Access Entries ---"
+          aws eks list-access-entries --cluster-name "$CLUSTER" --region "$REGION" \
+            --query "accessEntries" --output table 2>/dev/null || echo "  NOT FOUND"
+
+          echo ""
+          echo "--- KMS Aliases for EKS ---"
+          aws kms list-aliases --region "$REGION" \
+            --query "Aliases[?contains(AliasName,'eks/${CLUSTER}')].[AliasName,TargetKeyId]" \
+            --output table 2>/dev/null || echo "  NOT FOUND"
+
+          echo ""
+          echo "--- OIDC Provider ---"
+          aws iam list-open-id-connect-providers \
+            --query "OpenIDConnectProviderList[?contains(Arn,'oidc.eks.${REGION}')].Arn" \
+            --output table 2>/dev/null || echo "  NOT FOUND"
+
+          echo ""
+          echo "--- VPC (bc-prd) ---"
+          VPC_ID=$(aws ec2 describe-vpcs --region "$REGION" \
+            --filters "Name=tag:Name,Values=bc-uatms-prd-vpc" \
+            --query "Vpcs[0].VpcId" --output text 2>/dev/null || echo "None")
+          echo "  VPC ID: $VPC_ID"
+
+          if [ "$VPC_ID" != "None" ] && [ -n "$VPC_ID" ]; then
+            echo ""
+            echo "--- Private Route Tables (0.0.0.0/0 via ENI — the NAT routes) ---"
+            aws ec2 describe-route-tables --region "$REGION" \
+              --filters "Name=vpc-id,Values=$VPC_ID" \
+              --query "RouteTables[?Routes[?DestinationCidrBlock=='0.0.0.0/0' && NetworkInterfaceId]].{RouteTableId:RouteTableId}" \
+              --output table 2>/dev/null || echo "  NONE"
+
+            echo ""
+            echo "--- VPC Endpoints ---"
+            aws ec2 describe-vpc-endpoints --region "$REGION" \
+              --filters "Name=vpc-id,Values=$VPC_ID" "Name=vpc-endpoint-state,Values=available,pending" \
+              --query "VpcEndpoints[*].{Id:VpcEndpointId,Service:ServiceName,Type:VpcEndpointType}" \
+              --output table 2>/dev/null || echo "  NONE"
+          fi
+
+          echo ""
+          echo "--- External Secrets IAM role ---"
+          aws iam get-role --role-name "bc-uatms-prd-external-secrets" \
+            --query "Role.RoleName" --output text 2>/dev/null || echo "  NOT FOUND"
+
+          echo ""
+          echo "--- CloudWatch Log Group ---"
+          aws logs describe-log-groups --region "$REGION" \
+            --log-group-name-prefix "/aws/eks/${CLUSTER}/cluster" \
+            --query "logGroups[*].logGroupName" --output text 2>/dev/null || echo "  NOT FOUND"
+
+      # ----------------------------------------------------------------
+      # Step 3: Import all discoverable missing resources.
+      # Only runs when dry_run=false.
+      #
+      # Phase A: non-Helm resources (AWS provider only).
+      #   Uses providers.override.tf to bypass the Helm provider's
+      #   chicken-and-egg dependency on module.eks.cluster_endpoint.
+      #
+      # Phase B: Helm releases (real provider after EKS is in state).
+      # ----------------------------------------------------------------
+      - name: Import missing resources — Phase A (EKS + VPC, provider override)
+        if: ${{ github.event.inputs.dry_run == 'false' }}
+        working-directory: new-infra/environments/bc-prd/eu-central-1
+        run: |
+          set -euo pipefail
+          REGION="${{ env.AWS_REGION }}"
+          CLUSTER="${{ env.CLUSTER_NAME }}"
+          ACCOUNT="${{ env.AWS_ACCOUNT_ID }}"
+
+          # Override Helm provider — breaks the chicken-and-egg where
+          # helm provider config references module.eks.cluster_endpoint
+          # which is null when the cluster isn't tracked in state yet.
+          cat > providers.override.tf <<'OVERRIDE'
+          provider "helm" {
+            kubernetes {}
+          }
+          OVERRIDE
+
+          terraform init -reconfigure
+
+          # Helper: import a resource only if it is not already in state.
+          # Failures are logged as WARNings, not hard stops — the plan at
+          # the end of this workflow will surface any remaining gaps.
+          import_if_missing() {
+            local addr="$1" id="$2"
+            if terraform state list 2>/dev/null | grep -qxF "$addr"; then
+              echo "  SKIP (already tracked): $addr"
+              return 0
+            fi
+            echo "  IMPORT: $addr"
+            terraform import "$addr" "$id" \
+              && echo "  OK: $addr" \
+              || echo "  WARN: import failed for $addr (resource may not exist in AWS)"
+          }
+
+          echo ""
+          echo "========================================="
+          echo "  PHASE A — EKS CLUSTER"
+          echo "========================================="
+          import_if_missing 'module.eks.aws_eks_cluster.this[0]' "$CLUSTER"
+
+          # CloudWatch log group for EKS control plane
+          import_if_missing 'module.eks.aws_cloudwatch_log_group.this[0]' \
+            "/aws/eks/${CLUSTER}/cluster"
+
+          echo ""
+          echo "========================================="
+          echo "  PHASE A — KMS"
+          echo "========================================="
+          KMS_ALIAS="alias/eks/${CLUSTER}"
+          KMS_KEY_ID=$(aws kms list-aliases --region "$REGION" \
+            --query "Aliases[?AliasName=='${KMS_ALIAS}'].TargetKeyId | [0]" \
+            --output text 2>/dev/null || echo "")
+          if [ -n "$KMS_KEY_ID" ] && [ "$KMS_KEY_ID" != "None" ]; then
+            import_if_missing 'module.eks.module.kms.aws_kms_key.this["eks"]' "$KMS_KEY_ID"
+            import_if_missing 'module.eks.module.kms.aws_kms_alias.this["eks/'"$CLUSTER"'"]' "$KMS_ALIAS"
+          else
+            echo "  KMS alias not found — skipping KMS imports"
+          fi
+
+          echo ""
+          echo "========================================="
+          echo "  PHASE A — IAM ROLES (cluster + node)"
+          echo "========================================="
+          CLUSTER_ROLE_ARN=$(aws eks describe-cluster --name "$CLUSTER" --region "$REGION" \
+            --query "cluster.roleArn" --output text 2>/dev/null || echo "")
+          if [ -n "$CLUSTER_ROLE_ARN" ] && [ "$CLUSTER_ROLE_ARN" != "None" ]; then
+            CLUSTER_ROLE_NAME=$(basename "$CLUSTER_ROLE_ARN")
+            echo "  Cluster IAM role: $CLUSTER_ROLE_NAME"
+            import_if_missing 'module.eks.aws_iam_role.this[0]' "$CLUSTER_ROLE_NAME"
+          fi
+
+          NODE_ROLE_ARN=$(aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name workload \
+            --region "$REGION" --query "nodegroup.nodeRole" --output text 2>/dev/null || echo "")
+          if [ -n "$NODE_ROLE_ARN" ] && [ "$NODE_ROLE_ARN" != "None" ]; then
+            NODE_ROLE_NAME=$(basename "$NODE_ROLE_ARN")
+            echo "  Node IAM role: $NODE_ROLE_NAME"
+            import_if_missing 'module.eks.module.eks_managed_node_group["workload"].aws_iam_role.this[0]' \
+              "$NODE_ROLE_NAME"
+          fi
+
+          # External secrets IAM role (not inside EKS module)
+          import_if_missing 'aws_iam_role.external_secrets' 'bc-uatms-prd-external-secrets'
+
+          echo ""
+          echo "========================================="
+          echo "  PHASE A — OIDC PROVIDER"
+          echo "========================================="
+          OIDC_ISSUER=$(aws eks describe-cluster --name "$CLUSTER" --region "$REGION" \
+            --query "cluster.identity.oidc.issuer" --output text 2>/dev/null || echo "")
+          if [ -n "$OIDC_ISSUER" ] && [ "$OIDC_ISSUER" != "None" ]; then
+            OIDC_HOST=$(echo "$OIDC_ISSUER" | sed 's|https://||')
+            OIDC_ARN="arn:aws:iam::${ACCOUNT}:oidc-provider/${OIDC_HOST}"
+            echo "  OIDC ARN: $OIDC_ARN"
+            import_if_missing 'module.eks.aws_iam_openid_connect_provider.oidc_provider[0]' "$OIDC_ARN"
+          fi
+
+          echo ""
+          echo "========================================="
+          echo "  PHASE A — SECURITY GROUPS"
+          echo "========================================="
+          VPC_ID=$(aws ec2 describe-vpcs --region "$REGION" \
+            --filters "Name=tag:Name,Values=bc-uatms-prd-vpc" \
+            --query "Vpcs[0].VpcId" --output text)
+          echo "  VPC: $VPC_ID"
+
+          # Module-created cluster SG (named with cluster-name prefix)
+          CLUSTER_SG=$(aws ec2 describe-security-groups --region "$REGION" \
+            --filters "Name=group-name,Values=${CLUSTER}-cluster-*" \
+                      "Name=vpc-id,Values=$VPC_ID" \
+            --query "SecurityGroups[0].GroupId" --output text 2>/dev/null || echo "None")
+          [ "$CLUSTER_SG" != "None" ] && [ -n "$CLUSTER_SG" ] && \
+            import_if_missing 'module.eks.aws_security_group.cluster[0]' "$CLUSTER_SG" || \
+            echo "  Cluster SG not found by name pattern"
+
+          # Module-created node SG
+          NODE_SG=$(aws ec2 describe-security-groups --region "$REGION" \
+            --filters "Name=group-name,Values=${CLUSTER}-node-*" \
+                      "Name=vpc-id,Values=$VPC_ID" \
+            --query "SecurityGroups[0].GroupId" --output text 2>/dev/null || echo "None")
+          [ "$NODE_SG" != "None" ] && [ -n "$NODE_SG" ] && \
+            import_if_missing 'module.eks.aws_security_group.node[0]' "$NODE_SG" || \
+            echo "  Node SG not found by name pattern"
+
+          echo ""
+          echo "========================================="
+          echo "  PHASE A — EKS NODE GROUP + ADDONS"
+          echo "========================================="
+          import_if_missing \
+            'module.eks.module.eks_managed_node_group["workload"].aws_eks_node_group.this[0]' \
+            "${CLUSTER}:workload"
+
+          # Launch template for the node group
+          LT_ID=$(aws ec2 describe-launch-templates --region "$REGION" \
+            --filters "Name=tag:kubernetes.io/cluster/${CLUSTER},Values=owned" \
+            --query "LaunchTemplates[0].LaunchTemplateId" --output text 2>/dev/null || echo "None")
+          [ "$LT_ID" != "None" ] && [ -n "$LT_ID" ] && \
+            import_if_missing \
+              'module.eks.module.eks_managed_node_group["workload"].aws_launch_template.this[0]' \
+              "$LT_ID"
+
+          for addon in coredns vpc-cni; do
+            STATUS=$(aws eks describe-addon --cluster-name "$CLUSTER" --addon-name "$addon" \
+              --region "$REGION" --query "addon.status" --output text 2>/dev/null || echo "NOTFOUND")
+            if [ "$STATUS" != "NOTFOUND" ]; then
+              # key format matches eks.tf cluster_addons map: "coredns" and "vpc-cni"
+              import_if_missing "module.eks.aws_eks_addon.this[\"${addon}\"]" "${CLUSTER}:${addon}"
+            fi
+          done
+
+          echo ""
+          echo "========================================="
+          echo "  PHASE A — EKS ACCESS ENTRIES"
+          echo "========================================="
+          declare -A ENTRIES=(
+            ["matei"]="arn:aws:iam::${ACCOUNT}:user/Matei"
+            ["afonso"]="arn:aws:iam::${ACCOUNT}:user/Afonso"
+            ["gh_deploy"]="arn:aws:iam::${ACCOUNT}:role/GitHubActionsDeployRole"
+            ["runner"]="arn:aws:iam::${ACCOUNT}:role/github-runner-role"
+          )
+          ADMIN_POLICY="arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+          for key in "${!ENTRIES[@]}"; do
+            principal="${ENTRIES[$key]}"
+            EXISTS=$(aws eks describe-access-entry --cluster-name "$CLUSTER" \
+              --principal-arn "$principal" --region "$REGION" \
+              --query "accessEntry.principalArn" --output text 2>/dev/null || echo "NOTFOUND")
+            if [ "$EXISTS" != "NOTFOUND" ]; then
+              import_if_missing "module.eks.aws_eks_access_entry.this[\"${key}\"]" \
+                "${CLUSTER}:${principal}"
+              import_if_missing "module.eks.aws_eks_access_policy_association.this[\"${key}_admin\"]" \
+                "${CLUSTER}:${principal}:${ADMIN_POLICY}"
+            fi
+          done
+
+          echo ""
+          echo "========================================="
+          echo "  PHASE A — PRIVATE NAT ROUTES"
+          echo "========================================="
+          # Find private route tables — those with a 0.0.0.0/0 route via a network interface (not IGW)
+          PRIV_RTBS=$(aws ec2 describe-route-tables --region "$REGION" \
+            --filters "Name=vpc-id,Values=$VPC_ID" \
+            --query "RouteTables[?Routes[?DestinationCidrBlock=='0.0.0.0/0' && NetworkInterfaceId]].RouteTableId" \
+            --output text | tr '\t' ' ')
+          echo "  Private route tables with NAT routes: $PRIV_RTBS"
+          i=0
+          for rtb in $PRIV_RTBS; do
+            import_if_missing "aws_route.private_nat_prd[$i]" "${rtb}_0.0.0.0/0"
+            i=$((i+1))
+          done
+
+          echo ""
+          echo "========================================="
+          echo "  PHASE A — VPC ENDPOINTS"
+          echo "========================================="
+          get_ep() {
+            aws ec2 describe-vpc-endpoints --region "$REGION" \
+              --filters "Name=vpc-id,Values=$VPC_ID" "Name=service-name,Values=$1" \
+                        "Name=vpc-endpoint-state,Values=available,pending" \
+              --query "VpcEndpoints[0].VpcEndpointId" --output text 2>/dev/null || echo "None"
+          }
+
+          S3_EP=$(get_ep "com.amazonaws.${REGION}.s3")
+          [ "$S3_EP" != "None" ] && [ -n "$S3_EP" ] && \
+            import_if_missing 'module.vpc_endpoints.aws_vpc_endpoint.s3[0]' "$S3_EP"
+
+          declare -A EP_SERVICES=(
+            ["ec2"]="com.amazonaws.${REGION}.ec2"
+            ["ecr_api"]="com.amazonaws.${REGION}.ecr.api"
+            ["ecr_dkr"]="com.amazonaws.${REGION}.ecr.dkr"
+            ["sts"]="com.amazonaws.${REGION}.sts"
+            ["ssm"]="com.amazonaws.${REGION}.ssm"
+            ["ssm_messages"]="com.amazonaws.${REGION}.ssmmessages"
+            ["ec2_messages"]="com.amazonaws.${REGION}.ec2messages"
+            ["cloudwatch_logs"]="com.amazonaws.${REGION}.logs"
+            ["kms"]="com.amazonaws.${REGION}.kms"
+          )
+          for key in "${!EP_SERVICES[@]}"; do
+            svc="${EP_SERVICES[$key]}"
+            ep_id=$(get_ep "$svc")
+            [ "$ep_id" != "None" ] && [ -n "$ep_id" ] && \
+              import_if_missing "module.vpc_endpoints.aws_vpc_endpoint.interface[\"${key}\"]" "$ep_id"
+          done
+
+          echo ""
+          echo "=== Phase A complete. Removing provider override ==="
+          rm -f providers.override.tf
+
+      - name: Import missing resources — Phase B (Helm releases)
+        if: ${{ github.event.inputs.dry_run == 'false' }}
+        working-directory: new-infra/environments/bc-prd/eu-central-1
+        run: |
+          set -euo pipefail
+          # Re-init with real Helm provider — works now because EKS cluster
+          # is in state so module.eks.cluster_endpoint is non-null.
+          terraform init -reconfigure
+
+          import_if_missing() {
+            local addr="$1" id="$2"
+            if terraform state list 2>/dev/null | grep -qxF "$addr"; then
+              echo "  SKIP (already tracked): $addr"
+              return 0
+            fi
+            echo "  IMPORT: $addr"
+            terraform import "$addr" "$id" \
+              && echo "  OK: $addr" \
+              || echo "  WARN: import failed for $addr"
+          }
+
+          echo ""
+          echo "========================================="
+          echo "  PHASE B — HELM RELEASES"
+          echo "========================================="
+          import_if_missing 'helm_release.cilium' 'kube-system/cilium'
+          import_if_missing 'helm_release.falco' 'falco/falco'
+          import_if_missing 'helm_release.tetragon' 'kube-system/tetragon'
+          import_if_missing 'helm_release.external_secrets' 'external-secrets/external-secrets'
+
+      # ----------------------------------------------------------------
+      # Step 4: Final state inventory + terraform plan.
+      # Shows what Terraform would change given the recovered state.
+      # Review this output BEFORE triggering the normal deploy pipeline.
+      # ----------------------------------------------------------------
+      - name: Final state inventory
+        if: ${{ always() }}
+        working-directory: new-infra/environments/bc-prd/eu-central-1
+        run: |
+          echo ""
+          echo "========================================="
+          echo "  FINAL STATE INVENTORY"
+          echo "========================================="
+          terraform state list 2>/dev/null || echo "(unreadable)"
+          echo ""
+          echo "Total resources tracked: $(terraform state list 2>/dev/null | wc -l || echo 0)"
+          echo "EKS cluster tracked: $(terraform state list 2>/dev/null | grep -c 'aws_eks_cluster' || echo 0)"
+
+      - name: Terraform plan (verify no unexpected destroys)
+        if: ${{ github.event.inputs.dry_run == 'false' }}
+        working-directory: new-infra/environments/bc-prd/eu-central-1
+        run: |
+          echo ""
+          echo "========================================="
+          echo "  TERRAFORM PLAN — review before deploying"
+          echo "========================================="
+          echo "Exit code 0 = no changes. Exit code 2 = changes exist (normal after recovery)."
+          echo "If the plan shows DESTROY for any critical resource, STOP and investigate."
+          echo ""
+          # -detailed-exitcode: 0=no diff, 1=error, 2=diff. We treat 2 as ok here.
+          terraform plan -detailed-exitcode || [ $? -eq 2 ]
