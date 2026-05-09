@@ -1,0 +1,505 @@
+# =============================================================================
+# NOMAD Oasis — Helm values for bc-prd EKS
+#
+# SIZING: Security-stack observability target on a single t3.large node.
+#   NOT for real research workloads.
+#   To upgrade to production sizing: rebase on custom-values/aws.yaml,
+#   scale the nomad node group to t3.xlarge x 2+, and review per-component
+#   sizes. Remove the process.workers=1 cap and raise replica/heap/limits.
+#
+# AWS-specific constraints preserved from the original production values:
+#   - StorageClass efs-nomad-sc (RWX EFS) for NOMAD shared volumes
+#   - gp3 (not gp2) for MongoDB/ES/PostgreSQL block storage
+#   - nodeSelector role=nomad + toleration dedicated=nomad:NoSchedule
+#   - ingress.enabled=false (Phase I: ACM + public zone not yet available)
+#   - NORTH (JupyterHub) disabled for v1 (cost reduction)
+#   - Keycloak disabled for v1 (federate to nomad-lab.eu central IdP later)
+#   - All secrets via existingSecret + ESO ExternalSecrets (no autoGenerate)
+# =============================================================================
+
+# nameOverride must stay "nomad" — selector labels are immutable on Deployments.
+# Changing this would require helm uninstall + reinstall.
+nameOverride: "nomad"
+
+# =============================================================================
+# NOMAD application
+# =============================================================================
+nomad:
+  enabled: true
+
+  config:
+    services:
+      # api_host: set to real FQDN when Phase I (ACM + public zone) unblocks ingress.
+      # Until then, access via: kubectl port-forward -n nomad-oasis svc/nomad-oasis-proxy 8080:80
+      api_host: "localhost"
+      api_base_path: /nomad-oasis
+      api_port: 80
+      https: false   # set to true when ACM cert + ingress.enabled=true (Phase I)
+      upload_limit: 10
+
+    mongo:
+      db_name: nomad_oasis
+      port: 27017
+
+    elastic:
+      port: 9200
+      timeout: 60
+      bulk_timeout: 600
+      bulk_size: 1000
+
+    # Temporal workflow engine — enabled (bundled subchart)
+    temporal:
+      enabled: true
+      ui_enabled: false
+      namespace: default
+
+    process:
+      # Single concurrent parsing job — conserves CPU on the one t3.large.
+      # Raise to null (unlimited) when scaling to multi-node production sizing.
+      workers: 1
+
+    # NORTH (JupyterHub) — disabled for v1
+    # To enable: set north.enabled=true, deploy nomad-north-secret via ESO,
+    #   set nomad.secrets.north.hubServiceApiToken.existingSecret=nomad-north-secret,
+    #   enable jupyterhub section below, and add ALB ingress annotations for north.
+    north:
+      enabled: false
+
+    # DataCite DOI minting — disabled until credentials are operational
+    datacite:
+      enabled: false
+      prefix: "10.17172"
+
+    oasis:
+      is_oasis: true
+      uses_central_user_management: true
+
+    # Keycloak federation — federate to nomad-lab.eu production realm.
+    # This is the central NOMAD user management; no local Keycloak needed for v1.
+    keycloak:
+      server_url: "https://nomad-lab.eu/fairdi/keycloak/auth/"
+      realm_name: "fairdi_nomad_prod"
+      username: admin
+      client_id: "nomad_public"
+
+  # ---------------------------------------------------------------------------
+  # Shared EFS persistence (ReadWriteMany — required for app+worker to both
+  # mount the same volumes simultaneously).
+  # StorageClass efs-nomad-sc is provisioned in efs-nomad.tf.
+  # ---------------------------------------------------------------------------
+  persistence:
+    enabled: true
+    storageClass: "efs-nomad-sc"
+    accessMode: "ReadWriteMany"
+
+    public:
+      size: 5Gi      # was 50Gi — reduced for single-node observability target
+      storageClass: "efs-nomad-sc"
+      accessMode: "ReadWriteMany"
+
+    staging:
+      size: 5Gi      # was 50Gi
+      storageClass: "efs-nomad-sc"
+      accessMode: "ReadWriteMany"
+
+    nomad:
+      size: 5Gi      # was 100Gi
+      storageClass: "efs-nomad-sc"
+      accessMode: "ReadWriteMany"
+
+    north-home:
+      size: 1Gi      # was 10Gi — NORTH still disabled; minimal placeholder
+      storageClass: "efs-nomad-sc"
+      accessMode: "ReadWriteMany"
+
+    tmp:
+      size: 2Gi      # was 20Gi
+      storageClass: "efs-nomad-sc"
+      accessMode: "ReadWriteMany"
+
+  # ---------------------------------------------------------------------------
+  # Secrets — all via existingSecret referencing ESO-managed K8s secrets.
+  # autoGenerate is intentionally never set: it breaks upgrade stability
+  # (regenerates on every helm upgrade) and violates the cold-start rule
+  # (secrets must be seeded by CI from GitHub Secrets before Helm apply).
+  # ---------------------------------------------------------------------------
+  secrets:
+    api:
+      existingSecret: "nomad-api-secret"
+      key: "password"
+
+    # Keycloak disabled for v1 — these stanzas are wired but the ESO secret
+    # exists and is synced; they become active when keycloak.enabled=true.
+    keycloak:
+      clientSecret:
+        existingSecret: "nomad-keycloak-secret"
+        key: "client_secret"
+      password:
+        existingSecret: "nomad-keycloak-secret"
+        key: "password"
+
+    datacite:
+      existingSecret: "nomad-datacite-secret"
+      key: "password"
+
+    north:
+      hubServiceApiToken:
+        existingSecret: "nomad-north-secret"
+        key: "token"
+
+  # ---------------------------------------------------------------------------
+  # Ingress — DISABLED for v1 (Phase I: ACM cert + public zone blocked)
+  #
+  # To re-enable when Phase I completes:
+  #   1. Set ingress.enabled: true
+  #   2. Set nomad.config.services.api_host: <your-fqdn>
+  #   3. Set nomad.config.services.https: true
+  #   4. Uncomment annotations below and fill in certificate-arn from acm-nomad.tf
+  #   5. Ensure aws_load_balancer_controller Helm release is deployed (it already is)
+  # ---------------------------------------------------------------------------
+  ingress:
+    enabled: false
+    className: "alb"
+    annotations:
+      # Uncomment for Phase I ALB ingress:
+      # alb.ingress.kubernetes.io/scheme: internet-facing
+      # alb.ingress.kubernetes.io/target-type: ip
+      # alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80},{"HTTPS": 443}]'
+      # alb.ingress.kubernetes.io/ssl-redirect: "443"
+      # alb.ingress.kubernetes.io/certificate-arn: <arn from acm-nomad.tf>
+      # alb.ingress.kubernetes.io/healthcheck-path: "/nomad-oasis/gui/"
+      # alb.ingress.kubernetes.io/healthcheck-interval-seconds: "30"
+      # alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "10"
+      # alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+      # alb.ingress.kubernetes.io/unhealthy-threshold-count: "2"
+      # alb.ingress.kubernetes.io/success-codes: "200-399"
+      # alb.ingress.kubernetes.io/group.name: "nomad-oasis"
+
+  # ---------------------------------------------------------------------------
+  # Scheduling — all NOMAD pods land on the dedicated nomad node group.
+  # The taint dedicated=nomad:NoSchedule is set on the node group in eks.tf.
+  # ---------------------------------------------------------------------------
+  proxy:
+    nodeSelector:
+      role: nomad
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: nomad
+        effect: NoSchedule
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "50m"
+      limits:
+        memory: "128Mi"
+    livenessProbe:
+      initialDelaySeconds: 60
+      periodSeconds: 15
+      failureThreshold: 80
+      timeoutSeconds: 30
+    readinessProbe:
+      initialDelaySeconds: 60
+      periodSeconds: 15
+      failureThreshold: 80
+      timeoutSeconds: 30
+
+  app:
+    nodeSelector:
+      role: nomad
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: nomad
+        effect: NoSchedule
+    resources:
+      requests:
+        memory: "256Mi"   # was 512Mi
+        cpu: "100m"       # was 250m
+      limits:
+        memory: "1Gi"     # was 2Gi
+        cpu: "500m"       # was 2000m
+    livenessProbe:
+      initialDelaySeconds: 60
+      periodSeconds: 15
+      failureThreshold: 80
+      timeoutSeconds: 30
+    readinessProbe:
+      initialDelaySeconds: 60
+      periodSeconds: 15
+      failureThreshold: 80
+      timeoutSeconds: 30
+
+  worker:
+    replicaCount: 1     # single worker sufficient for observability target
+    nodeSelector:
+      role: nomad
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: nomad
+        effect: NoSchedule
+    resources:
+      requests:
+        memory: "512Mi"   # was 1Gi
+        cpu: "100m"       # was 500m
+      limits:
+        memory: "1Gi"     # was 4Gi
+        cpu: "500m"       # was 3000m
+
+  # GPU/CPU specialty workers — 0 replicas, inherit same nodeSelector/toleration
+  gpuworker:
+    replicaCount: 0
+    nodeSelector:
+      role: nomad
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: nomad
+        effect: NoSchedule
+
+  cpuworker:
+    replicaCount: 0
+    nodeSelector:
+      role: nomad
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: nomad
+        effect: NoSchedule
+
+  adminconsole:
+    enabled: false
+    nodeSelector:
+      role: nomad
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: nomad
+        effect: NoSchedule
+
+# =============================================================================
+# MongoDB
+# Inline chart (templates/mongodb/). Uses gp3 block storage (faster + cheaper
+# than the gp2 referenced in the upstream aws.yaml, which pre-dates gp3 default).
+# =============================================================================
+mongodb:
+  enabled: true
+  auth:
+    enabled: true
+    # Never set rootPassword inline — use existingSecret from ESO.
+    # The K8s secret key MUST be "mongodb-root-password" (chart hard-codes this lookup).
+    existingSecret: "nomad-mongo-secret"
+  persistence:
+    enabled: true
+    storageClass: "gp3"   # gp3: 20% cheaper, 3x baseline IOPS vs gp2
+    size: 5Gi             # was 20Gi
+  resources:
+    requests:
+      memory: "256Mi"   # was 512Mi
+      cpu: "100m"       # was 250m
+    limits:
+      memory: "512Mi"   # was 1Gi
+      cpu: "500m"       # was 1000m
+  nodeSelector:
+    role: nomad
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: nomad
+      effect: NoSchedule
+
+# =============================================================================
+# Elasticsearch
+# Bitnami sub-chart (default/charts/elasticsearch). gp3 block storage.
+# Single-node (replicas=1) — adequate for Oasis scale; no HA for v1.
+# =============================================================================
+elasticsearch:
+  enabled: true
+  replicas: 1
+  minimumMasterNodes: 1
+  clusterHealthCheckParams: "wait_for_status=yellow&timeout=1s"
+  # JVM heap — sized to 256 MiB; well within the 512Mi memory request.
+  # Was: unset (defaulted to ~1 GiB based on 2Gi limit).
+  esJavaOpts: "-Xms256m -Xmx256m"
+  persistence:
+    enabled: true
+    storageClass: "gp3"   # gp3: cheaper + faster than gp2
+  volumeClaimTemplate:
+    storageClassName: "gp3"
+    resources:
+      requests:
+        storage: 5Gi    # was 30Gi
+  resources:
+    requests:
+      memory: "512Mi"   # was 2Gi
+      cpu: "100m"       # was 500m
+    limits:
+      memory: "1Gi"     # was 2Gi; heap=256m leaves ~768Mi headroom for OS/lucene
+      cpu: "500m"       # was 2000m
+  nodeSelector:
+    role: nomad
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: nomad
+      effect: NoSchedule
+
+# =============================================================================
+# PostgreSQL (Bitnami sub-chart)
+# Used by Temporal for workflow persistence. gp3 block storage.
+# =============================================================================
+postgresql:
+  enabled: true
+  primary:
+    persistence:
+      storageClass: "gp3"   # gp3: cheaper + faster than gp2
+      size: 2Gi             # was 10Gi
+    resources:
+      requests:
+        memory: "128Mi"   # added for single-node sizing
+        cpu: "50m"
+      limits:
+        memory: "256Mi"
+        cpu: "250m"
+    nodeSelector:
+      role: nomad
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: nomad
+        effect: NoSchedule
+
+# =============================================================================
+# Temporal (workflow engine sub-chart)
+# Disabled UI, single server replica. Database backend via PostgreSQL above.
+# =============================================================================
+temporal:
+  enabled: true
+  schema:
+    createDatabase:
+      enabled: false
+    setup:
+      enabled: true
+    update:
+      enabled: true
+  cassandra:
+    enabled: false
+  elasticsearch:
+    enabled: false
+  prometheus:
+    enabled: false
+  grafana:
+    enabled: false
+  admintools:
+    nodeSelector:
+      role: nomad
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: nomad
+        effect: NoSchedule
+
+  web:
+    enabled: true
+    replicaCount: 1
+    service:
+      type: ClusterIP
+    resources:
+      requests:
+        memory: "64Mi"    # added for single-node sizing
+        cpu: "25m"
+      limits:
+        memory: "128Mi"
+        cpu: "100m"
+    nodeSelector:
+      role: nomad
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: nomad
+        effect: NoSchedule
+  server:
+    replicaCount: 1
+    resources:
+      requests:
+        memory: "128Mi"   # added for single-node sizing
+        cpu: "50m"
+      limits:
+        memory: "256Mi"
+        cpu: "250m"
+    nodeSelector:
+      role: nomad
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: nomad
+        effect: NoSchedule
+    config:
+      publicClient:
+        hostPort: "nomad-oasis-temporal-frontend:7233"
+      namespaces:
+        create: true
+      persistence:
+        default:
+          driver: sql
+          sql:
+            driver: postgres12
+            host: "nomad-oasis-postgresql"
+            port: 5432
+            database: temporal
+            user: temporal
+            password: temporal
+            maxConns: 20
+            maxIdleConns: 20
+            maxConnLifetime: 1h
+        visibility:
+          driver: sql
+          sql:
+            driver: postgres12
+            host: "nomad-oasis-postgresql"
+            port: 5432
+            database: temporal_visibility
+            user: temporal
+            password: temporal
+            maxConns: 20
+            maxIdleConns: 20
+            maxConnLifetime: 1h
+
+# =============================================================================
+# JupyterHub / NORTH — DISABLED for v1
+#
+# To enable NORTH in a future phase:
+#   1. Set nomad.config.north.enabled: true
+#   2. Set jupyterhub.enabled: true
+#   3. Populate nomad-north-secret in AWS SM (token key)
+#   4. Set jupyterhub.hub.config.GenericOAuthenticator.oauth_callback_url
+#      to https://<fqdn>/nomad-oasis/north/hub/oauth_callback
+#   5. Add ALB ingress annotations for /nomad-oasis/north path
+#   NOTE: JupyterHub spawner may require privileged singleuser pods —
+#     evaluate pod-security.kubernetes.io/enforce=baseline vs restricted
+#     for the namespace if NORTH is enabled.
+# =============================================================================
+jupyterhub:
+  enabled: false
+
+# =============================================================================
+# Keycloak — DISABLED for v1
+#
+# NOMAD federated to nomad-lab.eu central Keycloak (fairdi_nomad_prod realm).
+# No local Keycloak is needed for a standard Oasis installation.
+#
+# To enable a local Keycloak (e.g. air-gapped or custom realm):
+#   1. Set keycloak.enabled: true
+#   2. Add keycloak sub-chart values (codecentric/keycloakx)
+#   3. Update nomad.config.keycloak.server_url to local Keycloak endpoint
+#   4. Set keycloak nodeSelector + tolerations to match nomad node group
+# =============================================================================
+keycloak:
+  enabled: false
+
+# =============================================================================
+# KEDA autoscaler — disabled for v1
+# =============================================================================
+keda:
+  enabled: false
