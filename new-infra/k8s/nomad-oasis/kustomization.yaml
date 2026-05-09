@@ -1,0 +1,26 @@
+#--------------------------------------------------------------
+# NOMAD Oasis — Kustomize manifest list
+#
+# DEPLOYED TO: bc-prd EKS
+#
+# Cold-start apply order (enforced by CI pipeline):
+#   1. namespace.yaml        — creates nomad-oasis namespace
+#   2. external-secrets/     — ExternalSecrets wait for AWS SM sync
+#      (ESO must already be running — helm_release.external_secrets applied first)
+#   3. cilium-netpol.yaml    — network policies (Cilium CRDs must exist)
+#   4. Helm release (nomad_oasis in helm-nomad.tf) — applies chart
+#
+# Apply command:
+#   kubectl kustomize new-infra/k8s/nomad-oasis | kubectl apply -f -
+#--------------------------------------------------------------
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - external-secrets/nomad-api-secret.yaml
+  - external-secrets/nomad-mongo-secret.yaml
+  - external-secrets/nomad-keycloak-secret.yaml
+  - external-secrets/nomad-north-secret.yaml
+  - external-secrets/nomad-datacite-secret.yaml
+  - cilium-netpol.yaml

@@ -1,0 +1,29 @@
+#--------------------------------------------------------------
+# NOMAD Oasis — Namespace
+#
+# DEPLOYED TO: bc-prd EKS cluster
+#
+# Pod Security Standards:
+#   enforce=baseline (not restricted) because:
+#   - MongoDB runs as root (uid 0) in the chart's inline deployment
+#   - Elasticsearch requires vm.max_map_count and runs as uid 1000 in
+#     the bitnami chart but mounts /sys/fs/cgroup in some configurations
+#   - If NORTH (JupyterHub) is enabled in a future phase, the singleuser
+#     spawner may require privileged containers
+#   baseline blocks the most dangerous capabilities (hostPID, hostNetwork,
+#   privilege escalation, NET_RAW, etc.) while permitting these workloads.
+#
+# kubernetes.io/metadata.name is auto-set by K8s but declared here so
+# CiliumNetworkPolicy namespace selectors can target it statically.
+#--------------------------------------------------------------
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nomad-oasis
+  labels:
+    kubernetes.io/metadata.name: nomad-oasis
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+    app.kubernetes.io/part-of: xdr-platform

@@ -63,6 +63,18 @@ data:
         <label key="source">falco</label>
       </localfile>
 
+      <!-- NOMAD Oasis container logs (kubelet-managed symlinks under /var/log/containers/)
+           The glob pattern matches all containers in the nomad-oasis namespace.
+           Wazuh logcollector resolves the symlink → /var/log/pods/<ns>_<pod>_<uid>/<container>/*.log.
+           Log format is multiline JSON per CRI-O/containerd: each line is a full JSON record
+           with fields: time, stream, log. Wazuh's json decoder will parse the "log" field
+           which itself is JSON (app/worker) or plain text (nginx proxy, mongodb). -->
+      <localfile>
+        <log_format>json</log_format>
+        <location>/host/var/log/containers/*nomad-oasis*.log</location>
+        <label key="source">nomad-oasis</label>
+      </localfile>
+
       <!-- Host syslog -->
       <localfile>
         <log_format>syslog</log_format>

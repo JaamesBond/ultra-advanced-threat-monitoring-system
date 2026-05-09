@@ -1,0 +1,495 @@
+#--------------------------------------------------------------
+# NOMAD Oasis — CiliumNetworkPolicy
+#
+# DEPLOYED TO: bc-prd EKS, namespace nomad-oasis
+#
+# IMPORTANT — toFQDNs is broken in this Cilium ENI deployment:
+#   DNS proxy populates the FQDN cache but CIDR identities are never
+#   inserted into the ipcache for VPC-internal or public IPs in ENI mode.
+#   The compound fqdn:*.amazonaws.com + reserved:world BPF rule never fires.
+#   Use toCIDRSet for stable VPC endpoint IPs and toEntities:world for
+#   anything that resolves via fck-nat to public IPs (including AWS SM,
+#   Docker Hub, and gitlab.mpcdf.mpg.de). See CLAUDE.md Cilium ENI Mode.
+#
+# Policy structure:
+#   1. Default deny — one CiliumNetworkPolicy per major component.
+#      Each selects on app.kubernetes.io/name=nomad + component label.
+#   2. Intra-namespace allow — all nomad-oasis pods can talk to each other.
+#   3. STS VPC endpoint — toCIDRSet (static IPs, not FQDN).
+#   4. AWS Secrets Manager egress — toEntities:world on 443 (public API).
+#   5. Image registries — toEntities:world on 443 (gitlab.mpcdf.mpg.de,
+#      Docker Hub; no static IPs available for VPC-internal resolution).
+#   6. DNS — to kube-dns in kube-system on UDP/TCP 53.
+#   7. ALB health check ingress from aws-load-balancer-controller (kube-system).
+#   8. Hubble observability ingress from Cilium agent in kube-system.
+#--------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Policy 1: NOMAD app + worker
+# Selector: app.kubernetes.io/name=nomad, component=app  (covers app pod)
+# ---------------------------------------------------------------------------
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: nomad-app-netpol
+  namespace: nomad-oasis
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: nomad
+      app.kubernetes.io/instance: nomad-oasis
+      app.kubernetes.io/component: app
+  ingress:
+    # Allow from proxy (nginx reverse proxy in the same release)
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: nomad
+            app.kubernetes.io/instance: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+    # Allow Hubble/Cilium observability probes from kube-system
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:app.kubernetes.io/name: cilium
+  egress:
+    # DNS resolution via kube-dns
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:eks.amazonaws.com/component: coredns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: "*"
+    # Intra-namespace: app → mongodb, elasticsearch, rabbitmq, postgresql, worker
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: nomad
+            app.kubernetes.io/instance: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "27017"   # MongoDB
+              protocol: TCP
+            - port: "9200"    # Elasticsearch HTTP
+              protocol: TCP
+            - port: "9300"    # Elasticsearch transport
+              protocol: TCP
+            - port: "5432"    # PostgreSQL
+              protocol: TCP
+            - port: "5672"    # RabbitMQ AMQP (if enabled)
+              protocol: TCP
+            - port: "7233"    # Temporal frontend gRPC
+              protocol: TCP
+    # STS VPC endpoint — CIDR, not FQDN (ipcache not populated in ENI mode)
+    - toCIDRSet:
+        - cidr: 10.30.10.209/32   # STS VPC endpoint ENI eni-0a05d9050d3fc6f46
+        - cidr: 10.30.11.123/32   # STS VPC endpoint ENI eni-0af463de2c1bd6b8b
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # AWS Secrets Manager + image registries (gitlab.mpcdf.mpg.de, Docker Hub)
+    # toFQDNs broken in ENI mode — must use toEntities:world for public endpoints
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+---
+# ---------------------------------------------------------------------------
+# Policy 2: NOMAD worker
+# ---------------------------------------------------------------------------
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: nomad-worker-netpol
+  namespace: nomad-oasis
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: nomad
+      app.kubernetes.io/instance: nomad-oasis
+      app.kubernetes.io/component: worker
+  ingress:
+    # Allow Temporal to push task queue updates to worker callback
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: nomad
+            app.kubernetes.io/instance: nomad-oasis
+    # Allow Hubble observability from kube-system
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:app.kubernetes.io/name: cilium
+  egress:
+    # DNS
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:eks.amazonaws.com/component: coredns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: "*"
+    # Intra-namespace: worker → mongodb, elasticsearch, postgresql, temporal, app
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: nomad
+            app.kubernetes.io/instance: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "27017"
+              protocol: TCP
+            - port: "9200"
+              protocol: TCP
+            - port: "9300"
+              protocol: TCP
+            - port: "5432"
+              protocol: TCP
+            - port: "5672"
+              protocol: TCP
+            - port: "7233"
+              protocol: TCP
+            - port: "8000"    # app HTTP for API calls
+              protocol: TCP
+    # STS VPC endpoint
+    - toCIDRSet:
+        - cidr: 10.30.10.209/32
+        - cidr: 10.30.11.123/32
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # AWS SM + image registries (toFQDNs broken in ENI mode)
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+---
+# ---------------------------------------------------------------------------
+# Policy 3: NOMAD proxy (nginx reverse proxy)
+# ---------------------------------------------------------------------------
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: nomad-proxy-netpol
+  namespace: nomad-oasis
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: nomad
+      app.kubernetes.io/instance: nomad-oasis
+      app.kubernetes.io/component: proxy
+  ingress:
+    # External HTTP access (from ALB target groups once ingress is enabled in Phase I)
+    - fromEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+    # ALB controller health check from kube-system
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            app.kubernetes.io/name: aws-load-balancer-controller
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+    # Hubble observability from kube-system
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:app.kubernetes.io/name: cilium
+  egress:
+    # DNS
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:eks.amazonaws.com/component: coredns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: "*"
+    # proxy → app backend
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: nomad
+            app.kubernetes.io/instance: nomad-oasis
+            app.kubernetes.io/component: app
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+---
+# ---------------------------------------------------------------------------
+# Policy 4: MongoDB
+# ---------------------------------------------------------------------------
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: nomad-mongodb-netpol
+  namespace: nomad-oasis
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: nomad
+      app.kubernetes.io/instance: nomad-oasis
+      app.kubernetes.io/component: mongodb
+  ingress:
+    # Allow from app and worker only
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: nomad
+            app.kubernetes.io/instance: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "27017"
+              protocol: TCP
+    # Hubble observability
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:app.kubernetes.io/name: cilium
+  egress:
+    # DNS
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:eks.amazonaws.com/component: coredns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: "*"
+    # STS VPC endpoint (for image pull auth and any IRSA calls)
+    - toCIDRSet:
+        - cidr: 10.30.10.209/32
+        - cidr: 10.30.11.123/32
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # Image registry (Docker Hub for mongo:8.2.5)
+    # toFQDNs broken in ENI mode — use toEntities:world
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+---
+# ---------------------------------------------------------------------------
+# Policy 5: Elasticsearch
+# ---------------------------------------------------------------------------
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: nomad-elasticsearch-netpol
+  namespace: nomad-oasis
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: elasticsearch
+      app.kubernetes.io/instance: nomad-oasis
+  ingress:
+    # Allow from NOMAD app, worker, and Temporal
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "9200"
+              protocol: TCP
+            - port: "9300"
+              protocol: TCP
+    # Hubble observability
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:app.kubernetes.io/name: cilium
+  egress:
+    # DNS
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:eks.amazonaws.com/component: coredns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: "*"
+    # Peer discovery (Elasticsearch transport between replicas if scaled)
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: elasticsearch
+            app.kubernetes.io/instance: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "9300"
+              protocol: TCP
+    # STS VPC endpoint
+    - toCIDRSet:
+        - cidr: 10.30.10.209/32
+        - cidr: 10.30.11.123/32
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # Image registry (toFQDNs broken in ENI mode)
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+---
+# ---------------------------------------------------------------------------
+# Policy 6: PostgreSQL (Bitnami sub-chart)
+# ---------------------------------------------------------------------------
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: nomad-postgresql-netpol
+  namespace: nomad-oasis
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/instance: nomad-oasis
+  ingress:
+    # Allow from Temporal server (schema migrations + queries)
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # Hubble observability
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:app.kubernetes.io/name: cilium
+  egress:
+    # DNS
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:eks.amazonaws.com/component: coredns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: "*"
+    # STS VPC endpoint
+    - toCIDRSet:
+        - cidr: 10.30.10.209/32
+        - cidr: 10.30.11.123/32
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # Image registry (toFQDNs broken in ENI mode)
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+---
+# ---------------------------------------------------------------------------
+# Policy 7: Temporal server
+# Temporal uses release-name prefixed labels from the sub-chart
+# ---------------------------------------------------------------------------
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: nomad-temporal-netpol
+  namespace: nomad-oasis
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: temporalserver
+      app.kubernetes.io/instance: nomad-oasis
+  ingress:
+    # Allow from NOMAD app and worker for workflow submission
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "7233"   # Temporal frontend gRPC
+              protocol: TCP
+    # Hubble observability
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:app.kubernetes.io/name: cilium
+  egress:
+    # DNS
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:eks.amazonaws.com/component: coredns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: "*"
+    # Temporal → PostgreSQL for persistence
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: postgresql
+            app.kubernetes.io/instance: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # STS VPC endpoint
+    - toCIDRSet:
+        - cidr: 10.30.10.209/32
+        - cidr: 10.30.11.123/32
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # Image registry (toFQDNs broken in ENI mode)
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
