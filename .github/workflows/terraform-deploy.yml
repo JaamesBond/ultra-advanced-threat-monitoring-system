@@ -432,13 +432,15 @@ jobs:
             | kubectl apply -f -
 
       # Post-deploy readiness check — confirms NOMAD pods scheduled and
-      # healthy on the nomad node group within 10 minutes. Uses
+      # healthy on the nomad node group within 15 minutes. Uses
       # continue-on-error: false (default) so the job fails loudly if
       # the deployment never becomes ready, rather than silently green.
-      # On a cold start the nomad node group may need 3–5 min to pull images.
+      # On a cold start: EFS PVC access point creation (~2 min) + image pull
+      # from gitlab.mpcdf.mpg.de (~3-5 min) + MongoDB/ES init (~3-5 min)
+      # can exceed 10 min — 900s matches the Helm release timeout.
       - name: Verify NOMAD Oasis pods ready (bc-prd)
         run: |
           kubectl -n nomad-oasis wait \
             --for=condition=ready pod \
             -l app.kubernetes.io/name=nomad \
-            --timeout=600s
+            --timeout=900s
