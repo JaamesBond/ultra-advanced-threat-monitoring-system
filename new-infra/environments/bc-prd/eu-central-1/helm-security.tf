@@ -257,6 +257,23 @@ resource "aws_iam_role_policy" "external_secrets_secrets_manager" {
           aws_secretsmanager_secret.nomad_north.arn,
           aws_secretsmanager_secret.nomad_datacite.arn,
         ]
+      },
+      {
+        # ESO needs Decrypt + DescribeKey to read the SM secrets encrypted with the
+        # EKS KMS key (module.eks.kms_key_arn == local.nomad_sm_kms_key_id).
+        # kms:ViaService restricts this permission to calls originating from
+        # Secrets Manager only — ESO cannot use this grant for raw KMS operations.
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:DescribeKey",
+        ]
+        Resource = [module.eks.kms_key_arn]
+        Condition = {
+          StringEquals = {
+            "kms:ViaService" = "secretsmanager.eu-central-1.amazonaws.com"
+          }
+        }
       }
     ]
   })
