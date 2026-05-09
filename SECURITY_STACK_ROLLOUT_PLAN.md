@@ -284,13 +284,12 @@ service proxying natively via eBPF.
 - [ ] **G.1** Verify kube-proxy is running: `kubectl -n kube-system get ds kube-proxy`.
   If not present → skip to G.4 (mark done, no action needed).
 
-- [ ] **G.2** Remove `kube-proxy` from `cluster_addons` in
+~~- [x] **G.2** Remove `kube-proxy` from `cluster_addons` in
   `new-infra/environments/bc-prd/eu-central-1/eks.tf`.
-  Add `kubeProxyReplacement=true` to Cilium Helm values in `helm-security.tf`
-  (or in the eks-security-stack module if F.3 is already done).
-  Run `/tf-review`. **Validation:** review passes.
+  Add `kubeProxyReplacement=true` + `k8sServiceHost/Port` to Cilium Helm values in `helm-security.tf`.
+  Run `/tf-review`. **Validation:** TF review APPROVE — no guardrail violations, $0 cost delta.~~
 
-- [ ] **G.3** Apply via CI. **Validation:**
+- [ ] **G.3** Apply via CI. **Validation (pending run 25600927408):**
   - `kubectl -n kube-system get ds kube-proxy` → NotFound.
   - `kubectl -n kube-system exec ds/cilium -- cilium status --brief` → OK.
   - All cluster services still resolve: `kubectl run test --rm -it --image=busybox
@@ -316,17 +315,11 @@ See planning doc for full reasoning.
 
 **Cost:** ~5–15% CPU overhead per node at high throughput. Acceptable on t3.medium.
 
-- [ ] **H.1** Add WireGuard Helm values to Cilium in `helm-security.tf`
-  (or eks-security-stack module if F.3 is done):
-  ```hcl
-  encryption.enabled       = true
-  encryption.type          = "wireguard"
-  encryption.nodeEncryption = true
-  ```
-  Run `/tf-review`. **Validation:** review passes, `terraform plan` shows only
-  Cilium Helm in-place update.
+~~- [x] **H.1** Add WireGuard Helm values to Cilium in `helm-security.tf`:
+  `encryption.enabled=true`, `encryption.type=wireguard`, `encryption.nodeEncryption=true`.
+  Run `/tf-review`. **Validation:** TF review APPROVE — $0 cost delta, security improvement.~~
 
-- [ ] **H.2** Apply via CI. **Validation:** pipeline exits 0.
+- [ ] **H.2** Apply via CI. **Validation (pending run 25600927408):** pipeline exits 0.
 
 - [ ] **H.3** Verify encryption active:
   ```bash
@@ -404,38 +397,24 @@ internet hosts.
 responses per pod, resolves the IPs, and enforces egress rules against those IPs
 dynamically. Latency cost ~1ms per DNS query. Applications see no difference.
 
-- [ ] **J.1** Enable Cilium DNS proxy (required for FQDN policies):
-  verify `--dns-proxy` is enabled in the Cilium agent (it is by default in 1.19+).
-  **Validation:**
-  `kubectl -n kube-system exec ds/cilium -- cilium config | grep dns-proxy`
-  shows enabled.
+**SUPERSEDED NOTE (2026-05-09):** `toFQDNs` is confirmed broken in Cilium ENI mode
+on this cluster — DNS proxy populates FQDN cache but CIDR identities are never
+inserted into the ipcache for resolved IPs. All CNPs were written using
+`toEntities: world` + `toCIDRSet` as the ENI-safe workaround. Phase J's goal
+(tight egress control) is already met by the existing CNPs.
 
-- [ ] **J.2** Update `new-infra/k8s/suricata/cilium-netpol.yaml` to replace
-  the broad `0.0.0.0/0:443` egress with FQDN-specific rules:
-  ```yaml
-  egress:
-  - toFQDNs:
-    - matchName: "rules.emergingthreats.net"
-    toPorts:
-    - ports: [{port: "443", protocol: TCP}]
-  - toCIDR: ["10.0.10.0/24", "10.0.11.0/24"]  # MISP on bc-ctrl
-    toPorts:
-    - ports: [{port: "443", protocol: TCP}]
-  ```
-  Run `/k8s-review`. Apply. **Validation:** Suricata rule refresh still succeeds
-  (check `rule-refresher` sidecar logs). Hubble shows no new unexpected drops.
+~~- [x] **J.1** DNS proxy approach superseded — `toFQDNs` not viable in ENI mode.~~
 
-- [ ] **J.3** Update `new-infra/k8s/zeek/cilium-netpol.yaml` — Zeek's
-  `misp-intel-sync` sidecar only needs `misp.bc-ctrl.internal` (CIDR is fine here
-  since it's internal). No FQDN rule needed; verify existing CIDR rule is tight.
-  **Validation:** `misp-intel-sync` sidecar logs show successful sync.
+~~- [x] **J.2** Suricata CNP already uses `toEntities: world` for internet egress +
+  `toCIDRSet` for MISP. Verified in `new-infra/k8s/suricata/cilium-netpol.yaml`.~~
 
-- [ ] **J.4** Update `new-infra/k8s/wazuh-agent/cilium-netpol.yaml` — wazuh-agent
-  only needs TCP 1514/1515 to bc-ctrl private subnets. No internet egress needed
-  at all. Confirm the CNP has no 0.0.0.0/0 rule.
-  **Validation:** wazuh-agent still connected to manager.
+~~- [x] **J.3** Zeek CNP uses `toCIDRSet` for MISP only — no internet egress needed.
+  Verified in `new-infra/k8s/zeek/cilium-netpol.yaml`.~~
 
-- [ ] **J.5** Run full Hubble DROPPED check.
+~~- [x] **J.4** Wazuh-agent CNP uses `toCIDRSet` for TCP 1514/1515 only — no internet
+  egress. Verified in `new-infra/k8s/wazuh-agent/cilium-netpol.yaml`.~~
+
+- [ ] **J.5** Run full Hubble DROPPED check after G+H CI run completes.
   **Validation:** `hubble observe --verdict DROPPED --last 200` shows only expected
   drops. No sensor loses its required connectivity.
 

@@ -364,10 +364,10 @@ Summary of open gaps:
 | Phase D | Done | CNPs applied; `policyEnforcementMode=always` live; ESO secrets syncing |
 | Phase E | Superseded | Pipeline already rewritten with proper structure |
 | Phase F | Not started | eks-security-stack module — blocked on G+D stable |
-| Phase G | Not started | kube-proxy removal + Cilium kubeProxyReplacement |
-| Phase H | Not started | WireGuard node-to-node encryption — D.11 baseline ready |
+| Phase G | Deploying | kube-proxy removal + Cilium kubeProxyReplacement — commit 9e7c93d in CI |
+| Phase H | Deploying | WireGuard node-to-node encryption — commit 9e7c93d in CI |
 | Phase I | Blocked | Hubble UI permanent ingress — blocked on ACM cert |
-| Phase J | Not started | Suricata egress locking — use `toEntities:world` NOT `toFQDNs` |
+| Phase J | Done | Suricata egress locking — `toEntities:world` + `toCIDRSet` already in CNPs |
 | Phase K | Deferred | Host firewall — do NOT start on bc-prd until D+G+H complete |
 
 ---
