@@ -168,7 +168,13 @@ jobs:
           terraform init -reconfigure
 
           echo "=== State health check ==="
-          if terraform state list 2>/dev/null | grep -qF "$SENTINEL"; then
+          # Capture state list in a variable to decouple grep from terraform's exit code.
+          # With pipefail, if `terraform state list` exits non-zero (provider init failure)
+          # the pipeline exit code is non-zero even if grep finds the sentinel — giving a
+          # false "not found". Using a variable + `|| true` absorbs the provider error and
+          # lets grep operate only on the text.
+          STATE_LIST=$(terraform state list 2>/dev/null || true)
+          if echo "$STATE_LIST" | grep -qF "$SENTINEL"; then
             echo "EKS cluster found in state — state is healthy, proceeding."
           else
             echo ""
@@ -178,7 +184,7 @@ jobs:
             echo "Manual recovery required before this pipeline can run:"
             echo "  See CLAUDE.md section 'Common Failure Modes' for the recovery procedure."
             echo ""
-            terraform state list 2>/dev/null | head -40 || true
+            echo "$STATE_LIST" | head -40
             exit 1
           fi
 

@@ -193,7 +193,11 @@ jobs:
           # the end of this workflow will surface any remaining gaps.
           import_if_missing() {
             local addr="$1" id="$2"
-            if terraform state list 2>/dev/null | grep -qxF "$addr"; then
+            # Capture state list to avoid pipefail making terraform's non-zero exit
+            # code suppress a successful grep match (provider init errors are common).
+            local current_state
+            current_state=$(terraform state list 2>/dev/null || true)
+            if echo "$current_state" | grep -qxF "$addr"; then
               echo "  SKIP (already tracked): $addr"
               return 0
             fi
@@ -446,7 +450,9 @@ jobs:
 
           import_if_missing() {
             local addr="$1" id="$2"
-            if terraform state list 2>/dev/null | grep -qxF "$addr"; then
+            local current_state
+            current_state=$(terraform state list 2>/dev/null || true)
+            if echo "$current_state" | grep -qxF "$addr"; then
               echo "  SKIP (already tracked): $addr"
               return 0
             fi
