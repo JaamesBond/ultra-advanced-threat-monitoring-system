@@ -2,8 +2,8 @@
 # Fixes: CrashLoopBackOff with "dial tcp: lookup sts.eu-central-1.amazonaws.com: i/o timeout"
 # under policyEnforcementMode=always default-deny.
 # toFQDNs is broken in this Cilium ENI deployment (ipcache not populated for resolved IPs);
-# STS VPC endpoint IPs are pinned via toCIDRSet. EFS API has no VPC endpoint configured in
-# bc-prd, so toEntities:world covers elasticfilesystem.eu-central-1.amazonaws.com.
+# STS and EFS API both use toEntities:world (public path via fck-nat). STS VPC endpoint CIDR
+# rule was removed — VPC endpoint IPs change on every cluster rebuild.
 # See: new-infra/k8s/system-netpols/external-secrets-netpol.yaml (working precedent).
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
@@ -31,19 +31,9 @@ spec:
         - ports:
             - port: "443"
               protocol: TCP
-    # STS VPC endpoint — IRSA token exchange (AssumeRoleWithWebIdentity).
-    # IPs are stable ENI addresses; toFQDNs cannot be used (see header comment).
-    # ENIs: eni-0a05d9050d3fc6f46, eni-0af463de2c1bd6b8b
-    - toCIDRSet:
-        - cidr: 10.30.10.209/32
-        - cidr: 10.30.11.123/32
-      toPorts:
-        - ports:
-            - port: "443"
-              protocol: TCP
-    # EFS API (elasticfilesystem.eu-central-1.amazonaws.com) + EC2 API for describe calls.
-    # No VPC endpoint is configured for EFS in bc-prd; traffic exits via fck-nat to public IPs.
-    # toFQDNs cannot be used — toEntities:world is required here with no toCIDRSet alternative.
+    # STS (IRSA) + EFS API + EC2 API — all public endpoints via fck-nat.
+    # No VPC endpoints for EFS in bc-prd; STS VPC endpoint CIDR rule removed (IPs change on rebuild).
+    # toFQDNs cannot be used — toEntities:world is required.
     - toEntities:
         - world
       toPorts:

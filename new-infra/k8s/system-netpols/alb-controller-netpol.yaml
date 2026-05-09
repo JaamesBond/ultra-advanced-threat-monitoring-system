@@ -3,7 +3,8 @@
 # policyEnforcementMode=always. Also opens webhook ingress on TCP 9443 so the
 # kube-apiserver can reach the mutating/validating admission webhooks the controller registers.
 # toFQDNs is broken in this Cilium ENI deployment (ipcache not populated for resolved IPs);
-# STS VPC endpoint IPs are pinned via toCIDRSet, ELBv2/ACM/EC2 public APIs via toEntities:world.
+# all AWS APIs (STS, ELBv2, ACM, EC2) use toEntities:world (public path via fck-nat).
+# STS VPC endpoint CIDR rule was removed — VPC endpoint IPs change on every cluster rebuild.
 # See: new-infra/k8s/system-netpols/external-secrets-netpol.yaml (working precedent).
 # endpointSelector label: app.kubernetes.io/name=aws-load-balancer-controller
 # (stamped by the aws-load-balancer-controller Helm chart — matches SA and Deployment labels).
@@ -42,18 +43,9 @@ spec:
         - ports:
             - port: "443"
               protocol: TCP
-    # STS VPC endpoint — IRSA token exchange (AssumeRoleWithWebIdentity).
-    # IPs are stable ENI addresses; toFQDNs cannot be used (see header comment).
-    # ENIs: eni-0a05d9050d3fc6f46, eni-0af463de2c1bd6b8b
-    - toCIDRSet:
-        - cidr: 10.30.10.209/32
-        - cidr: 10.30.11.123/32
-      toPorts:
-        - ports:
-            - port: "443"
-              protocol: TCP
-    # ELBv2, ACM, EC2, WAFv2, Shield APIs (all public, no VPC endpoints configured in bc-prd).
-    # toFQDNs cannot be used — toEntities:world is required here with no toCIDRSet alternative.
+    # STS (IRSA), ELBv2, ACM, EC2, WAFv2, Shield APIs — all public endpoints via fck-nat.
+    # No VPC endpoints for these services in bc-prd; STS VPC endpoint CIDR rule removed (IPs change on rebuild).
+    # toFQDNs cannot be used — toEntities:world is required.
     - toEntities:
         - world
       toPorts:

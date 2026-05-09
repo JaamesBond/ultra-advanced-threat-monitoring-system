@@ -2,7 +2,9 @@
 # Fixes: CrashLoopBackOff with "dial tcp: lookup sts.eu-central-1.amazonaws.com: i/o timeout"
 # under policyEnforcementMode=always default-deny.
 # toFQDNs is broken in this Cilium ENI deployment (ipcache not populated for resolved IPs);
-# STS VPC endpoint IPs are pinned via toCIDRSet, public AWS APIs via toEntities:world.
+# STS uses toEntities:world (public path via fck-nat). STS VPC endpoint CIDR rule was removed
+# because VPC endpoint IPs change on every cluster rebuild.
+# EC2 VPC endpoint IPs (10.30.10.135/32, 10.30.11.26/32) are retained — validated stable.
 # See: new-infra/k8s/system-netpols/external-secrets-netpol.yaml (working precedent).
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
@@ -34,16 +36,8 @@ spec:
         - ports:
             - port: "443"
               protocol: TCP
-    # STS VPC endpoint — IRSA token exchange (AssumeRoleWithWebIdentity).
-    # IPs are stable ENI addresses; toFQDNs cannot be used (see header comment).
-    # ENIs: eni-0a05d9050d3fc6f46, eni-0af463de2c1bd6b8b
-    - toCIDRSet:
-        - cidr: 10.30.10.209/32
-        - cidr: 10.30.11.123/32
-      toPorts:
-        - ports:
-            - port: "443"
-              protocol: TCP
+    # STS — IRSA token exchange (AssumeRoleWithWebIdentity) via public endpoint + fck-nat.
+    # STS VPC endpoint CIDR rule removed (IPs change on every cluster rebuild; world rule suffices).
     # EC2 VPC endpoint — DescribeAvailabilityZones, AttachVolume, etc.
     # IPs are stable ENI addresses; toFQDNs cannot be used (see header comment).
     # Verify with: aws ec2 describe-network-interfaces --query "NetworkInterfaces[*].PrivateIpAddress"
