@@ -140,6 +140,46 @@ jobs:
       - name: Resolve Shuffle Helm dependencies
         run: helm dependency update new-infra/k8s/shuffle
 
+      # If a previous run was cancelled mid-apply, resources can end up in AWS but
+      # removed from TF state (partial state write). Detect and re-import the two
+      # known orphan-prone resources before Stage 1 attempts to create them.
+      - name: Repair Terraform state drift (import orphaned resources)
+        working-directory: new-infra/environments/bc-prd/eu-central-1
+        run: |
+          terraform init -reconfigure
+          REGION="${{ env.AWS_REGION }}"
+          CLUSTER="bc-uatms-prd-eks"
+
+          # --- fck-nat default routes ---
+          # Get private route table IDs for bc-prd VPC.
+          VPC_ID=$(aws ec2 describe-vpcs --region "$REGION" \
+            --filters "Name=tag:Name,Values=bc-uatms-prd-vpc" \
+            --query "Vpcs[0].VpcId" --output text 2>/dev/null)
+          if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then
+            echo "bc-prd VPC not yet created — skipping route import."
+          else
+            RTB_IDS=$(aws ec2 describe-route-tables --region "$REGION" \
+              --filters "Name=vpc-id,Values=$VPC_ID" \
+                        "Name=tag:Name,Values=*private*" \
+              --query "RouteTables[*].RouteTableId" --output text 2>/dev/null)
+            IDX=0
+            for RTB_ID in $RTB_IDS; do
+              RES="aws_route.private_nat_prd[$IDX]"
+              if ! terraform state show "$RES" > /dev/null 2>&1; then
+                echo "Importing orphaned $RES ($RTB_ID)..."
+                terraform import "$RES" "${RTB_ID}_0.0.0.0/0" || true
+              fi
+              IDX=$((IDX + 1))
+            done
+          fi
+
+          # --- EKS KMS alias ---
+          KMS_RES='module.eks.module.kms.aws_kms_alias.this["eks/'$CLUSTER'"]'
+          if ! terraform state show "$KMS_RES" > /dev/null 2>&1; then
+            echo "Importing orphaned KMS alias for $CLUSTER..."
+            terraform import "$KMS_RES" "alias/eks/$CLUSTER" || true
+          fi
+
       - name: "Terraform Apply (Prd) — Stage 1: Infra (VPC + EKS)"
         working-directory: new-infra/environments/bc-prd/eu-central-1
         run: |
