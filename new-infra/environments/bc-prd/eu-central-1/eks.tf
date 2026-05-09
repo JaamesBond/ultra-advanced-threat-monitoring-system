@@ -94,9 +94,7 @@ module "eks" {
     coredns = {
       most_recent = true
     }
-    kube-proxy = {
-      most_recent = true
-    }
+    # kube-proxy removed — Phase G: Cilium kubeProxyReplacement takes over service routing.
     vpc-cni = {
       most_recent = true
       configuration_values = jsonencode({

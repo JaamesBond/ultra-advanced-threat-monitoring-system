@@ -48,6 +48,36 @@ resource "helm_release" "cilium" {
     name  = "policyEnforcementMode"
     value = "always"
   }
+
+  # Phase G: Replace kube-proxy with Cilium eBPF service routing.
+  # kube-proxy addon is removed from cluster_addons in eks.tf.
+  set {
+    name  = "kubeProxyReplacement"
+    value = "true"
+  }
+  set {
+    name  = "k8sServiceHost"
+    value = trimprefix(module.eks.cluster_endpoint, "https://")
+  }
+  set {
+    name  = "k8sServicePort"
+    value = "443"
+  }
+
+  # Phase H: WireGuard node-to-node encryption.
+  # UDP 51871 is already permitted by the node SG ingress_self_all rule.
+  set {
+    name  = "encryption.enabled"
+    value = "true"
+  }
+  set {
+    name  = "encryption.type"
+    value = "wireguard"
+  }
+  set {
+    name  = "encryption.nodeEncryption"
+    value = "true"
+  }
 }
 
 resource "helm_release" "falco" {
