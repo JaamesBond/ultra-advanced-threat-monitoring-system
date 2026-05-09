@@ -275,22 +275,34 @@ jobs:
           CLUSTER="bc-uatms-prd-eks"
           for ng in workload nomad; do
             echo "Waiting for node group '${ng}' to reach ACTIVE status..."
+            # The EKS module appends a random suffix (e.g. workload-20260509141029562900000003).
+            # Discover the real name by listing and filtering by prefix — do NOT construct it.
+            nodegroup_name=$(aws eks list-nodegroups \
+              --region ${{ env.AWS_REGION }} \
+              --cluster-name "$CLUSTER" \
+              --query "nodegroups[?starts_with(@, '${ng}')]|[0]" \
+              --output text 2>/dev/null || echo "")
+            if [ -z "$nodegroup_name" ] || [ "$nodegroup_name" = "None" ]; then
+              echo "  ERROR: No node group found with prefix '${ng}' in cluster $CLUSTER"
+              exit 1
+            fi
+            echo "  Resolved: '${ng}' -> '$nodegroup_name'"
             for attempt in $(seq 1 40); do
               status=$(aws eks describe-nodegroup \
                 --region ${{ env.AWS_REGION }} \
                 --cluster-name "$CLUSTER" \
-                --nodegroup-name "${CLUSTER}-${ng}" \
+                --nodegroup-name "$nodegroup_name" \
                 --query 'nodegroup.status' \
                 --output text 2>/dev/null || echo "NOT_FOUND")
               if [ "$status" = "ACTIVE" ]; then
-                echo "  Node group '${ng}' is ACTIVE (attempt ${attempt})."
+                echo "  Node group '$nodegroup_name' is ACTIVE (attempt ${attempt})."
                 break
               fi
               if [ "$attempt" -eq 40 ]; then
-                echo "  ERROR: Node group '${ng}' did not reach ACTIVE after 200s."
+                echo "  ERROR: Node group '$nodegroup_name' did not reach ACTIVE after 200s."
                 exit 1
               fi
-              echo "  Node group '${ng}' status: ${status} — waiting 5s (attempt ${attempt}/40)..."
+              echo "  '$nodegroup_name' status: ${status} — waiting 5s (attempt ${attempt}/40)..."
               sleep 5
             done
           done
