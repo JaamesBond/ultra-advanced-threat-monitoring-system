@@ -14,6 +14,10 @@ module "eks" {
   # CRITICAL: Disable auto-permissions to prevent 409 conflicts in the pipeline
   enable_cluster_creator_admin_permissions = false
 
+  # Cluster was created with bootstrap_self_managed_addons=false (Cilium handles CNI/proxy).
+  # Pin to false to prevent module v20.37+ from force-replacing the cluster on its default of true.
+  bootstrap_self_managed_addons = false
+
   # Pin KMS admin to CI role so local plans don't flip-flop the policy on apply
   kms_key_administrators = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/GitHubActionsDeployRole"]
 
