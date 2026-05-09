@@ -163,7 +163,7 @@ jobs:
       # Only runs when dry_run=false.
       #
       # Phase A: non-Helm resources (AWS provider only).
-      #   Uses providers.override.tf to bypass the Helm provider's
+      #   Uses providers_override.tf to bypass the Helm provider's
       #   chicken-and-egg dependency on module.eks.cluster_endpoint.
       #
       # Phase B: Helm releases (real provider after EKS is in state).
@@ -180,7 +180,7 @@ jobs:
           # Override Helm provider — breaks the chicken-and-egg where
           # helm provider config references module.eks.cluster_endpoint
           # which is null when the cluster isn't tracked in state yet.
-          cat > providers.override.tf <<'OVERRIDE'
+          cat > providers_override.tf <<'OVERRIDE'
           provider "helm" {
             kubernetes {}
           }
@@ -407,7 +407,7 @@ jobs:
 
           echo ""
           echo "=== Phase A complete. Removing provider override ==="
-          rm -f providers.override.tf
+          rm -f providers_override.tf
 
       - name: Import missing resources — Phase B (Helm releases)
         if: ${{ github.event.inputs.dry_run == 'false' }}
