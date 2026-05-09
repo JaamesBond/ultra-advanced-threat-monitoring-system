@@ -31,8 +31,12 @@ spec:
               protocol: ANY
             - port: "4245"
               protocol: TCP
+    # kube-apiserver + cluster: kubeProxyReplacement=true causes Cilium to DNAT 172.20.0.1 to
+    # API server ENI IPs with remote-node identities before policy evaluation; "cluster" covers
+    # those IPs. See external-secrets-netpol.yaml for the full explanation and ipcache evidence.
     - toEntities:
         - kube-apiserver
+        - cluster
       toPorts:
         - ports:
             - port: "443"

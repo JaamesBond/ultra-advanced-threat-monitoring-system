@@ -11,8 +11,12 @@ spec:
     - fromEntities:
         - host
   egress:
+    # kube-apiserver — cert-controller manages CertificateRequest lifecycle.
+    # cluster entity added: when kubeProxyReplacement=true Cilium DNAT rewrites 172.20.0.1 to
+    # API server ENI IPs with remote-node identities, not identity 7. See external-secrets-netpol.yaml.
     - toEntities:
         - kube-apiserver
+        - cluster
       toPorts:
         - ports:
             - port: "443"

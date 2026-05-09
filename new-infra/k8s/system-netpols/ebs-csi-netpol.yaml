@@ -29,9 +29,16 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
-    # kube-apiserver — EBS CSI watches PVCs, PVs, StorageClasses, VolumeAttachments
+    # kube-apiserver — EBS CSI watches PVCs, PVs, StorageClasses, VolumeAttachments.
+    # cluster entity added alongside kube-apiserver: when kubeProxyReplacement=true Cilium
+    # DNAT rewrites 172.20.0.1 to the actual API server ENI IPs before policy evaluation;
+    # those IPs carry remote-node identities under "cluster", not identity 7. Without
+    # "cluster" here the post-DNAT packets are dropped. EBS CSI node pods currently reach
+    # the API server via the coincidental toCIDRSet rules for 10.30.10.135/10.30.11.26 below;
+    # adding cluster here makes the intent explicit and removes the accidental dependency.
     - toEntities:
         - kube-apiserver
+        - cluster
       toPorts:
         - ports:
             - port: "443"
