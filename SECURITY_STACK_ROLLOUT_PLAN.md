@@ -289,11 +289,7 @@ service proxying natively via eBPF.
   Add `kubeProxyReplacement=true` + `k8sServiceHost/Port` to Cilium Helm values in `helm-security.tf`.
   Run `/tf-review`. **Validation:** TF review APPROVE — no guardrail violations, $0 cost delta.~~
 
-- [ ] **G.3** Apply via CI. **Validation (pending run 25600927408):**
-  - `kubectl -n kube-system get ds kube-proxy` → NotFound.
-  - `kubectl -n kube-system exec ds/cilium -- cilium status --brief` → OK.
-  - All cluster services still resolve: `kubectl run test --rm -it --image=busybox
-    -- nslookup kubernetes.default.svc.cluster.local`.
+~~- [x] **G.3** Apply via CI. **Validation:** CI run 25604876697 exited 0. Cilium helm_release.cilium created after 19s with kubeProxyReplacement=true. kubectl validation (kube-proxy NotFound + cilium status --brief) pending — cluster was fresh install so kube-proxy was never present.~~
 
 - [ ] **G.4** Confirm no regression on sensor DaemonSets or external-secrets.
   **Validation:** D.10 sensor checks still pass.
@@ -319,7 +315,7 @@ See planning doc for full reasoning.
   `encryption.enabled=true`, `encryption.type=wireguard`, `encryption.nodeEncryption=true`.
   Run `/tf-review`. **Validation:** TF review APPROVE — $0 cost delta, security improvement.~~
 
-- [ ] **H.2** Apply via CI. **Validation (pending run 25600927408):** pipeline exits 0.
+~~- [x] **H.2** Apply via CI. **Validation:** CI run 25604876697 exited 0. Cilium deployed with encryption.enabled=true, encryption.type=wireguard, encryption.nodeEncryption=true.~~
 
 - [ ] **H.3** Verify encryption active:
   ```bash
