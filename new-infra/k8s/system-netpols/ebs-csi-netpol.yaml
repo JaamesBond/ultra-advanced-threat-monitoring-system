@@ -10,9 +10,13 @@ metadata:
   name: ebs-csi-controller-netpol
   namespace: kube-system
 spec:
+  # Match BOTH the controller Deployment and the node DaemonSet -- both call
+  # EC2 API (controller for AttachVolume, node for NodeStageVolume IRSA refresh).
+  # The narrower app=ebs-csi-controller selector misses the DaemonSet pods,
+  # which then CrashLoop with the same STS lookup timeout.
   endpointSelector:
     matchLabels:
-      app: ebs-csi-controller
+      app.kubernetes.io/name: aws-ebs-csi-driver
   egress:
     # CoreDNS — in-cluster DNS resolution (kube-system pods use toEntities:cluster)
     - toEntities:
@@ -49,4 +53,15 @@ spec:
       toPorts:
         - ports:
             - port: "443"
+              protocol: TCP
+    # IMDS (instance metadata service) on the link-local address.
+    # ebs-csi-node uses IMDS to discover the instance's region, AZ, and instance type
+    # before falling back to the Kubernetes API. Without this rule the node pods
+    # CrashLoopBackOff with "could not get IMDS metadata: ... context deadline exceeded".
+    # Port 80 covers IMDSv1; IMDSv2 uses the same port with a token handshake.
+    - toCIDR:
+        - 169.254.169.254/32
+      toPorts:
+        - ports:
+            - port: "80"
               protocol: TCP

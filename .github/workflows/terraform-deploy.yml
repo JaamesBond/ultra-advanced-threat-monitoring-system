@@ -160,9 +160,15 @@ jobs:
       # runs AFTER Stage 2 (see "Apply system network policies — authoritative"
       # below) with continue-on-error: false to guarantee convergence.
       # ---------------------------------------------------------------
-      - name: Apply system network policies — early (pre-Stage-1, best-effort)
+      - name: Apply system network policies -- early (pre-Stage-1, best-effort)
         continue-on-error: true
-        run: kubectl kustomize new-infra/k8s/system-netpols | kubectl apply -f -
+        run: |
+          # Self-contained: kubectl is not yet configured at this point in the
+          # pipeline. update-kubeconfig fails harmlessly on true cold-start when
+          # the cluster doesn't exist yet, which is fine -- continue-on-error
+          # catches it and the authoritative apply after Stage 2 covers that case.
+          aws eks update-kubeconfig --region eu-central-1 --name bc-uatms-prd-eks
+          kubectl kustomize new-infra/k8s/system-netpols | kubectl apply -f -
 
       # ---------------------------------------------------------------
       # State drift detection — FAIL LOUD, do NOT mutate state.
