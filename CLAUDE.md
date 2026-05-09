@@ -109,7 +109,7 @@ Cilium has Hubble relay + UI enabled (`policyEnforcementMode=always`). Falco use
 
 | DaemonSet | Namespace | Image | Purpose |
 |-----------|-----------|-------|---------|
-| `wazuh-agent` | wazuh | `845517756853.dkr.ecr.eu-central-1.amazonaws.com/wazuh-agent:4.9.0` | Ships Suricata/Zeek/Falco/syslog to Wazuh manager |
+| `wazuh-agent` | wazuh | `845517756853.dkr.ecr.eu-central-1.amazonaws.com/wazuh-agent:4.14.4` | Ships Suricata/Zeek/Falco/syslog to Wazuh manager |
 | `zeek` | zeek | `zeek/zeek:7.0.5` | Network NSM. Sidecar: `misp-intel-sync` (Alpine, pulls MISP IOCs → Zeek Intel format every 1h) |
 | `suricata` | suricata | `jasonish/suricata:7.0.7` | IDS/IPS. Sidecars: `misp-rule-sync` (Alpine, MISP → Suricata rules every 1h) + `rule-refresher` (ET Open rules every 6h) |
 
@@ -205,6 +205,7 @@ These are not yet wired to any SIEM pipeline — they document intended detectio
 - **External Secrets webhook**: Must be running before manifests with ExternalSecret resources. Set `webhook.failurePolicy=Ignore` to prevent blocking if it's not yet ready.
 - **Cost ceiling**: ~$565/month baseline. Any change adding >$10/month needs explicit justification.
 - **KMS drift prevention**: `kms_key_administrators` is pinned to `GitHubActionsDeployRole` ARN. Without this, local vs CI applies flip-flop the KMS key policy on every plan.
+- **`bootstrap_self_managed_addons = false`**: Always pin this in `eks.tf`. EKS module v20.37+ defaults it to `true`, which would force-replace the existing cluster (destroy + create) because the cluster was created with `false` (Cilium handles CNI/kube-proxy).
 
 ---
 
@@ -308,6 +309,8 @@ kubectl -n suricata get externalsecret,secret
 - **Wazuh re-provisioning**: If `phase3-install-wazuh.sh` changes, taint the instance: `terraform taint aws_instance.wazuh` then re-apply. The script hash is embedded in user_data as a comment to force replacement detection.
 - **KMS key policy flip-flop**: If plan shows KMS key policy changes on every run, ensure `kms_key_administrators` is pinned to the CI role ARN, not the identity running the plan.
 - **ESO ClusterSecretStore `WebIdentityErr` / STS timeout**: `toFQDNs` is broken in Cilium ENI mode (see Cilium ENI Mode section). The `external-secrets-netpol.yaml` already has the fix: `toCIDRSet` for STS VPC endpoint IPs + `toEntities: world` for Secrets Manager. If these IPs change, update the CIDR rules in `new-infra/k8s/system-netpols/external-secrets-netpol.yaml`.
+- **State health check false-negative (pipefail)**: With `set -euo pipefail`, piping `terraform state list | grep` fails if `terraform state list` exits non-zero (Helm provider can't connect to K8s before kubeconfig is configured) — even when grep would find the sentinel. Fix: capture `STATE_LIST=$(terraform state list 2>/dev/null || true)` then grep the variable. Already fixed in `terraform-deploy.yml` and `terraform-state-recovery.yml`.
+- **Terraform state drift after cancelled apply**: Use `terraform-state-recovery.yml` (workflow_dispatch) to re-import missing resources. The `import_if_missing` helper is idempotent. Always run dry_run=true first. Never delete S3 state versions.
 
 ---
 
@@ -364,8 +367,8 @@ Summary of open gaps:
 | Phase D | Done | CNPs applied; `policyEnforcementMode=always` live; ESO secrets syncing |
 | Phase E | Superseded | Pipeline already rewritten with proper structure |
 | Phase F | Not started | eks-security-stack module — blocked on G+D stable |
-| Phase G | Deploying | kube-proxy removal + Cilium kubeProxyReplacement — commit 9e7c93d in CI |
-| Phase H | Deploying | WireGuard node-to-node encryption — commit 9e7c93d in CI |
+| Phase G | Done | kube-proxy removed; kubeProxyReplacement=true deployed — CI run 25604876697 |
+| Phase H | Done | WireGuard encryption deployed — CI run 25604876697. kubectl validation (H.3–H.6) pending |
 | Phase I | Blocked | Hubble UI permanent ingress — blocked on ACM cert |
 | Phase J | Done | Suricata egress locking — `toEntities:world` + `toCIDRSet` already in CNPs |
 | Phase K | Deferred | Host firewall — do NOT start on bc-prd until D+G+H complete |

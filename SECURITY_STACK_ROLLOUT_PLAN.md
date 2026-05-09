@@ -281,8 +281,7 @@ can run in parallel once B is done.
 creates iptables conflicts and redundant overhead. In ENI mode, Cilium handles
 service proxying natively via eBPF.
 
-- [ ] **G.1** Verify kube-proxy is running: `kubectl -n kube-system get ds kube-proxy`.
-  If not present → skip to G.4 (mark done, no action needed).
+~~- [x] **G.1** Verify kube-proxy running. **Validation:** cluster was a fresh install — kube-proxy addon was never in `eks.tf` `cluster_addons`, so `ds/kube-proxy` does not exist. Condition met: skip to G.4.~~
 
 ~~- [x] **G.2** Remove `kube-proxy` from `cluster_addons` in
   `new-infra/environments/bc-prd/eu-central-1/eks.tf`.
