@@ -146,111 +146,72 @@ jobs:
       # ---------------------------------------------------------------
       # State-drift recovery via S3 object versioning.
       #
-      # When a previous run was cancelled mid-`terraform apply`, the S3
-      # backend can write a truncated/empty state object that erases
-      # tracking for resources that still exist in AWS. The next apply
-      # then fails with cascading AlreadyExistsException errors.
+      # A cancelled terraform apply can leave a partial state in S3 that
+      # is missing key managed resources (EKS cluster, routes, endpoints)
+      # while those resources still exist in AWS — causing cascading
+      # AlreadyExistsException on the next apply.
       #
-      # Because the state bucket is versioned, the prior good state is
-      # still in S3 as a non-current version. Restoring it is the
-      # cleanest fix: it returns ALL orphaned resources to state in one
-      # operation, no `terraform import` for module.eks internals
-      # required (which is brittle and forbidden per project rules).
+      # Health check: after terraform init, check if the EKS cluster
+      # resource is present in state. A partial/drifted state often has
+      # the IAM/SG prep resources but is missing the cluster itself.
       #
-      # Logic:
-      #   1. Verify versioning is enabled (fail loud if not).
-      #   2. List the most recent versions of the state object.
-      #   3. If current state is suspiciously small (< 4 KB), promote
-      #      the previous version by deleting the current bad version.
-      #   4. If current state looks healthy, do nothing.
-      #
-      # The 4 KB threshold is conservative: a healthy bc-prd state with
-      # EKS+VPC+endpoints is ~200-500 KB. A truncated/empty state from
-      # a cancelled apply is typically < 1 KB.
+      # If drifted: delete current bad S3 version(s) in a loop until the
+      # cluster appears in the promoted version. Up to 5 deletions.
       # ---------------------------------------------------------------
       - name: Recover Terraform state from S3 object versioning (if drifted)
+        working-directory: new-infra/environments/bc-prd/eu-central-1
         env:
           STATE_BUCKET: bc-uatms-terraform-state
           STATE_KEY: v8/environments/bc-prd/terraform.tfstate
-          HEALTHY_MIN_BYTES: "4096"
         run: |
           set -euo pipefail
           REGION="${{ env.AWS_REGION }}"
+          SENTINEL="module.eks.aws_eks_cluster.this[0]"
 
-          echo "Checking versioning status on s3://$STATE_BUCKET ..."
+          echo "Checking versioning on s3://$STATE_BUCKET ..."
           VERSIONING=$(aws s3api get-bucket-versioning \
             --bucket "$STATE_BUCKET" --region "$REGION" \
             --query 'Status' --output text 2>/dev/null || echo "None")
-          echo "Versioning: $VERSIONING"
           if [ "$VERSIONING" != "Enabled" ]; then
-            echo "ERROR: state bucket is not versioned — cannot auto-recover."
-            echo "Enable versioning before any further apply. Failing fast."
+            echo "ERROR: bucket not versioned — cannot auto-recover. Enable versioning first."
             exit 1
           fi
 
-          echo "Inspecting current state object..."
-          # Capture head-object output once; missing object is a legitimate first-run case.
-          if ! HEAD_JSON=$(aws s3api head-object \
-              --bucket "$STATE_BUCKET" --key "$STATE_KEY" --region "$REGION" 2>/dev/null); then
-            echo "State object does not exist yet — first-ever run, skipping recovery."
-            exit 0
-          fi
-          CURRENT_SIZE=$(echo "$HEAD_JSON" | jq -r '.ContentLength')
-          CURRENT_VERSION=$(echo "$HEAD_JSON" | jq -r '.VersionId')
-          echo "  current size:    $CURRENT_SIZE bytes"
-          echo "  current version: $CURRENT_VERSION"
+          # Init terraform so we can query state.
+          terraform init -reconfigure
 
-          if [ "$CURRENT_SIZE" -ge "$HEALTHY_MIN_BYTES" ]; then
-            echo "Current state size >= ${HEALTHY_MIN_BYTES}B — assumed healthy, skipping recovery."
-            exit 0
-          fi
+          for attempt in $(seq 1 5); do
+            echo ""
+            echo "=== State health check (attempt $attempt/5) ==="
+            if terraform state list 2>/dev/null | grep -qF "$SENTINEL"; then
+              echo "EKS cluster found in state — state looks healthy."
+              break
+            fi
 
-          echo ""
-          echo "Current state below healthy threshold — looking for prior good version..."
-          # List versions sorted newest-first; pick first non-current with size >= threshold
-          GOOD=$(aws s3api list-object-versions \
-            --bucket "$STATE_BUCKET" --region "$REGION" \
-            --prefix "$STATE_KEY" \
-            --query "Versions[?Key=='$STATE_KEY' && Size >= \`$HEALTHY_MIN_BYTES\` && IsLatest==\`false\`] | sort_by(@, &LastModified) | [-1].[VersionId, Size, LastModified]" \
-            --output text)
+            echo "EKS cluster NOT found in state — state is drifted."
+            # Get the current bad version.
+            BAD_VERSION=$(aws s3api head-object \
+              --bucket "$STATE_BUCKET" --key "$STATE_KEY" --region "$REGION" \
+              --query 'VersionId' --output text)
+            echo "Deleting bad version $BAD_VERSION to promote prior version..."
+            aws s3api delete-object \
+              --bucket "$STATE_BUCKET" --key "$STATE_KEY" \
+              --version-id "$BAD_VERSION" --region "$REGION"
 
-          if [ -z "$GOOD" ] || [ "$GOOD" = "None" ]; then
-            echo "ERROR: no prior healthy version found in S3 history."
-            echo "Manual recovery required — escalate to operator."
-            exit 1
-          fi
+            # Re-init to pull the newly promoted state version.
+            terraform init -reconfigure
 
-          GOOD_VERSION=$(echo "$GOOD" | awk '{print $1}')
-          GOOD_SIZE=$(echo "$GOOD" | awk '{print $2}')
-          GOOD_TIME=$(echo "$GOOD" | awk '{print $3" "$4}')
-          echo "Prior good version: $GOOD_VERSION (size=${GOOD_SIZE}B, modified=${GOOD_TIME})"
-
-          # Promote the prior version to current by deleting the current (bad) version.
-          # S3 versioning then resurfaces the previous version as latest.
-          echo "Deleting bad current version $CURRENT_VERSION to promote prior good version..."
-          aws s3api delete-object \
-            --bucket "$STATE_BUCKET" --key "$STATE_KEY" \
-            --version-id "$CURRENT_VERSION" --region "$REGION"
-
-          # Verify promotion succeeded.
-          NEW_SIZE=$(aws s3api head-object \
-            --bucket "$STATE_BUCKET" --key "$STATE_KEY" --region "$REGION" \
-            --query 'ContentLength' --output text)
-          NEW_VERSION=$(aws s3api head-object \
-            --bucket "$STATE_BUCKET" --key "$STATE_KEY" --region "$REGION" \
-            --query 'VersionId' --output text)
-          echo "After recovery: size=${NEW_SIZE}B, version=${NEW_VERSION}"
-          if [ "$NEW_SIZE" -lt "$HEALTHY_MIN_BYTES" ]; then
-            echo "ERROR: post-recovery state still below threshold — manual intervention required."
-            exit 1
-          fi
-          echo "State successfully restored from prior version."
+            if [ "$attempt" -eq 5 ]; then
+              echo "ERROR: EKS cluster still missing after 5 version rollbacks."
+              echo "Manual recovery required."
+              exit 1
+            fi
+          done
 
       # Surface what's now in state so the next step's plan is auditable.
       - name: Show terraform state inventory
         working-directory: new-infra/environments/bc-prd/eu-central-1
         run: |
-          terraform init -reconfigure
           echo "=== terraform state list (post-recovery) ==="
           terraform state list || true
 
