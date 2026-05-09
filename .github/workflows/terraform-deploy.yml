@@ -211,7 +211,19 @@ jobs:
             -target=module.peering_requester \
             -target=module.peering_accepter \
             -target=aws_route53_zone_association.bc_ctrl_internal_prd \
-            -target=module.eks
+            -target=module.eks \
+            -target=aws_iam_role.ebs_csi \
+            -target=aws_iam_role_policy_attachment.ebs_csi \
+            -target=aws_iam_role.efs_csi \
+            -target=aws_iam_role_policy_attachment.efs_csi \
+            -target=aws_efs_file_system.nomad_oasis \
+            -target=aws_security_group.nomad_efs \
+            -target=aws_efs_mount_target.nomad_oasis \
+            -target=aws_secretsmanager_secret.nomad_api \
+            -target=aws_secretsmanager_secret.nomad_mongo \
+            -target=aws_secretsmanager_secret.nomad_keycloak \
+            -target=aws_secretsmanager_secret.nomad_north \
+            -target=aws_secretsmanager_secret.nomad_datacite
 
       - name: Configure kubectl (bc-prd-eks)
         run: |
@@ -225,9 +237,67 @@ jobs:
           kubectl config current-context
           kubectl get nodes --request-timeout=10s
 
+      # Wait for both EKS managed node groups to reach Active status before
+      # any Helm apply. The workload group serves XDR DaemonSets; the nomad
+      # group must be Active so the NOMAD Helm release can schedule pods.
+      # The EKS API returns Active once the ASG has launched instances and
+      # they have joined the cluster — typically 90–180s on a cold start.
+      - name: Wait for EKS node groups to be Active
+        run: |
+          set -euo pipefail
+          CLUSTER="bc-uatms-prd-eks"
+          for ng in workload nomad; do
+            echo "Waiting for node group '${ng}' to reach ACTIVE status..."
+            for attempt in $(seq 1 40); do
+              status=$(aws eks describe-nodegroup \
+                --region ${{ env.AWS_REGION }} \
+                --cluster-name "$CLUSTER" \
+                --nodegroup-name "${CLUSTER}-${ng}" \
+                --query 'nodegroup.status' \
+                --output text 2>/dev/null || echo "NOT_FOUND")
+              if [ "$status" = "ACTIVE" ]; then
+                echo "  Node group '${ng}' is ACTIVE (attempt ${attempt})."
+                break
+              fi
+              if [ "$attempt" -eq 40 ]; then
+                echo "  ERROR: Node group '${ng}' did not reach ACTIVE after 200s."
+                exit 1
+              fi
+              echo "  Node group '${ng}' status: ${status} — waiting 5s (attempt ${attempt}/40)..."
+              sleep 5
+            done
+          done
+
+      # Seed NOMAD Oasis credentials from GitHub repo secrets into AWS SM.
+      #
+      # This step MUST run after Stage 1 terraform apply (which creates the
+      # aws_secretsmanager_secret shells) and BEFORE Stage 2 (which applies
+      # the NOMAD Helm release that triggers ExternalSecret sync).
+      #
+      # Missing GitHub secrets: if any secret is not set in repo settings,
+      # its env var is empty and the script writes the placeholder "unused".
+      # This keeps AWS SM secret content valid JSON so ESO can sync without
+      # error. Subsystems that use "unused" credentials (Keycloak, NORTH,
+      # DataCite) are disabled in the NOMAD Helm values for v1 anyway.
+      #
+      # Idempotency: the script compares sha256 hashes before writing — no
+      # new secret version is created if the value has not changed.
+      - name: Seed NOMAD secrets from GitHub to AWS Secrets Manager
+        env:
+          NOMAD_OASIS_API_SECRET:            ${{ secrets.NOMAD_OASIS_API_SECRET || '' }}
+          NOMAD_OASIS_MONGO_ROOT_PASSWORD:   ${{ secrets.NOMAD_OASIS_MONGO_ROOT_PASSWORD || '' }}
+          NOMAD_OASIS_KEYCLOAK_PASSWORD:     ${{ secrets.NOMAD_OASIS_KEYCLOAK_PASSWORD || '' }}
+          NOMAD_OASIS_KEYCLOAK_CLIENT_SECRET: ${{ secrets.NOMAD_OASIS_KEYCLOAK_CLIENT_SECRET || '' }}
+          NOMAD_OASIS_NORTH_HUB_TOKEN:       ${{ secrets.NOMAD_OASIS_NORTH_HUB_TOKEN || '' }}
+          NOMAD_OASIS_DATACITE_USERNAME:     ${{ secrets.NOMAD_OASIS_DATACITE_USERNAME || '' }}
+          NOMAD_OASIS_DATACITE_PASSWORD:     ${{ secrets.NOMAD_OASIS_DATACITE_PASSWORD || '' }}
+        run: bash new-infra/scripts/seed-nomad-secrets.sh
+
       # Bootstrap Cilium CRDs before applying Wazuh/Zeek/Suricata so
       # NetworkPolicy resources can be validated against the live API.
-      - name: Bootstrap CRDs (Helm)
+      # NOMAD Helm release is also applied here because it depends on the
+      # EFS StorageClass (efs-nomad-sc) and ExternalSecret CRDs being ready.
+      - name: Bootstrap CRDs and NOMAD Helm (Stage 2 Terraform)
         working-directory: new-infra/environments/bc-prd/eu-central-1
         run: |
           terraform apply -auto-approve \
@@ -236,7 +306,9 @@ jobs:
             -target=helm_release.tetragon \
             -target=helm_release.external_secrets \
             -target=aws_iam_role.external_secrets \
-            -target=aws_iam_role_policy.external_secrets_secrets_manager
+            -target=aws_iam_role_policy.external_secrets_secrets_manager \
+            -target=kubernetes_storage_class.efs_nomad \
+            -target=helm_release.nomad_oasis
 
       - name: Wait for CRDs to propagate
         run: |
@@ -296,3 +368,29 @@ jobs:
           kubectl kustomize new-infra/k8s/wazuh-agent \
             | sed "s/\${AWS_ACCOUNT_ID}/${{ env.AWS_ACCOUNT_ID }}/g" \
             | kubectl apply -f -
+
+      # Apply NOMAD Oasis K8s manifests (namespace, ExternalSecrets, CNPs).
+      # The Helm release (applied in Stage 2 Terraform above) creates the
+      # NOMAD Deployments/Services; these manifests add:
+      #   - nomad-oasis namespace (idempotent — may already exist from Helm)
+      #   - ExternalSecret CRs pointing to bc/nomad-oasis/* SM paths
+      #   - CiliumNetworkPolicies restricting NOMAD egress
+      # They are applied AFTER CRD propagation so ExternalSecret and
+      # CiliumNetworkPolicy types are guaranteed registered.
+      - name: Deploy NOMAD Oasis K8s manifests (bc-prd)
+        run: |
+          kubectl kustomize new-infra/k8s/nomad-oasis \
+            | sed "s/\${AWS_ACCOUNT_ID}/${{ env.AWS_ACCOUNT_ID }}/g" \
+            | kubectl apply -f -
+
+      # Post-deploy readiness check — confirms NOMAD pods scheduled and
+      # healthy on the nomad node group within 10 minutes. Uses
+      # continue-on-error: false (default) so the job fails loudly if
+      # the deployment never becomes ready, rather than silently green.
+      # On a cold start the nomad node group may need 3–5 min to pull images.
+      - name: Verify NOMAD Oasis pods ready (bc-prd)
+        run: |
+          kubectl -n nomad-oasis wait \
+            --for=condition=ready pod \
+            -l app.kubernetes.io/name=nomad \
+            --timeout=600s
