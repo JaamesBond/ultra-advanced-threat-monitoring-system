@@ -222,6 +222,13 @@ jobs:
           echo "=== terraform state list (post-recovery) ==="
           terraform state list || true
 
+      # MAINTENANCE RULE: Every kubernetes_* resource declared in bc-prd Terraform
+      # MUST appear in this -target= list (Stage 1) or in the Stage 2 -target=
+      # list below. Targeted applies skip resources not listed — they are silently
+      # omitted and PVCs/pods that depend on them stay Pending forever.
+      # New kubernetes_* resources: add here unless they require Cilium/CRD CRDs
+      # (which don't exist until Stage 2 Helm runs). New helm_release resources:
+      # add to Stage 2 unless they are AWS-only prerequisites.
       - name: "Terraform Apply (Prd) — Stage 1: Infra (VPC + EKS)"
         working-directory: new-infra/environments/bc-prd/eu-central-1
         run: |
@@ -250,7 +257,10 @@ jobs:
             -target=aws_secretsmanager_secret.nomad_mongo \
             -target=aws_secretsmanager_secret.nomad_keycloak \
             -target=aws_secretsmanager_secret.nomad_north \
-            -target=aws_secretsmanager_secret.nomad_datacite
+            -target=aws_secretsmanager_secret.nomad_datacite \
+            -target=kubernetes_storage_class.gp3 \
+            -target=aws_iam_role.alb_controller \
+            -target=aws_iam_role_policy.alb_controller
 
       - name: Configure kubectl (bc-prd-eks)
         run: |
@@ -347,6 +357,7 @@ jobs:
             -target=aws_iam_role.external_secrets \
             -target=aws_iam_role_policy.external_secrets_secrets_manager \
             -target=kubernetes_storage_class.efs_nomad \
+            -target=helm_release.aws_load_balancer_controller \
             -target=helm_release.nomad_oasis
 
       - name: Wait for CRDs to propagate
