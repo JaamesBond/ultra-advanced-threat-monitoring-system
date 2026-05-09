@@ -217,15 +217,18 @@ jobs:
           echo "========================================="
           echo "  PHASE A — KMS"
           echo "========================================="
+          # KMS key (this[0]) is already in state — only import the alias.
+          # The EKS module calls the KMS sub-module with:
+          #   computed_aliases = { eks = { name = "eks/<cluster>" } }
+          # So the for_each key is "eks", NOT "eks/<cluster-name>".
           KMS_ALIAS="alias/eks/${CLUSTER}"
-          KMS_KEY_ID=$(aws kms list-aliases --region "$REGION" \
-            --query "Aliases[?AliasName=='${KMS_ALIAS}'].TargetKeyId | [0]" \
+          ALIAS_EXISTS=$(aws kms list-aliases --region "$REGION" \
+            --query "Aliases[?AliasName=='${KMS_ALIAS}'].AliasName | [0]" \
             --output text 2>/dev/null || echo "")
-          if [ -n "$KMS_KEY_ID" ] && [ "$KMS_KEY_ID" != "None" ]; then
-            import_if_missing 'module.eks.module.kms.aws_kms_key.this["eks"]' "$KMS_KEY_ID"
-            import_if_missing 'module.eks.module.kms.aws_kms_alias.this["eks/'"$CLUSTER"'"]' "$KMS_ALIAS"
+          if [ -n "$ALIAS_EXISTS" ] && [ "$ALIAS_EXISTS" != "None" ]; then
+            import_if_missing 'module.eks.module.kms.aws_kms_alias.this["eks"]' "$KMS_ALIAS"
           else
-            echo "  KMS alias not found — skipping KMS imports"
+            echo "  KMS alias not found in AWS — skipping"
           fi
 
           echo ""
@@ -347,16 +350,26 @@ jobs:
           echo "========================================="
           echo "  PHASE A — PRIVATE NAT ROUTES"
           echo "========================================="
-          # Find private route tables — those with a 0.0.0.0/0 route via a network interface (not IGW)
-          PRIV_RTBS=$(aws ec2 describe-route-tables --region "$REGION" \
-            --filters "Name=vpc-id,Values=$VPC_ID" \
-            --query "RouteTables[?Routes[?DestinationCidrBlock=='0.0.0.0/0' && NetworkInterfaceId]].RouteTableId" \
-            --output text | tr '\t' ' ')
-          echo "  Private route tables with NAT routes: $PRIV_RTBS"
-          i=0
-          for rtb in $PRIV_RTBS; do
-            import_if_missing "aws_route.private_nat_prd[$i]" "${rtb}_0.0.0.0/0"
-            i=$((i+1))
+          # Terraform indexes route tables in AZ order: [0]=10.30.10.0/24, [1]=10.30.11.0/24.
+          # Discover route tables by their associated private subnet CIDR to preserve order.
+          for i in 0 1; do
+            if [ "$i" -eq 0 ]; then CIDR="10.30.10.0/24"; else CIDR="10.30.11.0/24"; fi
+            SUBNET_ID=$(aws ec2 describe-subnets --region "$REGION" \
+              --filters "Name=vpc-id,Values=$VPC_ID" "Name=cidr-block,Values=$CIDR" \
+              --query "Subnets[0].SubnetId" --output text 2>/dev/null || echo "")
+            if [ -z "$SUBNET_ID" ] || [ "$SUBNET_ID" = "None" ]; then
+              echo "  WARN: subnet for CIDR $CIDR not found — skipping aws_route.private_nat_prd[$i]"
+              continue
+            fi
+            RTB=$(aws ec2 describe-route-tables --region "$REGION" \
+              --filters "Name=association.subnet-id,Values=$SUBNET_ID" \
+              --query "RouteTables[0].RouteTableId" --output text 2>/dev/null || echo "")
+            if [ -z "$RTB" ] || [ "$RTB" = "None" ]; then
+              echo "  WARN: route table for subnet $SUBNET_ID not found — skipping index $i"
+              continue
+            fi
+            echo "  [$i] $CIDR → subnet $SUBNET_ID → route table $RTB"
+            import_if_missing "aws_route.private_nat_prd[$i]" "${RTB}_0.0.0.0/0"
           done
 
           echo ""
