@@ -9,7 +9,10 @@ on:
 
 concurrency:
   group: terraform-deploy
-  cancel-in-progress: true
+  # Queue concurrent runs instead of cancelling — cancelling mid-`terraform apply`
+  # corrupts the S3 state file (partial write erases tracking for resources still
+  # in AWS, causing AlreadyExistsException cascades on the next run).
+  cancel-in-progress: false
 
 env:
   AWS_ACCOUNT_ID: "845517756853"
@@ -140,45 +143,116 @@ jobs:
       - name: Resolve Shuffle Helm dependencies
         run: helm dependency update new-infra/k8s/shuffle
 
-      # If a previous run was cancelled mid-apply, resources can end up in AWS but
-      # removed from TF state (partial state write). Detect and re-import the two
-      # known orphan-prone resources before Stage 1 attempts to create them.
-      - name: Repair Terraform state drift (import orphaned resources)
+      # ---------------------------------------------------------------
+      # State-drift recovery via S3 object versioning.
+      #
+      # When a previous run was cancelled mid-`terraform apply`, the S3
+      # backend can write a truncated/empty state object that erases
+      # tracking for resources that still exist in AWS. The next apply
+      # then fails with cascading AlreadyExistsException errors.
+      #
+      # Because the state bucket is versioned, the prior good state is
+      # still in S3 as a non-current version. Restoring it is the
+      # cleanest fix: it returns ALL orphaned resources to state in one
+      # operation, no `terraform import` for module.eks internals
+      # required (which is brittle and forbidden per project rules).
+      #
+      # Logic:
+      #   1. Verify versioning is enabled (fail loud if not).
+      #   2. List the most recent versions of the state object.
+      #   3. If current state is suspiciously small (< 4 KB), promote
+      #      the previous version by deleting the current bad version.
+      #   4. If current state looks healthy, do nothing.
+      #
+      # The 4 KB threshold is conservative: a healthy bc-prd state with
+      # EKS+VPC+endpoints is ~200-500 KB. A truncated/empty state from
+      # a cancelled apply is typically < 1 KB.
+      # ---------------------------------------------------------------
+      - name: Recover Terraform state from S3 object versioning (if drifted)
+        env:
+          STATE_BUCKET: bc-uatms-terraform-state
+          STATE_KEY: v8/environments/bc-prd/terraform.tfstate
+          HEALTHY_MIN_BYTES: "4096"
+        run: |
+          set -euo pipefail
+          REGION="${{ env.AWS_REGION }}"
+
+          echo "Checking versioning status on s3://$STATE_BUCKET ..."
+          VERSIONING=$(aws s3api get-bucket-versioning \
+            --bucket "$STATE_BUCKET" --region "$REGION" \
+            --query 'Status' --output text 2>/dev/null || echo "None")
+          echo "Versioning: $VERSIONING"
+          if [ "$VERSIONING" != "Enabled" ]; then
+            echo "ERROR: state bucket is not versioned — cannot auto-recover."
+            echo "Enable versioning before any further apply. Failing fast."
+            exit 1
+          fi
+
+          echo "Inspecting current state object..."
+          # Capture head-object output once; missing object is a legitimate first-run case.
+          if ! HEAD_JSON=$(aws s3api head-object \
+              --bucket "$STATE_BUCKET" --key "$STATE_KEY" --region "$REGION" 2>/dev/null); then
+            echo "State object does not exist yet — first-ever run, skipping recovery."
+            exit 0
+          fi
+          CURRENT_SIZE=$(echo "$HEAD_JSON" | jq -r '.ContentLength')
+          CURRENT_VERSION=$(echo "$HEAD_JSON" | jq -r '.VersionId')
+          echo "  current size:    $CURRENT_SIZE bytes"
+          echo "  current version: $CURRENT_VERSION"
+
+          if [ "$CURRENT_SIZE" -ge "$HEALTHY_MIN_BYTES" ]; then
+            echo "Current state size >= ${HEALTHY_MIN_BYTES}B — assumed healthy, skipping recovery."
+            exit 0
+          fi
+
+          echo ""
+          echo "Current state below healthy threshold — looking for prior good version..."
+          # List versions sorted newest-first; pick first non-current with size >= threshold
+          GOOD=$(aws s3api list-object-versions \
+            --bucket "$STATE_BUCKET" --region "$REGION" \
+            --prefix "$STATE_KEY" \
+            --query "Versions[?Key=='$STATE_KEY' && Size >= \`$HEALTHY_MIN_BYTES\` && IsLatest==\`false\`] | sort_by(@, &LastModified) | [-1].[VersionId, Size, LastModified]" \
+            --output text)
+
+          if [ -z "$GOOD" ] || [ "$GOOD" = "None" ]; then
+            echo "ERROR: no prior healthy version found in S3 history."
+            echo "Manual recovery required — escalate to operator."
+            exit 1
+          fi
+
+          GOOD_VERSION=$(echo "$GOOD" | awk '{print $1}')
+          GOOD_SIZE=$(echo "$GOOD" | awk '{print $2}')
+          GOOD_TIME=$(echo "$GOOD" | awk '{print $3" "$4}')
+          echo "Prior good version: $GOOD_VERSION (size=${GOOD_SIZE}B, modified=${GOOD_TIME})"
+
+          # Promote the prior version to current by deleting the current (bad) version.
+          # S3 versioning then resurfaces the previous version as latest.
+          echo "Deleting bad current version $CURRENT_VERSION to promote prior good version..."
+          aws s3api delete-object \
+            --bucket "$STATE_BUCKET" --key "$STATE_KEY" \
+            --version-id "$CURRENT_VERSION" --region "$REGION"
+
+          # Verify promotion succeeded.
+          NEW_SIZE=$(aws s3api head-object \
+            --bucket "$STATE_BUCKET" --key "$STATE_KEY" --region "$REGION" \
+            --query 'ContentLength' --output text)
+          NEW_VERSION=$(aws s3api head-object \
+            --bucket "$STATE_BUCKET" --key "$STATE_KEY" --region "$REGION" \
+            --query 'VersionId' --output text)
+          echo "After recovery: size=${NEW_SIZE}B, version=${NEW_VERSION}"
+          if [ "$NEW_SIZE" -lt "$HEALTHY_MIN_BYTES" ]; then
+            echo "ERROR: post-recovery state still below threshold — manual intervention required."
+            exit 1
+          fi
+          echo "State successfully restored from prior version."
+
+      # Surface what's now in state so the next step's plan is auditable.
+      - name: Show terraform state inventory
         working-directory: new-infra/environments/bc-prd/eu-central-1
         run: |
           terraform init -reconfigure
-          REGION="${{ env.AWS_REGION }}"
-          CLUSTER="bc-uatms-prd-eks"
-
-          # --- fck-nat default routes ---
-          # Get private route table IDs for bc-prd VPC.
-          VPC_ID=$(aws ec2 describe-vpcs --region "$REGION" \
-            --filters "Name=tag:Name,Values=bc-uatms-prd-vpc" \
-            --query "Vpcs[0].VpcId" --output text 2>/dev/null)
-          if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then
-            echo "bc-prd VPC not yet created — skipping route import."
-          else
-            RTB_IDS=$(aws ec2 describe-route-tables --region "$REGION" \
-              --filters "Name=vpc-id,Values=$VPC_ID" \
-                        "Name=tag:Name,Values=*private*" \
-              --query "RouteTables[*].RouteTableId" --output text 2>/dev/null)
-            IDX=0
-            for RTB_ID in $RTB_IDS; do
-              RES="aws_route.private_nat_prd[$IDX]"
-              if ! terraform state show "$RES" > /dev/null 2>&1; then
-                echo "Importing orphaned $RES ($RTB_ID)..."
-                terraform import "$RES" "${RTB_ID}_0.0.0.0/0" || true
-              fi
-              IDX=$((IDX + 1))
-            done
-          fi
-
-          # --- EKS KMS alias ---
-          KMS_RES='module.eks.module.kms.aws_kms_alias.this["eks/'$CLUSTER'"]'
-          if ! terraform state show "$KMS_RES" > /dev/null 2>&1; then
-            echo "Importing orphaned KMS alias for $CLUSTER..."
-            terraform import "$KMS_RES" "alias/eks/$CLUSTER" || true
-          fi
+          echo "=== terraform state list (post-recovery) ==="
+          terraform state list || true
 
       - name: "Terraform Apply (Prd) — Stage 1: Infra (VPC + EKS)"
         working-directory: new-infra/environments/bc-prd/eu-central-1
