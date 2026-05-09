@@ -348,6 +348,32 @@ jobs:
 
           echo ""
           echo "========================================="
+          echo "  PHASE A — PEERING REQUESTER ROUTES"
+          echo "========================================="
+          # Routes in bc-prd private subnets pointing to bc-ctrl VPC (10.0.0.0/16).
+          # Same AZ ordering as NAT routes: [0]=10.30.10.0/24, [1]=10.30.11.0/24.
+          for i in 0 1; do
+            if [ "$i" -eq 0 ]; then CIDR="10.30.10.0/24"; else CIDR="10.30.11.0/24"; fi
+            SUBNET_ID=$(aws ec2 describe-subnets --region "$REGION" \
+              --filters "Name=vpc-id,Values=$VPC_ID" "Name=cidr-block,Values=$CIDR" \
+              --query "Subnets[0].SubnetId" --output text 2>/dev/null || echo "")
+            if [ -z "$SUBNET_ID" ] || [ "$SUBNET_ID" = "None" ]; then
+              echo "  WARN: subnet for CIDR $CIDR not found — skipping peering_requester.to_peer[$i]"
+              continue
+            fi
+            RTB=$(aws ec2 describe-route-tables --region "$REGION" \
+              --filters "Name=association.subnet-id,Values=$SUBNET_ID" \
+              --query "RouteTables[0].RouteTableId" --output text 2>/dev/null || echo "")
+            if [ -z "$RTB" ] || [ "$RTB" = "None" ]; then
+              echo "  WARN: route table for subnet $SUBNET_ID not found — skipping index $i"
+              continue
+            fi
+            echo "  [$i] $CIDR → subnet $SUBNET_ID → route table $RTB"
+            import_if_missing "module.peering_requester.aws_route.to_peer[$i]" "${RTB}_10.0.0.0/16"
+          done
+
+          echo ""
+          echo "========================================="
           echo "  PHASE A — PRIVATE NAT ROUTES"
           echo "========================================="
           # Terraform indexes route tables in AZ order: [0]=10.30.10.0/24, [1]=10.30.11.0/24.
