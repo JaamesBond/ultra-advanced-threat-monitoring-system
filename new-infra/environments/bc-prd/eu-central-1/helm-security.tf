@@ -151,6 +151,62 @@ resource "helm_release" "external_secrets" {
     name  = "webhook.create"
     value = "false"
   }
+
+  # Allow ESO to spill onto the nomad node when workload nodes are full.
+  # t3.medium workload nodes cap at 17 pods; NOMAD Oasis deployment saturated both
+  # nodes and left ESO Pending, breaking ClusterSecretStore and all ExternalSecrets.
+  # Tolerating dedicated=nomad:NoSchedule does NOT force ESO onto the nomad node —
+  # the scheduler still prefers workload slots when available.
+  # NOTE: webhook.tolerations and certController.tolerations are included for
+  # forward-compatibility; they are no-ops while webhook.create=false.
+  set {
+    name  = "tolerations[0].key"
+    value = "dedicated"
+  }
+  set {
+    name  = "tolerations[0].operator"
+    value = "Equal"
+  }
+  set {
+    name  = "tolerations[0].value"
+    value = "nomad"
+  }
+  set {
+    name  = "tolerations[0].effect"
+    value = "NoSchedule"
+  }
+  set {
+    name  = "webhook.tolerations[0].key"
+    value = "dedicated"
+  }
+  set {
+    name  = "webhook.tolerations[0].operator"
+    value = "Equal"
+  }
+  set {
+    name  = "webhook.tolerations[0].value"
+    value = "nomad"
+  }
+  set {
+    name  = "webhook.tolerations[0].effect"
+    value = "NoSchedule"
+  }
+  set {
+    name  = "certController.tolerations[0].key"
+    value = "dedicated"
+  }
+  set {
+    name  = "certController.tolerations[0].operator"
+    value = "Equal"
+  }
+  set {
+    name  = "certController.tolerations[0].value"
+    value = "nomad"
+  }
+  set {
+    name  = "certController.tolerations[0].effect"
+    value = "NoSchedule"
+  }
 }
 
 resource "aws_iam_role" "external_secrets" {

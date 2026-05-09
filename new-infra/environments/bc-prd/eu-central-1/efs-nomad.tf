@@ -104,3 +104,43 @@ resource "kubernetes_storage_class" "efs_nomad" {
     aws_efs_mount_target.nomad_oasis,
   ]
 }
+
+# ---------------------------------------------------------------------------
+# StorageClass — gp3
+#
+# nomad-values.yaml references storageClass: gp3 for MongoDB, PostgreSQL, and
+# Elasticsearch PVCs.  No such SC ships with EKS by default (only gp2 exists
+# out of the box).  This resource creates it so PVC binding succeeds.
+#
+# WaitForFirstConsumer lets the scheduler pick a node before the EBS volume is
+# provisioned, avoiding cross-AZ binding traps when nodes span eu-central-1a
+# and eu-central-1b.
+#
+# Import note: if this SC was already applied live via kubectl during incident
+# response, adopt it with:
+#   terraform import kubernetes_storage_class.gp3 gp3
+# The spec is intentionally matched exactly so TF detects no drift.
+# ---------------------------------------------------------------------------
+resource "kubernetes_storage_class" "gp3" {
+  metadata {
+    name = "gp3"
+    annotations = {
+      "storageclass.kubernetes.io/is-default-class" = "false"
+    }
+  }
+
+  storage_provisioner    = "ebs.csi.aws.com"
+  reclaim_policy         = "Delete"
+  volume_binding_mode    = "WaitForFirstConsumer"
+  allow_volume_expansion = true
+
+  parameters = {
+    type      = "gp3"
+    encrypted = "true"
+  }
+
+  depends_on = [
+    module.eks,
+    aws_iam_role_policy_attachment.ebs_csi,
+  ]
+}
