@@ -8,3 +8,6 @@ resources:
   - cert-controller-netpol.yaml
   - falco-netpol.yaml
   - tetragon-operator-netpol.yaml
+  - ebs-csi-netpol.yaml
+  - efs-csi-netpol.yaml
+  - alb-controller-netpol.yaml

@@ -1,0 +1,52 @@
+# CiliumNetworkPolicy — efs-csi-controller (kube-system)
+# Fixes: CrashLoopBackOff with "dial tcp: lookup sts.eu-central-1.amazonaws.com: i/o timeout"
+# under policyEnforcementMode=always default-deny.
+# toFQDNs is broken in this Cilium ENI deployment (ipcache not populated for resolved IPs);
+# STS VPC endpoint IPs are pinned via toCIDRSet. EFS API has no VPC endpoint configured in
+# bc-prd, so toEntities:world covers elasticfilesystem.eu-central-1.amazonaws.com.
+# See: new-infra/k8s/system-netpols/external-secrets-netpol.yaml (working precedent).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: efs-csi-controller-netpol
+  namespace: kube-system
+spec:
+  endpointSelector:
+    matchLabels:
+      app: efs-csi-controller
+  egress:
+    # CoreDNS — in-cluster DNS resolution (kube-system pods use toEntities:cluster)
+    - toEntities:
+        - cluster
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    # kube-apiserver — EFS CSI watches PVCs, PVs, StorageClasses, VolumeAttachments
+    - toEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # STS VPC endpoint — IRSA token exchange (AssumeRoleWithWebIdentity).
+    # IPs are stable ENI addresses; toFQDNs cannot be used (see header comment).
+    # ENIs: eni-0a05d9050d3fc6f46, eni-0af463de2c1bd6b8b
+    - toCIDRSet:
+        - cidr: 10.30.10.209/32
+        - cidr: 10.30.11.123/32
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # EFS API (elasticfilesystem.eu-central-1.amazonaws.com) + EC2 API for describe calls.
+    # No VPC endpoint is configured for EFS in bc-prd; traffic exits via fck-nat to public IPs.
+    # toFQDNs cannot be used — toEntities:world is required here with no toCIDRSet alternative.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

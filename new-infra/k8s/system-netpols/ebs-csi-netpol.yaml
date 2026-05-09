@@ -1,0 +1,52 @@
+# CiliumNetworkPolicy — ebs-csi-controller (kube-system)
+# Fixes: CrashLoopBackOff with "dial tcp: lookup sts.eu-central-1.amazonaws.com: i/o timeout"
+# under policyEnforcementMode=always default-deny.
+# toFQDNs is broken in this Cilium ENI deployment (ipcache not populated for resolved IPs);
+# STS VPC endpoint IPs are pinned via toCIDRSet, public AWS APIs via toEntities:world.
+# See: new-infra/k8s/system-netpols/external-secrets-netpol.yaml (working precedent).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ebs-csi-controller-netpol
+  namespace: kube-system
+spec:
+  endpointSelector:
+    matchLabels:
+      app: ebs-csi-controller
+  egress:
+    # CoreDNS — in-cluster DNS resolution (kube-system pods use toEntities:cluster)
+    - toEntities:
+        - cluster
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    # kube-apiserver — EBS CSI watches PVCs, PVs, StorageClasses, VolumeAttachments
+    - toEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # STS VPC endpoint — IRSA token exchange (AssumeRoleWithWebIdentity).
+    # IPs are stable ENI addresses; toFQDNs cannot be used (see header comment).
+    # ENIs: eni-0a05d9050d3fc6f46, eni-0af463de2c1bd6b8b
+    - toCIDRSet:
+        - cidr: 10.30.10.209/32
+        - cidr: 10.30.11.123/32
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # EC2 API and other public AWS endpoints (DescribeAvailabilityZones, AttachVolume, etc.).
+    # A VPC endpoint for EC2 exists (see CLAUDE.md) but its ENI IPs are not yet documented here.
+    # Using toEntities:world is intentionally broader than strictly required; a follow-up should
+    # resolve the EC2 endpoint IPs and replace this with a toCIDRSet rule to close the gap.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
