@@ -75,7 +75,7 @@ resource "aws_secretsmanager_secret" "nomad_north" {
 
 resource "aws_secretsmanager_secret" "nomad_datacite" {
   name                    = "bc/nomad-oasis/datacite"
-  description             = "NOMAD Oasis DataCite DOI credentials (shell only — may remain unpopulated)"
+  description             = "NOMAD Oasis DataCite DOI credentials (shell only -- may remain unpopulated)"
   kms_key_id              = local.nomad_sm_kms_key_id
   recovery_window_in_days = 7
 

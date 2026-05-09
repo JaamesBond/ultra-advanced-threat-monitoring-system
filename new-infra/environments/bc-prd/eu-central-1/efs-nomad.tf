@@ -33,7 +33,7 @@ resource "aws_efs_file_system" "nomad_oasis" {
 # ---------------------------------------------------------------------------
 resource "aws_security_group" "nomad_efs" {
   name        = "${local.platform_name}-${local.env}-nomad-efs-sg"
-  description = "EFS mount access for NOMAD Oasis — EKS nodes only"
+  description = "EFS mount access for NOMAD Oasis -- EKS nodes only"
   vpc_id      = module.vpc.vpc_id
 
   ingress {

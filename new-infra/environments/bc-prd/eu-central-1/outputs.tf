@@ -6,7 +6,7 @@ output "vpc_id" {
 # EFS — NOMAD Oasis (consumed by security-stack-engineer for StorageClass ref)
 # ---------------------------------------------------------------------------
 output "nomad_efs_file_system_id" {
-  description = "EFS file system ID for NOMAD Oasis — used in StorageClass and NOMAD Helm values"
+  description = "EFS file system ID for NOMAD Oasis -- used in StorageClass and NOMAD Helm values"
   value       = aws_efs_file_system.nomad_oasis.id
 }
 
