@@ -218,15 +218,15 @@ jobs:
           echo "  PHASE A — KMS"
           echo "========================================="
           # KMS key (this[0]) is already in state — only import the alias.
-          # The EKS module calls the KMS sub-module with:
-          #   computed_aliases = { eks = { name = "eks/<cluster>" } }
-          # So the for_each key is "eks", NOT "eks/<cluster-name>".
+          # In EKS module v20.37+, the KMS sub-module is called with:
+          #   computed_aliases = { cluster = { name = "eks/<cluster>" } }
+          # So the for_each key is "cluster" (NOT "eks" used in older versions).
           KMS_ALIAS="alias/eks/${CLUSTER}"
           ALIAS_EXISTS=$(aws kms list-aliases --region "$REGION" \
             --query "Aliases[?AliasName=='${KMS_ALIAS}'].AliasName | [0]" \
             --output text 2>/dev/null || echo "")
           if [ -n "$ALIAS_EXISTS" ] && [ "$ALIAS_EXISTS" != "None" ]; then
-            import_if_missing 'module.eks.module.kms.aws_kms_alias.this["eks"]' "$KMS_ALIAS"
+            import_if_missing 'module.eks.module.kms.aws_kms_alias.this["cluster"]' "$KMS_ALIAS"
           else
             echo "  KMS alias not found in AWS — skipping"
           fi
