@@ -429,7 +429,12 @@ spec:
 ---
 # ---------------------------------------------------------------------------
 # Policy 7: Temporal server
-# Temporal uses release-name prefixed labels from the sub-chart
+# Selector matches all Temporal sub-chart pods (frontend, history, matching,
+# worker, schema-init Job). The Temporal Helm chart applies
+# `app.kubernetes.io/name: temporal` to every pod regardless of component;
+# the previous `temporalserver` value was wrong and selected zero pods,
+# leaving Temporal pods without an egress allow rule for CoreDNS/Postgres
+# and the schema-init Job stuck on DNS i/o timeout (fixed 2026-05-10).
 # ---------------------------------------------------------------------------
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
@@ -439,16 +444,34 @@ metadata:
 spec:
   endpointSelector:
     matchLabels:
-      app.kubernetes.io/name: temporalserver
+      app.kubernetes.io/name: temporal
       app.kubernetes.io/instance: nomad-oasis
   ingress:
-    # Allow from NOMAD app and worker for workflow submission
+    # NOMAD app/worker submit workflows on 7233; inter-service gRPC on 7234-7239;
+    # cluster membership/gossip on 6933-6939; metrics on 9090. All from within
+    # nomad-oasis (NOMAD app + temporal pods themselves).
     - fromEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: nomad-oasis
       toPorts:
         - ports:
-            - port: "7233"   # Temporal frontend gRPC
+            - port: "7233"   # frontend gRPC (clients)
+              protocol: TCP
+            - port: "7234"   # history gRPC
+              protocol: TCP
+            - port: "7235"   # matching gRPC
+              protocol: TCP
+            - port: "7239"   # worker gRPC
+              protocol: TCP
+            - port: "6933"   # frontend membership
+              protocol: TCP
+            - port: "6934"   # history membership
+              protocol: TCP
+            - port: "6935"   # matching membership
+              protocol: TCP
+            - port: "6939"   # worker membership
+              protocol: TCP
+            - port: "9090"   # prometheus metrics
               protocol: TCP
     # Hubble observability
     - fromEndpoints:
@@ -468,7 +491,7 @@ spec:
           rules:
             dns:
               - matchPattern: "*"
-    # Temporal → PostgreSQL for persistence
+    # Temporal → PostgreSQL for persistence (frontend, history, matching, worker, schema-init)
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: nomad-oasis
@@ -477,6 +500,30 @@ spec:
       toPorts:
         - ports:
             - port: "5432"
+              protocol: TCP
+    # Inter-temporal: services need to call each other (history → matching, frontend → history, etc.)
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: temporal
+            app.kubernetes.io/instance: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "7233"
+              protocol: TCP
+            - port: "7234"
+              protocol: TCP
+            - port: "7235"
+              protocol: TCP
+            - port: "7239"
+              protocol: TCP
+            - port: "6933"
+              protocol: TCP
+            - port: "6934"
+              protocol: TCP
+            - port: "6935"
+              protocol: TCP
+            - port: "6939"
               protocol: TCP
     # STS VPC endpoint
     - toCIDRSet:
