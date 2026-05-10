@@ -68,7 +68,49 @@ spec:
           rules:
             dns:
               - matchPattern: "*"
-    # Intra-namespace: app → mongodb, elasticsearch, rabbitmq, postgresql, worker
+    # NOMAD app → MongoDB (Bitnami chart: name=mongodb, component=mongodb)
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/instance: nomad-oasis
+            app.kubernetes.io/component: mongodb
+      toPorts:
+        - ports:
+            - port: "27017"
+              protocol: TCP
+    # NOMAD app → Elasticsearch (chart: name=elasticsearch)
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: elasticsearch
+            app.kubernetes.io/instance: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "9200"
+              protocol: TCP
+            - port: "9300"
+              protocol: TCP
+    # NOMAD app → PostgreSQL (Bitnami chart: name=postgresql)
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: postgresql
+            app.kubernetes.io/instance: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # NOMAD app → Temporal frontend (sub-chart: name=temporal)
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: temporal
+            app.kubernetes.io/instance: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "7233"
+              protocol: TCP
+    # NOMAD app → NOMAD worker / other NOMAD pods (name=nomad release internal)
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: nomad-oasis
@@ -76,17 +118,9 @@ spec:
             app.kubernetes.io/instance: nomad-oasis
       toPorts:
         - ports:
-            - port: "27017"   # MongoDB
+            - port: "5672"    # RabbitMQ AMQP (if NOMAD ships its own)
               protocol: TCP
-            - port: "9200"    # Elasticsearch HTTP
-              protocol: TCP
-            - port: "9300"    # Elasticsearch transport
-              protocol: TCP
-            - port: "5432"    # PostgreSQL
-              protocol: TCP
-            - port: "5672"    # RabbitMQ AMQP (if enabled)
-              protocol: TCP
-            - port: "7233"    # Temporal frontend gRPC
+            - port: "8000"    # NOMAD app HTTP (worker calls back)
               protocol: TCP
     # STS VPC endpoint — CIDR, not FQDN (ipcache not populated in ENI mode)
     - toCIDRSet:
@@ -144,7 +178,49 @@ spec:
           rules:
             dns:
               - matchPattern: "*"
-    # Intra-namespace: worker → mongodb, elasticsearch, postgresql, temporal, app
+    # NOMAD worker → MongoDB
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/instance: nomad-oasis
+            app.kubernetes.io/component: mongodb
+      toPorts:
+        - ports:
+            - port: "27017"
+              protocol: TCP
+    # NOMAD worker → Elasticsearch
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: elasticsearch
+            app.kubernetes.io/instance: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "9200"
+              protocol: TCP
+            - port: "9300"
+              protocol: TCP
+    # NOMAD worker → PostgreSQL
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: postgresql
+            app.kubernetes.io/instance: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # NOMAD worker → Temporal frontend
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: temporal
+            app.kubernetes.io/instance: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "7233"
+              protocol: TCP
+    # NOMAD worker → NOMAD app / RabbitMQ (release internal)
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: nomad-oasis
@@ -152,19 +228,9 @@ spec:
             app.kubernetes.io/instance: nomad-oasis
       toPorts:
         - ports:
-            - port: "27017"
-              protocol: TCP
-            - port: "9200"
-              protocol: TCP
-            - port: "9300"
-              protocol: TCP
-            - port: "5432"
-              protocol: TCP
             - port: "5672"
               protocol: TCP
-            - port: "7233"
-              protocol: TCP
-            - port: "8000"    # app HTTP for API calls
+            - port: "8000"    # NOMAD app HTTP for API calls
               protocol: TCP
     # STS VPC endpoint
     - toCIDRSet:
