@@ -288,8 +288,19 @@ mongodb:
   auth:
     enabled: true
     # Never set rootPassword inline — use existingSecret from ESO.
-    # The K8s secret key MUST be "mongodb-root-password" (chart hard-codes this lookup).
-    existingSecret: "nomad-mongo-secret"
+    # CRITICAL: existingSecret name MUST be "{release-name}-mongodb"
+    # (= "nomad-oasis-mongodb"), NOT a custom name. The chart's
+    # configmap.yml does a hard-coded `lookup` of `{Release.Name}-mongodb`
+    # to embed the mongo password into the NOMAD app's URI. The
+    # existingSecret value on THIS block only affects the mongodb
+    # Deployment's env var; the configmap lookup ignores it. So both
+    # paths only line up when the Secret name is exactly
+    # nomad-oasis-mongodb. See ExternalSecret nomad-mongo-secret for
+    # the full explanation. Discovered 2026-05-10 — using any other
+    # name causes NOMAD app to receive an unauthenticated mongo URI,
+    # mongo rejects, FastAPI startup hangs, kubelet liveness-kills the
+    # pod after 21 min, repeat forever.
+    existingSecret: "nomad-oasis-mongodb"
   persistence:
     enabled: true
     storageClass: "gp3"   # gp3: 20% cheaper, 3x baseline IOPS vs gp2
