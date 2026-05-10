@@ -100,7 +100,8 @@ module "eks" {
     }
     # kube-proxy removed — Phase G: Cilium kubeProxyReplacement takes over service routing.
     vpc-cni = {
-      most_recent = true
+      most_recent    = true
+      before_compute = true  # install CNI before node groups join so nodes start Ready (cold-start race fix)
       configuration_values = jsonencode({
         env = {
           AWS_VPC_K8S_CNI_EXTERNALSNAT = "true"
