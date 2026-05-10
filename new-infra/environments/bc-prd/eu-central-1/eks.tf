@@ -98,7 +98,13 @@ module "eks" {
     coredns = {
       most_recent = true
     }
-    # kube-proxy removed — Phase G: Cilium kubeProxyReplacement takes over service routing.
+    # kube-proxy must stay for cold-start: without it (and before Cilium Stage-2 install),
+    # 172.20.0.1 ClusterIP is unreachable → coredns "kubernetes" plugin fails → DNS broken.
+    # Cilium kubeProxyReplacement=true (Stage 2) takes over via BPF; kube-proxy iptables
+    # rules become redundant but harmless — BPF intercepts traffic first.
+    kube-proxy = {
+      most_recent = true
+    }
     vpc-cni = {
       most_recent    = true
       before_compute = true  # install CNI before node groups join so nodes start Ready (cold-start race fix)
