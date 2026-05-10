@@ -44,9 +44,13 @@ resource "helm_release" "cilium" {
     name  = "hubble.ui.enabled"
     value = "true"
   }
+  # Use "default" not "always": "always" causes endpoint-registration race where pods starting
+  # under load (cold-start, scale-up) get identity reserved:unmanaged (id=3) and are implicitly
+  # denied before their CNP is installed. Enforcement comes from per-endpoint CNPs in
+  # new-infra/k8s/system-netpols/ and per-app cilium-netpol.yaml. Discovered 2026-05-10.
   set {
     name  = "policyEnforcementMode"
-    value = "always"
+    value = "default"
   }
 
   # Phase G: Replace kube-proxy with Cilium eBPF service routing.

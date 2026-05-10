@@ -82,8 +82,14 @@ use-case analysis and multi-VPC architecture rationale behind every decision her
 ## Phase D — Node labels + CNP manifests + enforcement
 
 **Goal:** Every security sensor (Suricata, Zeek, wazuh-agent) is scheduled, has a
-CiliumNetworkPolicy locking its traffic, and the cluster is in true default-deny
-(`policyEnforcementMode=always`). Apply Tetragon TracingPolicy.
+CiliumNetworkPolicy locking its traffic, and the cluster has explicit per-endpoint deny via CNPs
+(`policyEnforcementMode=default`). Apply Tetragon TracingPolicy.
+
+**⚠ Mode change (2026-05-10):** D.11 originally flipped enforcement to `always`. Reverted to
+`default` — `always` caused an endpoint-registration race (pods get `reserved:unmanaged` id=3,
+implicitly denied before their CNP installs) manifesting as ebs-csi-node CrashLoopBackOff and
+ESO STS timeouts on cold-start/scale-up. Enforcement is preserved: every workload namespace has
+at least one CNP (audit confirmed). `policyEnforcementMode=default` remains the stable setting.
 
 **⚠ hostNetwork caveat:** All three sensor DaemonSets run `hostNetwork: true`. In Cilium
 ENI mode, hostNetwork pods are identified by the node identity rather than a pod label
@@ -200,8 +206,8 @@ proceeding to D.12 (enforcement flip).
 **Goal:** Reusable module that packages the full security stack. Every `bc-*` EKS
 cluster calls it — bc-prd today, every future research cluster automatically.
 
-**Dependency:** Phase D must be complete and stable (policyEnforcementMode=always
-running clean) so we know exactly what the module must configure.
+**Dependency:** Phase D must be complete and stable (policyEnforcementMode=default,
+per-endpoint CNPs enforcing) so we know exactly what the module must configure.
 
 **⚠ Design note (updated 2026-05-07):** The original Phase F description said "only bc-prd
 needs the stack." That is wrong. The full platform will have N research VPCs each running
@@ -229,7 +235,7 @@ day one — see `new-infra/docs/cilium-eks-security-planning.md` Part 2 for rati
 
   # Behaviour flags
   hubble_enabled            (default: true)
-  policy_enforcement_mode   (default: "always")
+  policy_enforcement_mode   (default: "default"  — see guardrail in CLAUDE.md; do NOT use "always")
   wireguard_enabled         (default: true  — on by Phase H)
   bandwidth_manager_enabled (default: false — true for research clusters)
 
@@ -300,8 +306,8 @@ service proxying natively via eBPF.
 **Goal:** All pod-to-pod traffic within bc-prd, and all node egress toward bc-ctrl
 (Wazuh telemetry on TCP 1514), is encrypted in transit.
 
-**Dependency:** Phase D complete and stable (`policyEnforcementMode=always` running
-clean for at least one CI cycle with no unexpected drops).
+**Dependency:** Phase D complete and stable (`policyEnforcementMode=default`, per-endpoint
+CNPs enforcing, at least one CI cycle with no unexpected drops).
 
 **Why this cannot wait:** Wazuh agents on bc-prd ship telemetry containing raw log
 data and security event payloads to bc-ctrl via VPC peering. That link is currently
@@ -385,7 +391,7 @@ domain-specific FQDN policies. Lock every sidecar to exactly the external endpoi
 it needs. Prevents a compromised rule-update sidecar from calling out to arbitrary
 internet hosts.
 
-**Dependency:** Phase D complete + `policyEnforcementMode=always` stable. WireGuard
+**Dependency:** Phase D complete + `policyEnforcementMode=default` stable. WireGuard
 (Phase H) preferred but not required.
 
 **How Cilium FQDN policy works:** Cilium runs a DNS proxy that intercepts DNS

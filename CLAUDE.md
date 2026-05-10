@@ -103,7 +103,7 @@ Wazuh and MISP install via scripts fetched from S3 at boot (`bc-uatms-wazuh-snap
 | Tetragon | cilium/tetragon | 1.6.1 | kube-system |
 | External Secrets | charts.external-secrets.io | 0.10.7 | external-secrets |
 
-Cilium has Hubble relay + UI enabled (`policyEnforcementMode=always`). Falco uses `modern_ebpf` driver.
+Cilium has Hubble relay + UI enabled (`policyEnforcementMode=default`). Falco uses `modern_ebpf` driver.
 
 ### bc-prd DaemonSets (K8s Manifests)
 
@@ -212,6 +212,7 @@ These are not yet wired to any SIEM pipeline — they document intended detectio
 - **Pod limit on `t3.medium` workload nodes is 17 (VPC CNI)**: After deploying NOMAD Oasis the workload pool became "Too many pods" full and any new Deployment without a toleration for `dedicated=nomad:NoSchedule` could not schedule anywhere. Helm releases for kube-system controllers (ESO, ALB controller, etc.) MUST carry the toleration so they can spill onto the nomad node when workload is full.
 - **vpc-cni addon MUST have `before_compute = true`**: Without it, EKS creates node groups before the CNI addon is installed. Nodes launch without any CNI → stay `NotReady` → EKS marks node group `CREATE_FAILED: NodeCreationFailure`. This only manifests on a fresh cluster (cold-start); an existing cluster survives because nodes are already Ready. Fix: `before_compute = true` in the `vpc-cni` block inside `cluster_addons` in `eks.tf`. Discovered 2026-05-10 — run 25624059541 Stage 1 failure.
 - **kube-proxy MUST stay in `cluster_addons` for cold-start bootstrap**: Removing kube-proxy (Phase G) works on a running cluster because Cilium kubeProxyReplacement=true is already managing ClusterIP routing. On a **fresh cluster**, Cilium is not installed until Stage 2. Without kube-proxy, 172.20.0.1 (kubernetes ClusterIP) is unreachable → coredns `kubernetes` plugin fails → all pod DNS breaks → ebs-csi can't resolve STS → IRSA fails → addons stay in `CREATING` and time out after 20 min. Fix: keep `kube-proxy = { most_recent = true }` in `cluster_addons`. Once Cilium installs with `kubeProxyReplacement=true`, its BPF hooks intercept traffic before iptables, making kube-proxy's rules redundant but harmless. Discovered 2026-05-10 — run 25627024043.
+- **Cilium `policyEnforcementMode=default`, NOT `always`**: `always` triggers an endpoint-registration race — pods starting under load (cold-start, scale-up, taint-driven new node) get identity `reserved:unmanaged` (id=3) and are implicitly default-denied before their CNP is installed, causing ebs-csi-node CrashLoopBackOff, ESO STS timeouts, etc. With `default`, unregistered endpoints are not denied; explicit per-endpoint enforcement comes from CNPs in `new-infra/k8s/system-netpols/` and per-app `cilium-netpol.yaml`. All workload namespaces (wazuh, suricata, zeek, falco, external-secrets, kube-system, nomad-oasis) have at least one CNP — audit confirmed 2026-05-10. Discovered 2026-05-10.
 
 ---
 
@@ -372,7 +373,7 @@ Summary of open gaps:
 | Phase A | Done | Suricata memory tuning (requests 2Gi → 512Mi) |
 | Phase B | Done | Hubble relay + UI running; B.8–B.12 all validated green |
 | Phase C | Superseded | bc-ctrl EKS removed; Wazuh/MISP migrated to EC2 |
-| Phase D | Done | CNPs applied; `policyEnforcementMode=always` live; ESO secrets syncing |
+| Phase D | Done | CNPs applied; `policyEnforcementMode=default`; explicit CNPs are the authoritative deny layer; ESO secrets syncing |
 | Phase E | Superseded | Pipeline already rewritten with proper structure |
 | Phase F | Not started | eks-security-stack module — blocked on G+D stable |
 | Phase G | Done | kube-proxy removed; kubeProxyReplacement=true deployed and validated — CI run 25604876697 |
