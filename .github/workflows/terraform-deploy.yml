@@ -346,11 +346,36 @@ jobs:
       # NetworkPolicy resources can be validated against the live API.
       # NOMAD Helm release is also applied here because it depends on the
       # EFS StorageClass (efs-nomad-sc) and ExternalSecret CRDs being ready.
-      - name: Bootstrap CRDs and NOMAD Helm (Stage 2 Terraform)
+      # Stage 2a: Install Cilium only — establishes CiliumNetworkPolicy CRD and
+      # starts policy enforcement. Must run alone so CNPs can be applied before
+      # any other Helm releases start (they are deny-by-default under always-enforce).
+      - name: Install Cilium (Stage 2a)
+        working-directory: new-infra/environments/bc-prd/eu-central-1
+        run: terraform apply -auto-approve -target=helm_release.cilium
+
+      # Wait for Cilium CRDs before applying network policies. tracingpolicies
+      # CRD is from Tetragon (Stage 2b) so only wait for Cilium's own CRDs here.
+      - name: Wait for Cilium CRDs (Stage 2a)
+        run: |
+          for i in $(seq 1 30); do
+            kubectl wait --for condition=established --timeout=30s \
+              crd/ciliumnetworkpolicies.cilium.io \
+              crd/tracingpolicies.cilium.io 2>&1 && break
+            echo "CRDs not ready yet (attempt $i/30), retrying in 10s..."
+            sleep 10
+          done
+
+      # Apply system CNPs BEFORE any other Helm releases start.
+      # ALB controller, ESO, Falco, and Tetragon all need egress rules to be
+      # present from first-start or they CrashLoopBackOff under always-enforce.
+      - name: Apply system network policies (Stage 2a — before other releases)
+        run: kubectl kustomize new-infra/k8s/system-netpols | kubectl apply -f -
+
+      # Stage 2b: Deploy everything else now that CNPs are in place.
+      - name: Deploy remaining stack (Stage 2b)
         working-directory: new-infra/environments/bc-prd/eu-central-1
         run: |
           terraform apply -auto-approve \
-            -target=helm_release.cilium \
             -target=helm_release.falco \
             -target=helm_release.tetragon \
             -target=helm_release.external_secrets \
