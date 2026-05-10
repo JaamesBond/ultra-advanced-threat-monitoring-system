@@ -22,12 +22,14 @@ spec:
     - toEntities:
         - kube-apiserver
         - cluster
+        - remote-node
       toPorts:
         - ports:
             - port: "443"
               protocol: TCP
     - toEntities:
         - cluster
+        - remote-node
       toPorts:
         - ports:
             - port: "53"

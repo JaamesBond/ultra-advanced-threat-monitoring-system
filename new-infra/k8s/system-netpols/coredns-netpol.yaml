@@ -10,6 +10,7 @@ spec:
   ingress:
     - fromEntities:
         - cluster
+        - remote-node
       toPorts:
         - ports:
             - port: "53"
@@ -28,6 +29,7 @@ spec:
     - toEntities:
         - kube-apiserver
         - cluster
+        - remote-node
       toPorts:
         - ports:
             - port: "443"

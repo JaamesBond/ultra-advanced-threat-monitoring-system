@@ -10,6 +10,7 @@ spec:
   ingress:
     - fromEntities:
         - cluster
+        - remote-node
       toPorts:
         - ports:
             - port: "4245"
@@ -18,12 +19,14 @@ spec:
     # Connect to Cilium agent on each node (observer port)
     - toEntities:
         - host
+        - remote-node
       toPorts:
         - ports:
             - port: "4244"
               protocol: TCP
     - toEntities:
         - cluster
+        - remote-node
       toPorts:
         - ports:
             - port: "53"

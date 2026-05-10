@@ -11,6 +11,7 @@ spec:
     # frontend port — accessed via port-forward or future ingress
     - fromEntities:
         - cluster
+        - remote-node
       toPorts:
         - ports:
             - port: "8081"
@@ -25,6 +26,7 @@ spec:
   egress:
     - toEntities:
         - cluster
+        - remote-node
       toPorts:
         - ports:
             - port: "53"
@@ -37,6 +39,7 @@ spec:
     - toEntities:
         - kube-apiserver
         - cluster
+        - remote-node
       toPorts:
         - ports:
             - port: "443"

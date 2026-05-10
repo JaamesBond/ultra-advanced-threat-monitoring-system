@@ -23,6 +23,7 @@ spec:
     # CoreDNS — in-cluster DNS resolution (kube-system pods use toEntities:cluster)
     - toEntities:
         - cluster
+        - remote-node
       toPorts:
         - ports:
             - port: "53"
@@ -39,6 +40,7 @@ spec:
     - toEntities:
         - kube-apiserver
         - cluster
+        - remote-node
       toPorts:
         - ports:
             - port: "443"
