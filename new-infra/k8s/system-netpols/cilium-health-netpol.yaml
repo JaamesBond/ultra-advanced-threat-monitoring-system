@@ -1,23 +1,20 @@
 apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
+kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: cilium-health-netpol
-  namespace: kube-system
 spec:
   endpointSelector:
     matchLabels:
-      k8s-app: cilium-health
+      "reserved:health": ""
   ingress:
     - fromEntities:
         - remote-node
-      toPorts:
-        - ports:
-            - port: "4240"
-              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            "reserved:health": ""
   egress:
     - toEntities:
         - remote-node
-      toPorts:
-        - ports:
-            - port: "4240"
-              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            "reserved:health": ""

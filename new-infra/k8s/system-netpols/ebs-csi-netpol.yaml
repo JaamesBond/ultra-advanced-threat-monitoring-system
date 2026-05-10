@@ -4,7 +4,7 @@
 # toFQDNs is broken in this Cilium ENI deployment (ipcache not populated for resolved IPs);
 # STS uses toEntities:world (public path via fck-nat). STS VPC endpoint CIDR rule was removed
 # because VPC endpoint IPs change on every cluster rebuild.
-# EC2 VPC endpoint IPs (10.30.10.135/32, 10.30.11.26/32) are retained — validated stable.
+# EC2 VPC endpoint IPs (10.30.10.136/32, 10.30.11.101/32) are retained.
 # See: new-infra/k8s/system-netpols/external-secrets-netpol.yaml (working precedent).
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
@@ -32,28 +32,32 @@ spec:
               protocol: TCP
     # kube-apiserver — EBS CSI watches PVCs, PVs, StorageClasses, VolumeAttachments.
     # cluster entity added alongside kube-apiserver: when kubeProxyReplacement=true Cilium
-    # DNAT rewrites 172.20.0.1 to the actual API server ENI IPs before policy evaluation;
-    # those IPs carry remote-node identities under "cluster", not identity 7. Without
-    # "cluster" here the post-DNAT packets are dropped. EBS CSI node pods currently reach
-    # the API server via the coincidental toCIDRSet rules for 10.30.10.135/10.30.11.26 below;
-    # adding cluster here makes the intent explicit and removes the accidental dependency.
+    # DNAT rewrites 172.20.0.1 to the actual API server ENI IPs before policy evaluation.
+    # In EKS ENI mode, these IPs carry identity 16777217 (reserved:world).
     - toEntities:
         - kube-apiserver
         - cluster
         - remote-node
+        - world
       toPorts:
         - ports:
             - port: "443"
               protocol: TCP
     # STS — IRSA token exchange (AssumeRoleWithWebIdentity) via public endpoint + fck-nat.
     # STS VPC endpoint CIDR rule removed (IPs change on every cluster rebuild; world rule suffices).
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
     # EC2 VPC endpoint — DescribeAvailabilityZones, AttachVolume, etc.
     # IPs are stable ENI addresses; toFQDNs cannot be used (see header comment).
     # Verify with: aws ec2 describe-network-interfaces --query "NetworkInterfaces[*].PrivateIpAddress"
     #              --filters "Name=description,Values=*ec2*" --region eu-central-1
     - toCIDRSet:
-        - cidr: 10.30.10.135/32
-        - cidr: 10.30.11.26/32
+        - cidr: 10.30.10.136/32
+        - cidr: 10.30.11.101/32
       toPorts:
         - ports:
             - port: "443"

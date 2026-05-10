@@ -9,8 +9,7 @@ spec:
       k8s-app: kube-dns
   ingress:
     - fromEntities:
-        - cluster
-        - remote-node
+        - all
       toPorts:
         - ports:
             - port: "53"
@@ -23,13 +22,14 @@ spec:
         - ports:
             - port: "53"
               protocol: ANY
-    # kube-apiserver + cluster: kubeProxyReplacement=true causes Cilium to DNAT 172.20.0.1 to
-    # API server ENI IPs with remote-node identities before policy evaluation; "cluster" covers
-    # those IPs. See external-secrets-netpol.yaml for the full explanation and ipcache evidence.
+    # kube-apiserver + cluster + world: kubeProxyReplacement=true causes Cilium to DNAT 172.20.0.1 to
+    # API server ENI IPs. In EKS ENI mode, these IPs carry identity 16777217 (reserved:world),
+    # not identity 7 (kube-apiserver) or 6 (remote-node). "world" covers these IPs.
     - toEntities:
         - kube-apiserver
         - cluster
         - remote-node
+        - world
       toPorts:
         - ports:
             - port: "443"

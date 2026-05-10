@@ -27,13 +27,13 @@ spec:
               protocol: TCP
     # kube-apiserver — EFS CSI watches PVCs, PVs, StorageClasses, VolumeAttachments.
     # cluster entity added alongside kube-apiserver: when kubeProxyReplacement=true Cilium
-    # DNAT rewrites 172.20.0.1 to the actual API server ENI IPs before policy evaluation;
-    # those IPs carry remote-node identities under "cluster", not identity 7 (kube-apiserver).
-    # See external-secrets-netpol.yaml for the full explanation and ipcache evidence.
+    # DNAT rewrites 172.20.0.1 to the actual API server ENI IPs before policy evaluation.
+    # In EKS ENI mode, these IPs carry identity 16777217 (reserved:world).
     - toEntities:
         - kube-apiserver
         - cluster
         - remote-node
+        - world
       toPorts:
         - ports:
             - port: "443"
