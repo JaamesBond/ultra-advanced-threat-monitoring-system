@@ -371,8 +371,14 @@ jobs:
       - name: Apply system network policies (Stage 2a — before other releases)
         run: kubectl kustomize new-infra/k8s/system-netpols | kubectl apply -f -
 
-      # Stage 2b: Deploy everything else now that CNPs are in place.
-      - name: Deploy remaining stack (Stage 2b)
+      # Stage 2b: Deploy security stack + ESO + ALB controller — but NOT NOMAD yet.
+      # NOMAD's helm chart hard-codes a `lookup` of K8s Secret "{release}-mongodb"
+      # at template-render time to embed the mongo password into its configmap.
+      # The Secret only exists after ESO syncs the ExternalSecret in stage 2c, so
+      # NOMAD's helm release MUST run after the ExternalSecret has been applied
+      # AND ESO has reconciled it. Splitting Stage 2b around this avoids the
+      # cold-start broken-mongo-URI condition.
+      - name: Deploy security stack + ESO + ALB (Stage 2b)
         working-directory: new-infra/environments/bc-prd/eu-central-1
         run: |
           terraform apply -auto-approve \
@@ -382,7 +388,41 @@ jobs:
             -target=aws_iam_role.external_secrets \
             -target=aws_iam_role_policy.external_secrets_secrets_manager \
             -target=kubernetes_storage_class.efs_nomad \
-            -target=helm_release.aws_load_balancer_controller \
+            -target=helm_release.aws_load_balancer_controller
+
+      # Stage 2c: Apply NOMAD ExternalSecrets and wait for ESO to sync them
+      # BEFORE deploying the NOMAD helm release. The chart's lookup of
+      # "nomad-oasis-mongodb" only works if the K8s Secret already exists.
+      - name: Pre-create NOMAD ExternalSecrets (Stage 2c — pre-Helm)
+        run: |
+          # CRDs from ESO must be ready before applying ExternalSecret resources
+          for i in $(seq 1 30); do
+            kubectl wait --for condition=established --timeout=30s \
+              crd/externalsecrets.external-secrets.io 2>&1 && break
+            sleep 5
+          done
+          # Apply only the namespace + ExternalSecrets (NOT cilium-netpol which
+          # depends on the helm release for some Cilium identity stuff).
+          kubectl apply -f new-infra/k8s/nomad-oasis/namespace.yaml
+          kubectl apply -f new-infra/k8s/nomad-oasis/external-secrets/
+          # Wait for ESO to sync the mongo secret specifically — NOMAD chart's
+          # configmap lookup needs nomad-oasis-mongodb in place before render.
+          for i in $(seq 1 30); do
+            if kubectl -n nomad-oasis get secret nomad-oasis-mongodb >/dev/null 2>&1; then
+              echo "nomad-oasis-mongodb K8s Secret synced after ${i}x10s"
+              break
+            fi
+            echo "Waiting for ESO to sync nomad-oasis-mongodb (attempt $i/30)..."
+            sleep 10
+          done
+          kubectl -n nomad-oasis get secret nomad-oasis-mongodb \
+            || (echo "FATAL: nomad-oasis-mongodb never synced — NOMAD will deploy with empty mongo password" && exit 1)
+
+      # Stage 2d: NOMAD helm release — chart's lookup now finds the mongo secret.
+      - name: Deploy NOMAD helm release (Stage 2d)
+        working-directory: new-infra/environments/bc-prd/eu-central-1
+        run: |
+          terraform apply -auto-approve \
             -target=helm_release.nomad_oasis
 
       - name: Wait for CRDs to propagate
