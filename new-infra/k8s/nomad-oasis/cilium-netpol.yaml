@@ -78,12 +78,13 @@ spec:
         - ports:
             - port: "27017"
               protocol: TCP
-    # NOMAD app → Elasticsearch (chart: name=elasticsearch)
+    # NOMAD app → Elasticsearch — uses OLD-style chart labels
+    # (app=elasticsearch-master, release=nomad-oasis), NOT app.kubernetes.io/*
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: nomad-oasis
-            app.kubernetes.io/name: elasticsearch
-            app.kubernetes.io/instance: nomad-oasis
+            app: elasticsearch-master
+            release: nomad-oasis
       toPorts:
         - ports:
             - port: "9200"
@@ -188,12 +189,12 @@ spec:
         - ports:
             - port: "27017"
               protocol: TCP
-    # NOMAD worker → Elasticsearch
+    # NOMAD worker → Elasticsearch (old-style labels)
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: nomad-oasis
-            app.kubernetes.io/name: elasticsearch
-            app.kubernetes.io/instance: nomad-oasis
+            app: elasticsearch-master
+            release: nomad-oasis
       toPorts:
         - ports:
             - port: "9200"
@@ -371,6 +372,9 @@ spec:
 ---
 # ---------------------------------------------------------------------------
 # Policy 5: Elasticsearch
+# Uses OLD-style elastic chart labels (app=elasticsearch-master,
+# release=nomad-oasis), NOT app.kubernetes.io/* — actual deployed pods
+# don't carry the standard recommended labels at all.
 # ---------------------------------------------------------------------------
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
@@ -380,8 +384,8 @@ metadata:
 spec:
   endpointSelector:
     matchLabels:
-      app.kubernetes.io/name: elasticsearch
-      app.kubernetes.io/instance: nomad-oasis
+      app: elasticsearch-master
+      release: nomad-oasis
   ingress:
     # Allow from NOMAD app, worker, and Temporal
     - fromEndpoints:
@@ -415,8 +419,8 @@ spec:
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: nomad-oasis
-            app.kubernetes.io/name: elasticsearch
-            app.kubernetes.io/instance: nomad-oasis
+            app: elasticsearch-master
+            release: nomad-oasis
       toPorts:
         - ports:
             - port: "9300"
