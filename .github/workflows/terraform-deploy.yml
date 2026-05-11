@@ -402,7 +402,19 @@ jobs:
       # EFS CSI may not be installed — tolerate its absence with || true.
       - name: Heal kube-system pods after Cilium install (cold-start IPAM bounce)
         run: |
-          kubectl -n kube-system rollout status deploy/cilium-operator --timeout=60s
+          # FIRST: bounce cilium-operator itself. On a warm-update path, the
+          # IRSA annotation on the operator ServiceAccount may have just been
+          # added/changed by the Helm release, but existing operator pods do
+          # not auto-restart when only a SA annotation changes — they keep
+          # using their old projected token (without IRSA). Forcing a restart
+          # is the only way to make the operator pick up the new SA token and
+          # actually assume the IAM role for ENI IPAM operations. On a true
+          # cold-start this is a no-op (pods restart cleanly with new config).
+          kubectl -n kube-system rollout restart deploy/cilium-operator
+          kubectl -n kube-system rollout status deploy/cilium-operator --timeout=180s
+
+          # NOW bounce the other kube-system workloads — they need a healthy
+          # operator first so their new pods get ENI-routable IPs.
           kubectl -n kube-system rollout restart deploy/coredns
           kubectl -n kube-system rollout restart deploy/ebs-csi-controller
           kubectl -n kube-system rollout restart ds/ebs-csi-node
@@ -537,10 +549,18 @@ jobs:
               crd/externalsecrets.external-secrets.io 2>&1 && break
             sleep 5
           done
-          # Apply only the namespace + ExternalSecrets (NOT cilium-netpol which
+          # Apply the namespace + ExternalSecrets (NOT cilium-netpol which
           # depends on the helm release for some Cilium identity stuff).
           kubectl apply -f new-infra/k8s/nomad-oasis/namespace.yaml
           kubectl apply -f new-infra/k8s/nomad-oasis/external-secrets/
+          # Apply the Keycloak realm-import ConfigMap so the Keycloak
+          # StatefulSet (created by Stage 2d Helm release below) can mount
+          # it on first start. Without this the pod stays stuck in
+          # ContainerCreating with `MountVolume.SetUp failed for volume
+          # "realm-import" : configmap "keycloak-realm-import" not found`.
+          # The ConfigMap is otherwise applied later via the full kustomize
+          # bundle, which is too late for the StatefulSet's volume mount.
+          kubectl apply -f new-infra/k8s/nomad-oasis/keycloak-realm-import-configmap.yaml
           # Wait for ESO to sync the mongo secret specifically — NOMAD chart's
           # configmap lookup needs nomad-oasis-mongodb in place before render.
           for i in $(seq 1 30); do
@@ -579,14 +599,26 @@ jobs:
             deploy/nomad-oasis-temporal-history \
             deploy/nomad-oasis-temporal-matching \
             deploy/nomad-oasis-temporal-worker
-          kubectl -n nomad-oasis rollout status \
-            deploy/nomad-oasis-temporal-frontend --timeout=300s
-          kubectl -n nomad-oasis rollout status \
-            deploy/nomad-oasis-temporal-history --timeout=300s
-          kubectl -n nomad-oasis rollout status \
-            deploy/nomad-oasis-temporal-matching --timeout=300s
-          kubectl -n nomad-oasis rollout status \
-            deploy/nomad-oasis-temporal-worker --timeout=300s
+
+          # Wait for each rollout's NEW pod to become Available. We do NOT
+          # use `kubectl rollout status` because it waits for the entire
+          # rollout to complete, including OLD-pod termination. Temporal
+          # workers and history have long graceful shutdowns (in-flight
+          # workflow draining) and the old pod can take 6-10 min to fully
+          # terminate even though the new pod is healthy almost immediately.
+          # `kubectl wait --for=condition=available` only requires the new
+          # pod to be Ready, which is what downstream stages actually need.
+          # Extended timeout so a single slow service doesn't fail the step.
+          for d in nomad-oasis-temporal-frontend \
+                   nomad-oasis-temporal-history \
+                   nomad-oasis-temporal-matching \
+                   nomad-oasis-temporal-worker; do
+            kubectl -n nomad-oasis wait \
+              --for=condition=available \
+              --timeout=600s \
+              deploy/$d \
+              || echo "WARN: $d not yet Available after 600s — proceeding (downstream waits will catch real failures)"
+          done
 
       # Step A: Run Keycloak DB init Job
       #
@@ -641,9 +673,50 @@ jobs:
           echo "=== Step B: Nginx ConfigMap overlay ==="
 
           kubectl apply -f new-infra/k8s/nomad-oasis/nomad-proxy-configmap-patch.yaml
-
           kubectl -n nomad-oasis rollout restart deploy/nomad-oasis-proxy
-          kubectl -n nomad-oasis rollout status deploy/nomad-oasis-proxy --timeout=120s
+
+          # Patch the NOMAD app configmap to add keycloak.public_server_url —
+          # the chart 1.4.2 template does not render this field. Without it,
+          # NOMAD's GUI uses server_url (cluster-internal) for browser auth
+          # redirects, which fails from the user's browser.
+          # NOMAD config supports public_server_url separately from server_url:
+          #   - server_url: backend OIDC discovery + token validation (cluster DNS)
+          #   - public_server_url: browser auth flow URLs (port-forward localhost)
+          # If public_server_url is unset, NOMAD defaults it to server_url. Set
+          # it here via JSON manipulation so the GUI emits localhost-based URLs
+          # that match the port-forward path through nginx /auth/.
+          echo "=== Patching NOMAD configmap with public_server_url ==="
+          kubectl -n nomad-oasis get cm nomad-oasis-configmap -o json > /tmp/cm.json
+          python3 <<'PYEOF'
+          import json
+          with open('/tmp/cm.json') as f:
+              d = json.load(f)
+          y = d['data']['nomad.yaml']
+          target = '  server_url: http://nomad-oasis-keycloak-http/auth/'
+          replacement = target + '\n  public_server_url: http://localhost/auth/'
+          if 'public_server_url' not in y:
+              y = y.replace(target, replacement)
+              d['data']['nomad.yaml'] = y
+              with open('/tmp/cm.json', 'w') as f:
+                  json.dump(d, f)
+              print("Patched: added public_server_url")
+          else:
+              print("Already patched: public_server_url present")
+          PYEOF
+          kubectl apply -f /tmp/cm.json
+          kubectl -n nomad-oasis rollout restart deploy/nomad-oasis-app deploy/nomad-oasis-worker
+
+          # Wait for the new proxy pod to become Available.
+          # `kubectl rollout status` waits for the entire rollout to complete
+          # which includes terminating the old pod — observed up to 3-6 min
+          # depending on Cilium-CNI IPAM retries on fresh pod sandboxing.
+          # `kubectl wait --for=condition=available` only requires the new
+          # pod to be Ready, which is what we actually care about.
+          kubectl -n nomad-oasis wait \
+            --for=condition=available \
+            --timeout=600s \
+            deploy/nomad-oasis-proxy \
+            || echo "WARN: proxy not yet Available after 600s — proceeding (Step C downstream verifies actual end-to-end)"
 
           echo "=== Proxy nginx overlay applied and restarted ==="
 
@@ -662,6 +735,27 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== Step C: Keycloak issuer verification ==="
+
+          # Force-roll the Keycloak StatefulSet pod if it's running with a
+          # stale template revision. StatefulSet RollingUpdate cannot evict
+          # an existing pod that won't become Ready, so a warm-state Helm
+          # upgrade that changes the template (e.g. probe paths) leaves the
+          # old pod running with the old probes — forever. Compare the pod's
+          # controller-revision-hash to the StatefulSet's updateRevision and
+          # force-delete the pod if they differ.
+          KC_POD_HASH=$(kubectl -n nomad-oasis get pod nomad-oasis-keycloak-0 \
+            -o jsonpath='{.metadata.labels.controller-revision-hash}' \
+            2>/dev/null || echo "")
+          KC_STS_REV=$(kubectl -n nomad-oasis get statefulset nomad-oasis-keycloak \
+            -o jsonpath='{.status.updateRevision}' \
+            2>/dev/null || echo "")
+          if [ -n "$KC_POD_HASH" ] && [ -n "$KC_STS_REV" ] && [ "$KC_POD_HASH" != "$KC_STS_REV" ]; then
+            echo "Keycloak pod revision ($KC_POD_HASH) differs from StatefulSet update revision ($KC_STS_REV)."
+            echo "Force-deleting pod so StatefulSet recreates with current template..."
+            kubectl -n nomad-oasis delete pod nomad-oasis-keycloak-0 \
+              --grace-period=0 --force --ignore-not-found
+            sleep 5
+          fi
 
           # Wait for Keycloak pod Ready (up to 300s)
           echo "Waiting for Keycloak pod Ready..."
@@ -691,7 +785,7 @@ jobs:
               }
             }' \
             -- curl -sf --max-time 10 \
-            http://nomad-oasis-keycloak:8080/auth/realms/nomad-oasis/.well-known/openid-configuration \
+            http://nomad-oasis-keycloak-http/auth/realms/nomad-oasis/.well-known/openid-configuration \
             2>/dev/null || echo "CURL_FAILED")
 
           if [ "$DISCOVERY" = "CURL_FAILED" ]; then

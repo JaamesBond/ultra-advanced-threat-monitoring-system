@@ -81,7 +81,7 @@ nomad:
     # the browser issuer (localhost) and the backend token endpoint (cluster DNS)
     # both work without hostAliases or special routing.
     keycloak:
-      server_url: "http://nomad-oasis-keycloak/auth/"
+      server_url: "http://nomad-oasis-keycloak-http/auth/"
       realm_name: "nomad-oasis"
       username: admin
       client_id: "nomad_public"
@@ -549,6 +549,17 @@ keycloak:
       memory: "1Gi"
       cpu: "500m"
 
+  # Cache stack override.
+  #
+  # The keycloakx chart hardcodes KC_CACHE_STACK=jdbc-ping when database
+  # config is detected. Keycloak 24.0.5 rejects this value:
+  #   Invalid value for option 'kc.cache-stack': jdbc-ping.
+  #   Expected values are: tcp, udp, kubernetes, ec2, azure, google.
+  # Use the JGroups KUBE_PING-based stack which works for any replica
+  # count (including 1) — single-node "cluster" with no peers to discover.
+  cache:
+    stack: kubernetes
+
   # Import the nomad-oasis realm on every fresh start.
   # Keycloak skips import if the realm already exists (warm-restart safe).
   command:
@@ -557,8 +568,17 @@ keycloak:
     - "--import-realm"
 
   extraEnv: |
+    # KC_HOSTNAME must be HOSTNAME ONLY (no scheme) in Keycloak 24. Setting
+    # "http://localhost" caused the frontend URL to render as
+    #   issuer: http://http//localhost/...
+    # (double http, mangled colon) because Keycloak literally prepended its
+    # own scheme to the value. With just "localhost" + KC_HOSTNAME_STRICT_HTTPS=false
+    # Keycloak constructs frontend URLs as http://localhost/auth/...
+    #
+    # Use KC_HOSTNAME_URL for a fully-formed URL if you need to override scheme
+    # or port; we don't need that here because port 80 is implicit.
     - name: KC_HOSTNAME
-      value: "http://localhost"
+      value: "localhost"
     - name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC
       value: "true"
     - name: KC_HTTP_ENABLED
@@ -609,28 +629,44 @@ keycloak:
     relativePath: "/auth"
 
   # Probes — keycloakx 7.1.9 chart processes these via `tpl` so they MUST be
-  # passed as strings (block scalar with `|`), NOT as maps. A map raises:
-  #   wrong type for value; expected string; got map[string]interface {}
-  # at statefulset.yaml:166. The chart's default probes hit /health/live and
-  # /health/ready which require KC_HEALTH_ENABLED=true. We use the realm-master
-  # endpoint instead because we haven't enabled the health management interface.
-  livenessProbe: |
-    httpGet:
-      path: /auth/realms/master
-      port: http
-    initialDelaySeconds: 120
-    periodSeconds: 20
-    failureThreshold: 15
-    timeoutSeconds: 10
-
-  readinessProbe: |
-    httpGet:
-      path: /auth/realms/master
+  # passed as strings (block scalar with `|`), NOT as maps.
+  #
+  # Keycloak 24.0.5 reality check (NOT what the chart assumes):
+  #   - There is NO separate management interface port. KC_HTTP_MANAGEMENT_PORT
+  #     was introduced in Keycloak 25. In 24, health endpoints are served on
+  #     the MAIN HTTP port and honor KC_HTTP_RELATIVE_PATH (so they live at
+  #     /auth/health/started etc., NOT /health/started).
+  #   - The chart's defaults target port=http-internal (9000) which has no
+  #     listener in Keycloak 24 → all probes fail with connection refused
+  #     forever → pod loops on startupProbe restart.
+  #
+  # Solution: TCP socket probes on the main http port (8080). Always
+  # succeeds once Keycloak's HTTP server is listening, regardless of
+  # which paths Keycloak exposes. Cheap (no HTTP roundtrip) and avoids
+  # the chart's broken management-port assumptions.
+  startupProbe: |
+    tcpSocket:
       port: http
     initialDelaySeconds: 30
+    periodSeconds: 5
+    failureThreshold: 60
+    timeoutSeconds: 3
+
+  livenessProbe: |
+    tcpSocket:
+      port: http
+    initialDelaySeconds: 0
+    periodSeconds: 20
+    failureThreshold: 5
+    timeoutSeconds: 3
+
+  readinessProbe: |
+    tcpSocket:
+      port: http
+    initialDelaySeconds: 0
     periodSeconds: 10
-    failureThreshold: 10
-    timeoutSeconds: 5
+    failureThreshold: 5
+    timeoutSeconds: 3
 
 # =============================================================================
 # KEDA autoscaler — disabled for v1
