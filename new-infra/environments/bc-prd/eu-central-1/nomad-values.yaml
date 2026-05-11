@@ -568,8 +568,17 @@ keycloak:
     - "--import-realm"
 
   extraEnv: |
+    # KC_HOSTNAME must be HOSTNAME ONLY (no scheme) in Keycloak 24. Setting
+    # "http://localhost" caused the frontend URL to render as
+    #   issuer: http://http//localhost/...
+    # (double http, mangled colon) because Keycloak literally prepended its
+    # own scheme to the value. With just "localhost" + KC_HOSTNAME_STRICT_HTTPS=false
+    # Keycloak constructs frontend URLs as http://localhost/auth/...
+    #
+    # Use KC_HOSTNAME_URL for a fully-formed URL if you need to override scheme
+    # or port; we don't need that here because port 80 is implicit.
     - name: KC_HOSTNAME
-      value: "http://localhost"
+      value: "localhost"
     - name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC
       value: "true"
     - name: KC_HTTP_ENABLED
