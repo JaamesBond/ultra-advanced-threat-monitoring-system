@@ -620,43 +620,44 @@ keycloak:
     relativePath: "/auth"
 
   # Probes — keycloakx 7.1.9 chart processes these via `tpl` so they MUST be
-  # passed as strings (block scalar with `|`), NOT as maps. A map raises:
-  #   wrong type for value; expected string; got map[string]interface {}
-  # at statefulset.yaml:166.
+  # passed as strings (block scalar with `|`), NOT as maps.
   #
-  # Keycloak 24 with KC_HEALTH_ENABLED=true exposes /health/started,
-  # /health/ready, /health/live on the management port (http-internal=9000).
-  # These are CHEAP (no DB queries) and the correct primitives to use.
-  # The management interface does NOT honor KC_HTTP_RELATIVE_PATH —
-  # paths are /health/* not /auth/health/*. The chart's auto-added
-  # startupProbe gets this wrong (path: /auth/health) which is why
-  # the pod never reaches Ready — override here with the correct path.
+  # Keycloak 24.0.5 reality check (NOT what the chart assumes):
+  #   - There is NO separate management interface port. KC_HTTP_MANAGEMENT_PORT
+  #     was introduced in Keycloak 25. In 24, health endpoints are served on
+  #     the MAIN HTTP port and honor KC_HTTP_RELATIVE_PATH (so they live at
+  #     /auth/health/started etc., NOT /health/started).
+  #   - The chart's defaults target port=http-internal (9000) which has no
+  #     listener in Keycloak 24 → all probes fail with connection refused
+  #     forever → pod loops on startupProbe restart.
+  #
+  # Solution: TCP socket probes on the main http port (8080). Always
+  # succeeds once Keycloak's HTTP server is listening, regardless of
+  # which paths Keycloak exposes. Cheap (no HTTP roundtrip) and avoids
+  # the chart's broken management-port assumptions.
   startupProbe: |
-    httpGet:
-      path: /health/started
-      port: http-internal
+    tcpSocket:
+      port: http
     initialDelaySeconds: 30
     periodSeconds: 5
     failureThreshold: 60
-    timeoutSeconds: 5
+    timeoutSeconds: 3
 
   livenessProbe: |
-    httpGet:
-      path: /health/live
-      port: http-internal
+    tcpSocket:
+      port: http
     initialDelaySeconds: 0
     periodSeconds: 20
-    failureThreshold: 15
-    timeoutSeconds: 5
+    failureThreshold: 5
+    timeoutSeconds: 3
 
   readinessProbe: |
-    httpGet:
-      path: /health/ready
-      port: http-internal
+    tcpSocket:
+      port: http
     initialDelaySeconds: 0
     periodSeconds: 10
-    failureThreshold: 10
-    timeoutSeconds: 5
+    failureThreshold: 5
+    timeoutSeconds: 3
 
 # =============================================================================
 # KEDA autoscaler — disabled for v1

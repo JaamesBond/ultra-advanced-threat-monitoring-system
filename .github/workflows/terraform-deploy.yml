@@ -705,6 +705,27 @@ jobs:
           set -euo pipefail
           echo "=== Step C: Keycloak issuer verification ==="
 
+          # Force-roll the Keycloak StatefulSet pod if it's running with a
+          # stale template revision. StatefulSet RollingUpdate cannot evict
+          # an existing pod that won't become Ready, so a warm-state Helm
+          # upgrade that changes the template (e.g. probe paths) leaves the
+          # old pod running with the old probes — forever. Compare the pod's
+          # controller-revision-hash to the StatefulSet's updateRevision and
+          # force-delete the pod if they differ.
+          KC_POD_HASH=$(kubectl -n nomad-oasis get pod nomad-oasis-keycloak-0 \
+            -o jsonpath='{.metadata.labels.controller-revision-hash}' \
+            2>/dev/null || echo "")
+          KC_STS_REV=$(kubectl -n nomad-oasis get statefulset nomad-oasis-keycloak \
+            -o jsonpath='{.status.updateRevision}' \
+            2>/dev/null || echo "")
+          if [ -n "$KC_POD_HASH" ] && [ -n "$KC_STS_REV" ] && [ "$KC_POD_HASH" != "$KC_STS_REV" ]; then
+            echo "Keycloak pod revision ($KC_POD_HASH) differs from StatefulSet update revision ($KC_STS_REV)."
+            echo "Force-deleting pod so StatefulSet recreates with current template..."
+            kubectl -n nomad-oasis delete pod nomad-oasis-keycloak-0 \
+              --grace-period=0 --force --ignore-not-found
+            sleep 5
+          fi
+
           # Wait for Keycloak pod Ready (up to 300s)
           echo "Waiting for Keycloak pod Ready..."
           kubectl -n nomad-oasis wait \
