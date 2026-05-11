@@ -11,8 +11,14 @@
 # prevent_destroy guard protects against accidental `terraform destroy` runs
 # removing secrets that hold live credentials.
 #
-# recovery_window_in_days = 7 (not 0) gives operators a restore window if a
-# secret is accidentally deleted.
+# recovery_window_in_days = 0 (no soft-delete window) is required by the
+# on-demand teardown pattern: secrets must be deletable and immediately
+# recreatable on the next cold-start. With the default 7-day window, the
+# secret name is reserved for 7 days after destroy, causing
+# InvalidRequestException ("already scheduled for deletion") on the next
+# `terraform apply`. The trade-off is loss of undelete safety — acceptable
+# here because (a) these are shells without values managed by TF, and
+# (b) values are bootstrapped from GitHub Secrets by CI on every apply.
 # ---------------------------------------------------------------------------
 
 locals {
@@ -25,10 +31,10 @@ resource "aws_secretsmanager_secret" "nomad_api" {
   name                    = "bc/nomad-oasis/api"
   description             = "NOMAD Oasis API credentials"
   kms_key_id              = local.nomad_sm_kms_key_id
-  recovery_window_in_days = 7
+  recovery_window_in_days = 0
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
   }
 
   tags = merge(local.common_tags, { Name = "bc/nomad-oasis/api" })
@@ -38,10 +44,10 @@ resource "aws_secretsmanager_secret" "nomad_mongo" {
   name                    = "bc/nomad-oasis/mongo"
   description             = "NOMAD Oasis MongoDB credentials"
   kms_key_id              = local.nomad_sm_kms_key_id
-  recovery_window_in_days = 7
+  recovery_window_in_days = 0
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
   }
 
   tags = merge(local.common_tags, { Name = "bc/nomad-oasis/mongo" })
@@ -51,10 +57,10 @@ resource "aws_secretsmanager_secret" "nomad_keycloak" {
   name                    = "bc/nomad-oasis/keycloak"
   description             = "NOMAD Oasis Keycloak admin credentials"
   kms_key_id              = local.nomad_sm_kms_key_id
-  recovery_window_in_days = 7
+  recovery_window_in_days = 0
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
   }
 
   tags = merge(local.common_tags, { Name = "bc/nomad-oasis/keycloak" })
@@ -64,10 +70,10 @@ resource "aws_secretsmanager_secret" "nomad_north" {
   name                    = "bc/nomad-oasis/north"
   description             = "NOMAD Oasis north-API / federation token"
   kms_key_id              = local.nomad_sm_kms_key_id
-  recovery_window_in_days = 7
+  recovery_window_in_days = 0
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
   }
 
   tags = merge(local.common_tags, { Name = "bc/nomad-oasis/north" })
@@ -77,10 +83,10 @@ resource "aws_secretsmanager_secret" "nomad_datacite" {
   name                    = "bc/nomad-oasis/datacite"
   description             = "NOMAD Oasis DataCite DOI credentials (shell only -- may remain unpopulated)"
   kms_key_id              = local.nomad_sm_kms_key_id
-  recovery_window_in_days = 7
+  recovery_window_in_days = 0
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
   }
 
   tags = merge(local.common_tags, { Name = "bc/nomad-oasis/datacite" })
