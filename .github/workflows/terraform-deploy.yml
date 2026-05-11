@@ -292,7 +292,9 @@ jobs:
             -target=aws_secretsmanager_secret.nomad_datacite \
             -target=kubernetes_storage_class.gp3 \
             -target=aws_iam_role.alb_controller \
-            -target=aws_iam_role_policy.alb_controller
+            -target=aws_iam_role_policy.alb_controller \
+            -target=aws_iam_role.cilium_operator \
+            -target=aws_iam_role_policy.cilium_operator_eni
 
       - name: Configure kubectl (bc-prd-eks)
         run: |

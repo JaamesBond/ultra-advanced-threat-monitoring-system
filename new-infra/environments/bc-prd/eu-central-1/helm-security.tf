@@ -10,6 +10,75 @@ provider "helm" {
   }
 }
 
+# ---------------------------------------------------------------------------
+# IRSA role — Cilium operator (ENI IPAM)
+#
+# Without IRSA the operator falls back to IMDS → node instance role, which
+# only has AmazonEKSWorkerNodePolicy. That role lacks ec2:AssignPrivateIpAddresses
+# and friends, so the operator can attach ENIs but cannot populate them with
+# secondary IPs. Pod IPs end up unknown to AWS (not on any ENI), VPC DNS
+# replies are black-holed, and CoreDNS returns SERVFAIL.
+#
+# Permission set: Cilium reference policy for ENI IPAM mode.
+# https://docs.cilium.io/en/v1.19/network/concepts/ipam/eni/#required-privileges
+# ---------------------------------------------------------------------------
+resource "aws_iam_role" "cilium_operator" {
+  name = "${local.platform_name}-${local.env}-cilium-operator"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Federated = module.eks.oidc_provider_arn
+        }
+        Action = "sts:AssumeRoleWithWebIdentity"
+        Condition = {
+          StringEquals = {
+            "${module.eks.oidc_provider}:sub" = "system:serviceaccount:kube-system:cilium-operator"
+            "${module.eks.oidc_provider}:aud" = "sts.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = local.common_tags
+}
+
+resource "aws_iam_role_policy" "cilium_operator_eni" {
+  name = "cilium-operator-eni"
+  role = aws_iam_role.cilium_operator.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:DescribeInstances",
+          "ec2:DescribeInstanceTypes",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeVpcs",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeTags",
+          "ec2:CreateNetworkInterface",
+          "ec2:AttachNetworkInterface",
+          "ec2:DeleteNetworkInterface",
+          "ec2:DetachNetworkInterface",
+          "ec2:ModifyNetworkInterfaceAttribute",
+          "ec2:AssignPrivateIpAddresses",
+          "ec2:UnassignPrivateIpAddresses",
+          "ec2:CreateTags",
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 resource "helm_release" "cilium" {
   name            = "cilium"
   repository      = "https://helm.cilium.io/"
@@ -18,7 +87,11 @@ resource "helm_release" "cilium" {
   namespace       = "kube-system"
   cleanup_on_fail = true
 
-  depends_on = [module.eks]
+  depends_on = [
+    module.eks,
+    aws_iam_role.cilium_operator,
+    aws_iam_role_policy.cilium_operator_eni,
+  ]
 
   set {
     name  = "eni.enabled"
@@ -27,6 +100,15 @@ resource "helm_release" "cilium" {
   set {
     name  = "ipam.mode"
     value = "eni"
+  }
+  # Wire the operator ServiceAccount to the IRSA role so the operator uses
+  # dedicated ENI IPAM permissions instead of falling back to IMDS → node role.
+  # Without this annotation the operator cannot call AssignPrivateIpAddresses,
+  # pod IPs are unregistered on any AWS ENI, and VPC DNS is broken (GAP resolved
+  # 2026-05-11).
+  set {
+    name  = "operator.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = aws_iam_role.cilium_operator.arn
   }
   set {
     name  = "routingMode"
