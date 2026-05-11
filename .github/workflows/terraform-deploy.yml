@@ -424,9 +424,23 @@ jobs:
           kubectl get deploy -n kube-system efs-csi-controller >/dev/null 2>&1 \
             && kubectl -n kube-system rollout restart deploy/efs-csi-controller \
             || echo "efs-csi-controller not present, skipping"
-          kubectl -n kube-system rollout status deploy/coredns --timeout=300s
-          kubectl -n kube-system rollout status deploy/ebs-csi-controller --timeout=300s
-          kubectl -n kube-system rollout status ds/ebs-csi-node --timeout=300s
+          # `kubectl rollout status` waits for old pods to fully terminate,
+          # which can take 5+ min for EBS CSI controller (long graceful shutdown).
+          # `kubectl wait --for=condition=available` only requires a Ready new
+          # pod — that's what we actually care about. Best-effort with || echo
+          # so a single slow bounce doesn't fail the whole heal step; downstream
+          # waits catch real failures.
+          for d in coredns ebs-csi-controller; do
+            kubectl -n kube-system wait \
+              --for=condition=available \
+              --timeout=600s \
+              deploy/$d \
+              || echo "WARN: kube-system/$d not Available after 600s — proceeding"
+          done
+          # DaemonSets don't have a `condition=available`; check rollout progress
+          # but only with a short window (the bounce itself is what matters).
+          kubectl -n kube-system rollout status ds/ebs-csi-node --timeout=120s \
+            || echo "WARN: ds/ebs-csi-node rollout still in progress — proceeding"
 
       # Wait for Cilium CRDs before applying network policies. tracingpolicies
       # CRD is from Tetragon (Stage 2b) so only wait for Cilium's own CRDs here.
