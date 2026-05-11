@@ -598,27 +598,39 @@ keycloak:
       mountPath: /opt/keycloak/data/import
       readOnly: true
 
-  service:
-    type: ClusterIP
-    httpPort: 8080
+  # Service: chart defaults are Service port 80 → targetPort http (Pod 8080).
+  # That matches our nginx proxy_pass http://nomad-oasis-keycloak/auth/ and
+  # NOMAD server_url http://nomad-oasis-keycloak/auth/ (both implicit :80).
+  # No override needed; explicit override caused alignment bugs previously.
 
-  livenessProbe:
+  # Tell Keycloak to serve everything under /auth/ (NOMAD expects this prefix).
+  # The chart maps http.relativePath into KC_HTTP_RELATIVE_PATH env.
+  http:
+    relativePath: "/auth"
+
+  # Probes — keycloakx 7.1.9 chart processes these via `tpl` so they MUST be
+  # passed as strings (block scalar with `|`), NOT as maps. A map raises:
+  #   wrong type for value; expected string; got map[string]interface {}
+  # at statefulset.yaml:166. The chart's default probes hit /health/live and
+  # /health/ready which require KC_HEALTH_ENABLED=true. We use the realm-master
+  # endpoint instead because we haven't enabled the health management interface.
+  livenessProbe: |
     httpGet:
       path: /auth/realms/master
-      port: 8080
+      port: http
     initialDelaySeconds: 120
     periodSeconds: 20
     failureThreshold: 15
     timeoutSeconds: 10
 
-  readinessProbe:
+  readinessProbe: |
     httpGet:
       path: /auth/realms/master
-      port: 8080
-    initialDelaySeconds: 120
-    periodSeconds: 20
-    failureThreshold: 15
-    timeoutSeconds: 10
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    failureThreshold: 10
+    timeoutSeconds: 5
 
 # =============================================================================
 # KEDA autoscaler — disabled for v1
