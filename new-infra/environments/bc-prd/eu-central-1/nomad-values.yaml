@@ -81,7 +81,7 @@ nomad:
     # the browser issuer (localhost) and the backend token endpoint (cluster DNS)
     # both work without hostAliases or special routing.
     keycloak:
-      server_url: "http://nomad-oasis-keycloak/auth/"
+      server_url: "http://nomad-oasis-keycloak-http/auth/"
       realm_name: "nomad-oasis"
       username: admin
       client_id: "nomad_public"

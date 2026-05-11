@@ -549,10 +549,18 @@ jobs:
               crd/externalsecrets.external-secrets.io 2>&1 && break
             sleep 5
           done
-          # Apply only the namespace + ExternalSecrets (NOT cilium-netpol which
+          # Apply the namespace + ExternalSecrets (NOT cilium-netpol which
           # depends on the helm release for some Cilium identity stuff).
           kubectl apply -f new-infra/k8s/nomad-oasis/namespace.yaml
           kubectl apply -f new-infra/k8s/nomad-oasis/external-secrets/
+          # Apply the Keycloak realm-import ConfigMap so the Keycloak
+          # StatefulSet (created by Stage 2d Helm release below) can mount
+          # it on first start. Without this the pod stays stuck in
+          # ContainerCreating with `MountVolume.SetUp failed for volume
+          # "realm-import" : configmap "keycloak-realm-import" not found`.
+          # The ConfigMap is otherwise applied later via the full kustomize
+          # bundle, which is too late for the StatefulSet's volume mount.
+          kubectl apply -f new-infra/k8s/nomad-oasis/keycloak-realm-import-configmap.yaml
           # Wait for ESO to sync the mongo secret specifically — NOMAD chart's
           # configmap lookup needs nomad-oasis-mongodb in place before render.
           for i in $(seq 1 30); do
@@ -703,7 +711,7 @@ jobs:
               }
             }' \
             -- curl -sf --max-time 10 \
-            http://nomad-oasis-keycloak:8080/auth/realms/nomad-oasis/.well-known/openid-configuration \
+            http://nomad-oasis-keycloak-http/auth/realms/nomad-oasis/.well-known/openid-configuration \
             2>/dev/null || echo "CURL_FAILED")
 
           if [ "$DISCOVERY" = "CURL_FAILED" ]; then
