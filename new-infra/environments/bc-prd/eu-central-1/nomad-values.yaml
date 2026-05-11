@@ -587,8 +587,16 @@ keycloak:
       value: "false"
     - name: KC_HOSTNAME_STRICT_HTTPS
       value: "false"
-    - name: KC_PROXY
-      value: "edge"
+    # KC_PROXY=edge was removed because it tells Keycloak it's behind a TLS-
+    # terminating proxy, which makes Keycloak set the Secure flag on session
+    # cookies. The dev-path is HTTP all the way through (port-forward + nginx
+    # + Keycloak in plain HTTP), so the browser DROPS Secure cookies, and the
+    # next POST has no AUTH_SESSION_ID cookie → "Cookie not found. Please
+    # make sure cookies are enabled in your browser." (400 Bad Request).
+    #
+    # The chart already sets KC_PROXY_HEADERS=forwarded automatically, which
+    # is the modern (Keycloak 24+) equivalent and doesn't force Secure cookies.
+    # KC_PROXY itself is deprecated in Keycloak 24 and not needed.
     - name: KC_DB
       value: "postgres"
     - name: KC_DB_URL
