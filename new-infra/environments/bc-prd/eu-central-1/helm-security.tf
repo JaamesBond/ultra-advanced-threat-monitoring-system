@@ -670,26 +670,28 @@ resource "helm_release" "aws_load_balancer_controller" {
     value = aws_iam_role.alb_controller.arn
   }
 
-  # Webhook failurePolicy = Ignore.
+  # Disable the Service-mutator admission webhook.
   #
-  # The ALB controller registers a mutating webhook on Service creates that
-  # adds AWS-specific labels for LoadBalancer-type Services. On cold-start the
-  # webhook Service endpoint may not be responsive when downstream Helm
-  # releases (NOMAD in Stage 2d) try to create their Services — the apiserver
-  # call times out and the Service create is denied:
-  #   failed calling webhook "mservice.elbv2.k8s.aws":
-  #   Post "https://aws-load-balancer-webhook-service.kube-system.svc:443/
-  #   mutate-v1-service?timeout=10s": context deadline exceeded
+  # The chart registers three mutating webhooks (mpod, mservice, mtgb).
+  # The mservice one intercepts every Service create on the apiserver. On
+  # cold-start (or any time an ALB controller pod has a stale/unrouted IP)
+  # apiserver calls to the webhook time out. The chart hardcodes
+  # failurePolicy=Fail for mservice (webhookConfig.failurePolicy only affects
+  # mpod in this chart version), so timeouts block the Service create:
   #
-  # With failurePolicy=Ignore, a webhook timeout lets the Service create
-  # proceed. This is safe because:
-  #   - NOMAD's Services are ClusterIP — the ALB controller's mutations only
-  #     matter for LoadBalancer/Ingress-type resources.
-  #   - Once the controller is healthy, subsequent Service mutations apply
-  #     normally; only the brief startup race is affected.
+  #   failed to create resource: Internal error occurred: failed calling
+  #   webhook "mservice.elbv2.k8s.aws": context deadline exceeded
+  #
+  # Disabling the webhook entirely is the right move for this stack:
+  #   - All our in-cluster Services (NOMAD, security stack) are ClusterIP.
+  #   - The mservice webhook only adds AWS-specific labels to LoadBalancer-
+  #     type Services for ALB/NLB binding — we have no LoadBalancer Services.
+  #   - If LoadBalancer Services are ever introduced (e.g., for Hubble UI
+  #     ingress), the chart's Service controller still reconciles them
+  #     using its own discovery loop; the webhook is only an optimization.
   set {
-    name  = "webhookConfig.failurePolicy"
-    value = "Ignore"
+    name  = "enableServiceMutatorWebhook"
+    value = "false"
   }
 }
 

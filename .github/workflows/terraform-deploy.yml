@@ -402,7 +402,19 @@ jobs:
       # EFS CSI may not be installed — tolerate its absence with || true.
       - name: Heal kube-system pods after Cilium install (cold-start IPAM bounce)
         run: |
-          kubectl -n kube-system rollout status deploy/cilium-operator --timeout=60s
+          # FIRST: bounce cilium-operator itself. On a warm-update path, the
+          # IRSA annotation on the operator ServiceAccount may have just been
+          # added/changed by the Helm release, but existing operator pods do
+          # not auto-restart when only a SA annotation changes — they keep
+          # using their old projected token (without IRSA). Forcing a restart
+          # is the only way to make the operator pick up the new SA token and
+          # actually assume the IAM role for ENI IPAM operations. On a true
+          # cold-start this is a no-op (pods restart cleanly with new config).
+          kubectl -n kube-system rollout restart deploy/cilium-operator
+          kubectl -n kube-system rollout status deploy/cilium-operator --timeout=180s
+
+          # NOW bounce the other kube-system workloads — they need a healthy
+          # operator first so their new pods get ENI-routable IPs.
           kubectl -n kube-system rollout restart deploy/coredns
           kubectl -n kube-system rollout restart deploy/ebs-csi-controller
           kubectl -n kube-system rollout restart ds/ebs-csi-node
