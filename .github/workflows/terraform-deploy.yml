@@ -387,6 +387,34 @@ jobs:
         working-directory: new-infra/environments/bc-prd/eu-central-1
         run: terraform apply -auto-approve -target=helm_release.cilium
 
+      # Heal kube-system pods after Cilium install (cold-start IPAM bounce).
+      #
+      # EKS-managed addons (CoreDNS, EBS CSI, EFS CSI) boot BEFORE Cilium is
+      # installed — they start with kube-proxy and the cluster bootstrap. On a
+      # cold-start their pods may hold IPs that Cilium's IPAM doesn't know about,
+      # causing black-holed return traffic. Even after Cilium stabilizes, these
+      # pods keep their stale IPs and broken DNS resolver state until restarted.
+      #
+      # Wait for cilium-operator to be Ready first (confirms IRSA is live and
+      # the operator can actually manage ENI assignments), then bounce the
+      # affected kube-system workloads so they re-acquire clean IPs.
+      # EFS CSI may not be installed — tolerate its absence with || true.
+      - name: Heal kube-system pods after Cilium install (cold-start IPAM bounce)
+        run: |
+          kubectl -n kube-system rollout status deploy/cilium-operator --timeout=60s
+          kubectl -n kube-system rollout restart deploy/coredns
+          kubectl -n kube-system rollout restart deploy/ebs-csi-controller
+          kubectl -n kube-system rollout restart ds/ebs-csi-node
+          kubectl get ds -n kube-system efs-csi-node >/dev/null 2>&1 \
+            && kubectl -n kube-system rollout restart ds/efs-csi-node \
+            || echo "efs-csi-node not present, skipping"
+          kubectl get deploy -n kube-system efs-csi-controller >/dev/null 2>&1 \
+            && kubectl -n kube-system rollout restart deploy/efs-csi-controller \
+            || echo "efs-csi-controller not present, skipping"
+          kubectl -n kube-system rollout status deploy/coredns --timeout=300s
+          kubectl -n kube-system rollout status deploy/ebs-csi-controller --timeout=300s
+          kubectl -n kube-system rollout status ds/ebs-csi-node --timeout=300s
+
       # Wait for Cilium CRDs before applying network policies. tracingpolicies
       # CRD is from Tetragon (Stage 2b) so only wait for Cilium's own CRDs here.
       - name: Wait for Cilium CRDs (Stage 2a)
@@ -416,6 +444,24 @@ jobs:
             -target=aws_iam_role_policy.external_secrets_secrets_manager \
             -target=kubernetes_storage_class.efs_nomad \
             -target=helm_release.aws_load_balancer_controller
+
+      # Heal external-secrets after Stage 2b (cold-start DNS bounce).
+      #
+      # ESO pods created by the Helm release above inherit whatever DNS resolver
+      # state CoreDNS had at that moment. If CoreDNS was bounced in the IPAM heal
+      # step above but ESO started mid-restart, its pods may hold a stale
+      # /etc/resolv.conf or cached NXDOMAIN for STS/Secrets Manager endpoints.
+      # Restarting ESO here guarantees it picks up fresh DNS state before Stage 2c
+      # creates ExternalSecrets that depend on STS IRSA auth working end-to-end.
+      - name: Heal external-secrets after Stage 2b (cold-start DNS bounce)
+        run: |
+          kubectl -n external-secrets rollout restart \
+            deploy/external-secrets \
+            deploy/external-secrets-cert-controller
+          kubectl -n external-secrets rollout status \
+            deploy/external-secrets --timeout=300s
+          kubectl -n external-secrets rollout status \
+            deploy/external-secrets-cert-controller --timeout=300s
 
       # Apply system network policies after Stage 2b (post-Helm namespace creation).
       #
@@ -500,6 +546,33 @@ jobs:
         run: |
           terraform apply -auto-approve \
             -target=helm_release.nomad_oasis
+
+      # Heal Temporal services after NOMAD install (schema-race recovery).
+      #
+      # Temporal frontend/history/matching/worker boot the moment the Helm
+      # release lands and race against the temporal-schema Job which runs the
+      # SQL migrations (0.0 → 1.18 visibility / 1.1 → 1.9 default). On a
+      # cold-start the services usually win the race, cache the old schema
+      # version, and then loop-crash or silently refuse to process workflows
+      # once the migrations finish. A restart after the schema Job has had
+      # 60s to make initial progress forces them to re-read the version table
+      # and come up clean against the fully migrated schema.
+      - name: Heal Temporal services after NOMAD install (schema-race recovery)
+        run: |
+          sleep 60
+          kubectl -n nomad-oasis rollout restart \
+            deploy/nomad-oasis-temporal-frontend \
+            deploy/nomad-oasis-temporal-history \
+            deploy/nomad-oasis-temporal-matching \
+            deploy/nomad-oasis-temporal-worker
+          kubectl -n nomad-oasis rollout status \
+            deploy/nomad-oasis-temporal-frontend --timeout=300s
+          kubectl -n nomad-oasis rollout status \
+            deploy/nomad-oasis-temporal-history --timeout=300s
+          kubectl -n nomad-oasis rollout status \
+            deploy/nomad-oasis-temporal-matching --timeout=300s
+          kubectl -n nomad-oasis rollout status \
+            deploy/nomad-oasis-temporal-worker --timeout=300s
 
       - name: Wait for CRDs to propagate
         run: |
