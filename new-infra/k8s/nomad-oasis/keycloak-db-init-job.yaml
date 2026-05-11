@@ -97,9 +97,16 @@ spec:
               # If the role/db exists, the SELECT returns zero rows → no-op.
               # If it doesn't exist, the SELECT returns one row → CREATE runs.
 
-              psql -v ON_ERROR_STOP=1 -d postgres << SQL
+              # Pass KC_DB_PASSWORD to psql as a client-side variable.
+              # psql's :'name' syntax expands to a single-quoted literal, which
+              # is the safe way to interpolate a password into the CREATE ROLE
+              # statement. Without -v the variable is undefined and ON_ERROR_STOP
+              # aborts with `psql: error: variable "KC_DB_PASSWORD" not set`.
+              psql -v ON_ERROR_STOP=1 \
+                   -v kc_db_password="$KC_DB_PASSWORD" \
+                   -d postgres << 'SQL'
               -- Create keycloak role if it doesn't exist
-              SELECT 'CREATE ROLE keycloak LOGIN PASSWORD ''' || :'KC_DB_PASSWORD' || ''''
+              SELECT 'CREATE ROLE keycloak LOGIN PASSWORD ' || quote_literal(:'kc_db_password')
               WHERE NOT EXISTS (
                 SELECT FROM pg_roles WHERE rolname = 'keycloak'
               )
