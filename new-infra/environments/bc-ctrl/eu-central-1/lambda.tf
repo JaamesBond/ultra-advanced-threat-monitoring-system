@@ -28,9 +28,8 @@ resource "aws_iam_role" "lambda_quarantine_ec2_role" {
   })
 }
 
-resource "aws_iam_role_policy" "lambda_quarantine_ec2_policy" {
+resource "aws_iam_policy" "lambda_quarantine_ec2_policy" {
   name   = "lambda_quarantine_ec2_policy"
-  role   = aws_iam_role.lambda_quarantine_ec2_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
