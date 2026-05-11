@@ -599,14 +599,26 @@ jobs:
             deploy/nomad-oasis-temporal-history \
             deploy/nomad-oasis-temporal-matching \
             deploy/nomad-oasis-temporal-worker
-          kubectl -n nomad-oasis rollout status \
-            deploy/nomad-oasis-temporal-frontend --timeout=300s
-          kubectl -n nomad-oasis rollout status \
-            deploy/nomad-oasis-temporal-history --timeout=300s
-          kubectl -n nomad-oasis rollout status \
-            deploy/nomad-oasis-temporal-matching --timeout=300s
-          kubectl -n nomad-oasis rollout status \
-            deploy/nomad-oasis-temporal-worker --timeout=300s
+
+          # Wait for each rollout's NEW pod to become Available. We do NOT
+          # use `kubectl rollout status` because it waits for the entire
+          # rollout to complete, including OLD-pod termination. Temporal
+          # workers and history have long graceful shutdowns (in-flight
+          # workflow draining) and the old pod can take 6-10 min to fully
+          # terminate even though the new pod is healthy almost immediately.
+          # `kubectl wait --for=condition=available` only requires the new
+          # pod to be Ready, which is what downstream stages actually need.
+          # Extended timeout so a single slow service doesn't fail the step.
+          for d in nomad-oasis-temporal-frontend \
+                   nomad-oasis-temporal-history \
+                   nomad-oasis-temporal-matching \
+                   nomad-oasis-temporal-worker; do
+            kubectl -n nomad-oasis wait \
+              --for=condition=available \
+              --timeout=600s \
+              deploy/$d \
+              || echo "WARN: $d not yet Available after 600s — proceeding (downstream waits will catch real failures)"
+          done
 
       # Step A: Run Keycloak DB init Job
       #

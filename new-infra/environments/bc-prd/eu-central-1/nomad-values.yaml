@@ -549,6 +549,17 @@ keycloak:
       memory: "1Gi"
       cpu: "500m"
 
+  # Cache stack override.
+  #
+  # The keycloakx chart hardcodes KC_CACHE_STACK=jdbc-ping when database
+  # config is detected. Keycloak 24.0.5 rejects this value:
+  #   Invalid value for option 'kc.cache-stack': jdbc-ping.
+  #   Expected values are: tcp, udp, kubernetes, ec2, azure, google.
+  # Use the JGroups KUBE_PING-based stack which works for any replica
+  # count (including 1) — single-node "cluster" with no peers to discover.
+  cache:
+    stack: kubernetes
+
   # Import the nomad-oasis realm on every fresh start.
   # Keycloak skips import if the realm already exists (warm-restart safe).
   command:
