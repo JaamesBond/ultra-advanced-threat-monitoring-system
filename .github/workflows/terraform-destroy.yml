@@ -1,0 +1,106 @@
+name: Terraform Destroy (v8)
+
+# Manual destroy of bc-prd + bc-ctrl. This is the on-demand teardown
+# path documented in CLAUDE.md "On-demand teardown" — the resting
+# state of the platform is empty AWS, and we expect the deploy
+# pipeline to bring it back from cold every time.
+#
+# Order: bc-prd first (it owns the peering requester to bc-ctrl,
+# the EKS cluster, and all the helm releases) then bc-ctrl (VPC,
+# Route53 zone, EC2 instances).
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'destroy' to confirm — this deletes EKS, all EC2s, all data"
+        required: true
+        type: string
+
+concurrency:
+  group: terraform-deploy
+  cancel-in-progress: false
+
+env:
+  AWS_ACCOUNT_ID: "845517756853"
+  AWS_REGION: "eu-central-1"
+
+jobs:
+  prd-destroy:
+    name: Destroy Production Plane (The Data)
+    runs-on: self-hosted
+    if: ${{ inputs.confirm == 'destroy' }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::845517756853:role/GitHubActionsDeployRole
+          aws-region: eu-central-1
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig --region eu-central-1 --name bc-uatms-prd-eks --kubeconfig /tmp/kubeconfig-prd
+          echo "KUBECONFIG=/tmp/kubeconfig-prd" >> $GITHUB_ENV
+        continue-on-error: true
+
+      # Best-effort cleanup of helm releases first. terraform destroy
+      # will reconcile what's left, but uninstalling explicitly via
+      # helm is faster and avoids the kubernetes provider hanging on
+      # PVCs that don't release cleanly.
+      - name: Uninstall helm releases (best-effort)
+        continue-on-error: true
+        run: |
+          for release in nomad-oasis aws-load-balancer-controller external-secrets tetragon falco cilium; do
+            echo "=== Uninstalling $release ==="
+            helm -n kube-system uninstall $release 2>/dev/null || \
+              helm -n nomad-oasis uninstall $release 2>/dev/null || \
+              helm -n falco uninstall $release 2>/dev/null || \
+              helm -n external-secrets uninstall $release 2>/dev/null || \
+              echo "$release not found"
+          done
+
+      # Clean up PVCs explicitly so terraform doesn't hang on
+      # PV finalizers waiting for the StorageClass provisioner.
+      - name: Delete PVCs (best-effort)
+        continue-on-error: true
+        run: |
+          kubectl delete pvc --all -n nomad-oasis --grace-period=0 --force --timeout=60s || true
+          kubectl delete pv --all --grace-period=0 --force --timeout=60s || true
+
+      - name: Terraform destroy bc-prd
+        working-directory: new-infra/environments/bc-prd/eu-central-1
+        run: |
+          terraform init -reconfigure
+          terraform destroy -auto-approve
+
+  ctrl-destroy:
+    name: Destroy Control Plane (The Brain)
+    runs-on: ubuntu-latest
+    needs: prd-destroy
+    if: ${{ inputs.confirm == 'destroy' }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::845517756853:role/GitHubActionsDeployRole
+          aws-region: eu-central-1
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform destroy bc-ctrl
+        working-directory: new-infra/environments/bc-ctrl/eu-central-1
+        run: |
+          terraform init -reconfigure
+          terraform destroy -auto-approve
