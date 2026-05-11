@@ -673,9 +673,19 @@ jobs:
           echo "=== Step B: Nginx ConfigMap overlay ==="
 
           kubectl apply -f new-infra/k8s/nomad-oasis/nomad-proxy-configmap-patch.yaml
-
           kubectl -n nomad-oasis rollout restart deploy/nomad-oasis-proxy
-          kubectl -n nomad-oasis rollout status deploy/nomad-oasis-proxy --timeout=120s
+
+          # Wait for the new proxy pod to become Available.
+          # `kubectl rollout status` waits for the entire rollout to complete
+          # which includes terminating the old pod — observed up to 3-6 min
+          # depending on Cilium-CNI IPAM retries on fresh pod sandboxing.
+          # `kubectl wait --for=condition=available` only requires the new
+          # pod to be Ready, which is what we actually care about.
+          kubectl -n nomad-oasis wait \
+            --for=condition=available \
+            --timeout=600s \
+            deploy/nomad-oasis-proxy \
+            || echo "WARN: proxy not yet Available after 600s — proceeding (Step C downstream verifies actual end-to-end)"
 
           echo "=== Proxy nginx overlay applied and restarted ==="
 
