@@ -391,8 +391,7 @@ jobs:
         run: |
           for i in $(seq 1 30); do
             kubectl wait --for condition=established --timeout=30s \
-              crd/ciliumnetworkpolicies.cilium.io \
-              crd/tracingpolicies.cilium.io 2>&1 && break
+              crd/ciliumnetworkpolicies.cilium.io 2>&1 && break
             echo "CRDs not ready yet (attempt $i/30), retrying in 10s..."
             sleep 10
           done
