@@ -178,19 +178,31 @@ jobs:
       # resources still exist in AWS, causing cascading AlreadyExists on
       # the next apply.
       #
-      # This step checks for the sentinel resource and blocks the pipeline
-      # if state is drifted. Recovery must be done manually:
-      #   1. terraform state pull > backup.tfstate
-      #   2. providers.override.tf with empty helm { kubernetes {} }
-      #   3. terraform import <addr> <id> for each missing resource
-      #   4. terraform plan to verify no unexpected destroys
-      #   5. Remove providers.override.tf, commit state is healthy
+      # Three-way logic (sentinel = module.eks.aws_eks_cluster.this[0]):
+      #
+      #   Case 1 — sentinel IN state:
+      #     Healthy, proceed.
+      #
+      #   Case 2 — sentinel NOT in state AND cluster NOT in AWS:
+      #     True cold-start (empty state + empty AWS). Proceed.
+      #     This is the expected resting state between teardowns.
+      #
+      #   Case 3 — sentinel NOT in state AND cluster EXISTS in AWS:
+      #     State drift from a cancelled apply. Fail loud.
+      #     Manual recovery required before this pipeline can run:
+      #       1. terraform state pull > backup.tfstate
+      #       2. providers.override.tf with empty helm { kubernetes {} }
+      #       3. terraform import <addr> <id> for each missing resource
+      #       4. terraform plan to verify no unexpected destroys
+      #       5. Remove providers.override.tf, commit — state is healthy
       # ---------------------------------------------------------------
       - name: Check Terraform state health (fail-loud, no mutations)
         working-directory: new-infra/environments/bc-prd/eu-central-1
         run: |
           set -euo pipefail
           SENTINEL="module.eks.aws_eks_cluster.this[0]"
+          CLUSTER_NAME="bc-uatms-prd-eks"
+          REGION="eu-central-1"
 
           terraform init -reconfigure
 
@@ -201,18 +213,38 @@ jobs:
           # false "not found". Using a variable + `|| true` absorbs the provider error and
           # lets grep operate only on the text.
           STATE_LIST=$(terraform state list 2>/dev/null || true)
+
           if echo "$STATE_LIST" | grep -qF "$SENTINEL"; then
-            echo "EKS cluster found in state — state is healthy, proceeding."
+            # Case 1: sentinel present — state is healthy.
+            echo "Case 1: EKS cluster found in state — state is healthy, proceeding."
           else
-            echo ""
-            echo "ERROR: EKS cluster NOT found in Terraform state."
-            echo "State is drifted — the cluster exists in AWS but is not tracked by Terraform."
-            echo ""
-            echo "Manual recovery required before this pipeline can run:"
-            echo "  See CLAUDE.md section 'Common Failure Modes' for the recovery procedure."
-            echo ""
-            echo "$STATE_LIST" | head -40
-            exit 1
+            # Sentinel not in state. Probe AWS to distinguish cold-start from drift.
+            echo "Sentinel not found in state. Probing AWS for cluster existence..."
+            if aws eks describe-cluster \
+                --name "$CLUSTER_NAME" \
+                --region "$REGION" \
+                --output text \
+                --query "cluster.status" \
+                > /dev/null 2>&1; then
+              # Case 3: cluster exists in AWS but not in state — drift from cancelled apply.
+              echo ""
+              echo "ERROR: EKS cluster '$CLUSTER_NAME' exists in AWS but is NOT tracked in Terraform state."
+              echo "State is drifted — likely caused by a cancelled apply."
+              echo ""
+              echo "Manual recovery required before this pipeline can run:"
+              echo "  1. terraform state pull > backup.tfstate"
+              echo "  2. providers.override.tf with empty helm { kubernetes {} }"
+              echo "  3. terraform import <addr> <id> for each missing resource"
+              echo "  4. terraform plan to verify no unexpected destroys"
+              echo "  5. Remove providers.override.tf, commit — state is healthy"
+              echo ""
+              echo "Current state contents (first 40 lines):"
+              echo "$STATE_LIST" | head -40
+              exit 1
+            else
+              # Case 2: cluster absent in both state and AWS — true cold-start.
+              echo "Case 2: Cold-start detected — cluster absent from state and AWS. Proceeding."
+            fi
           fi
 
       # Surface what's now in state so the next step's plan is auditable.
