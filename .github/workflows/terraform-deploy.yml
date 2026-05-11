@@ -436,6 +436,34 @@ jobs:
       - name: Apply system network policies (post-Stage-2b)
         run: kubectl kustomize new-infra/k8s/system-netpols | kubectl apply -f -
 
+      # Apply the shared ClusterSecretStore before any ExternalSecret consumer.
+      # The store "aws-secrets-manager" is cluster-scoped and used by NOMAD,
+      # suricata, and zeek. It was previously co-located in the suricata
+      # kustomize (Stage 3), causing NOMAD's Stage 2c ExternalSecrets to fail
+      # with "ClusterSecretStore not found". Moving the apply here — after ESO
+      # is confirmed running (Stage 2b) and before Stage 2c — fixes the race.
+      - name: Apply shared ClusterSecretStore (post-Stage-2b)
+        run: |
+          # Wait for the ClusterSecretStore CRD (installed by ESO in Stage 2b).
+          for i in $(seq 1 30); do
+            kubectl wait --for condition=established --timeout=30s \
+              crd/clustersecretstores.external-secrets.io 2>&1 && break
+            echo "ClusterSecretStore CRD not ready yet (attempt $i/30), retrying in 10s..."
+            sleep 10
+          done
+          kubectl kustomize new-infra/k8s/system-secretstore | kubectl apply -f -
+          # Best-effort readiness check — don't block indefinitely on IRSA warm-up.
+          for i in $(seq 1 12); do
+            STATUS=$(kubectl get clustersecretstore aws-secrets-manager \
+              -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
+            if [ "$STATUS" = "True" ]; then
+              echo "ClusterSecretStore aws-secrets-manager is Ready"
+              break
+            fi
+            echo "Waiting for ClusterSecretStore Ready (attempt $i/12, status=${STATUS:-unknown})..."
+            sleep 10
+          done
+
       # Stage 2c: Apply NOMAD ExternalSecrets and wait for ESO to sync them
       # BEFORE deploying the NOMAD helm release. The chart's lookup of
       # "nomad-oasis-mongodb" only works if the K8s Secret already exists.
