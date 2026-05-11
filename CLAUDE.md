@@ -391,6 +391,59 @@ Summary of open gaps:
 | Phase J | Fix pending CI | J.5 revealed 2 CNP gaps: ebs-csi IMDS + cilium-health port 4240. Fixes in system-netpols, pending next CI run |
 | Phase K | Deferred | Host firewall — do NOT start on bc-prd until D+G+H complete |
 
+### NOMAD Oasis + Local Keycloak (2026-05-11/12)
+
+**Full cold-start hardening landed.** Pipeline runs from empty AWS state → green end-to-end with zero manual steps. See `SESSION_2026-05-11_KEYCLOAK_MIGRATION.md` for the full chronicle of ~22 commits and their root causes.
+
+| Component | Status |
+|---|---|
+| Cilium operator IRSA + EC2 ENI perms (incl. `DescribeRouteTables`) | Working |
+| AWS_REGION + cluster.name on cilium-operator (avoids EC2 API timeout) | Set in helm-security.tf |
+| ALB controller `enableServiceMutatorWebhook: false` | Set (avoids Service-create webhook timeouts) |
+| Auto-bounce kube-system / ESO / Temporal / cilium-operator | In workflow Stage 2a, 2b, 2d heal steps |
+| Keycloak 24.0.5 via codecentric/keycloakx 7.1.9 sub-chart | Deployed + healthy |
+| Realm `nomad-oasis` with `testuser`/`testpass123` auto-imported | ConfigMap at `k8s/nomad-oasis/keycloak-realm-import-configmap.yaml` |
+| Keycloak DB init Job (idempotent psql `\gexec`) | Step A in workflow |
+| nginx proxy `/auth/` overlay | ConfigMap at `k8s/nomad-oasis/nomad-proxy-configmap-patch.yaml`, re-applied in Step B |
+| Backend OIDC discovery + token validation NOMAD ↔ Keycloak | **Working** |
+| **Browser OAuth login form-submit** | **NOT WORKING** — see "Open Issues" below |
+
+### Open issue: browser login on dev-path
+
+Browser auth flow gets the Keycloak login form but the form-submit POST fails with `"Cookie not found. Please make sure cookies are enabled in your browser."` (HTTP 400 from `/auth/realms/nomad-oasis/login-actions/authenticate`).
+
+**Root cause**: Keycloak 24+ defaults session cookies to `SameSite=None`, which the browser only accepts paired with `Secure`. Our dev-path is plain HTTP (port-forward → nginx → Keycloak all HTTP), so the browser silently drops the `Secure`-flagged cookies. Removed `KC_PROXY=edge` didn't help — Keycloak still emits `SameSite=None` defaults.
+
+**Fix paths** (none implemented yet):
+1. **Production path (recommended)** — ALB Ingress + ACM cert + Route53 zone. Real HTTPS, real domain. `Secure` cookies work natively. ~$16/mo for ALB + $0.50/mo Route53.
+2. **Keycloak SPI customization** to disable `SameSite=None` defaults. Not exposed via env in Keycloak 24; would need a downstream fork.
+3. **Pin older Keycloak** (e.g., 22.x) that defaults to `SameSite=Lax`. Drifts from upstream support.
+
+**Workaround for now**: NOMAD anonymous browsing works fine without login (About, public data browsing). Useful for verifying deployment health.
+
+### Cold-start gotchas baked into code (don't undo these)
+
+These all surfaced today and have fixes committed. Removing them will re-break cold-start:
+
+| Gotcha | Fix location |
+|---|---|
+| SM secret 7-day soft-delete blocks re-create | `recovery_window_in_days = 0` on all `nomad-oasis/*` secrets |
+| TF `for_each` on apply-time-unknown module outputs | `count = <static>` instead (see `efs-nomad.tf`) |
+| State guard fails on true cold-start | Probes AWS for EKS cluster before fail-loud (see `terraform-deploy.yml` state health step) |
+| Cilium operator IRSA Helm path | `serviceAccounts.operator.annotations` (NOT singular) |
+| Cilium operator warm-update missing IRSA | Explicit `kubectl rollout restart deploy/cilium-operator` after Cilium Helm |
+| ALB controller mservice webhook blocks Service creates on cold-start | `enableServiceMutatorWebhook: false` |
+| ESO cert-controller readiness probe never passes (chart bug) | Best-effort wait with `|| echo` |
+| Tetragon CRD wait in Stage 2a (CRD comes in 2b) | Removed from Stage 2a wait |
+| `kubectl rollout status` waits on slow old-pod termination | Use `kubectl wait --for=condition=available` for Deployments |
+| Keycloak chart hardcodes `KC_CACHE_STACK=jdbc-ping` (invalid in KC24) | Override `cache.stack: kubernetes` |
+| Keycloak 24 has no separate management port (chart targets `http-internal`) | TCP socket probes on `http` port |
+| Keycloak `KC_HOSTNAME` must be hostname-only (not URL) | `localhost` not `http://localhost` |
+| Realm-import ConfigMap mounted by Keycloak STS, applied too late by kustomize | Pre-applied in Stage 2c |
+| nginx proxy `/auth/` upstream caches DNS at startup | nginx config applied after Keycloak Service exists; pipeline restarts proxy in Step B |
+| Cilium policy DROPPED proxy → keycloak:8080 | Explicit `nomad-proxy-netpol` egress to keycloak |
+| Keycloak StatefulSet rolling-update stalls if old pod won't Ready | Step C force-deletes pod when `controller-revision-hash` != `updateRevision` |
+
 ---
 
 ## Configuration & Policies
