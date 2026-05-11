@@ -110,6 +110,31 @@ resource "helm_release" "cilium" {
     name  = "serviceAccounts.operator.annotations.eks\\.amazonaws\\.com/role-arn"
     value = aws_iam_role.cilium_operator.arn
   }
+
+  # AWS region for the EC2 / ENI API calls the operator makes.
+  # Without this the AWS SDK falls back to IMDS lookup (slow on hostNetwork
+  # in some configs) or defaults to us-east-1, so EC2 calls from a
+  # eu-central-1 cluster time out:
+  #   level=fatal msg="Unable to start eni allocator"
+  #   error="unable to initialize ENI instances manager: timed out waiting for the condition"
+  # Discovered 2026-05-11 run 25693xxxxx.
+  set {
+    name  = "operator.extraEnv[0].name"
+    value = "AWS_REGION"
+  }
+  set {
+    name  = "operator.extraEnv[0].value"
+    value = local.region
+  }
+  # Cluster name suppresses the operator warning:
+  #   "Unable to detect EKS cluster name for ENI garbage collection.
+  #    This operator instance may clean up dangling ENIs from other Cilium
+  #    clusters."
+  # and scopes ENI GC to this cluster's tags only.
+  set {
+    name  = "cluster.name"
+    value = module.eks.cluster_name
+  }
   set {
     name  = "routingMode"
     value = "native"
