@@ -669,6 +669,28 @@ resource "helm_release" "aws_load_balancer_controller" {
     name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
     value = aws_iam_role.alb_controller.arn
   }
+
+  # Webhook failurePolicy = Ignore.
+  #
+  # The ALB controller registers a mutating webhook on Service creates that
+  # adds AWS-specific labels for LoadBalancer-type Services. On cold-start the
+  # webhook Service endpoint may not be responsive when downstream Helm
+  # releases (NOMAD in Stage 2d) try to create their Services — the apiserver
+  # call times out and the Service create is denied:
+  #   failed calling webhook "mservice.elbv2.k8s.aws":
+  #   Post "https://aws-load-balancer-webhook-service.kube-system.svc:443/
+  #   mutate-v1-service?timeout=10s": context deadline exceeded
+  #
+  # With failurePolicy=Ignore, a webhook timeout lets the Service create
+  # proceed. This is safe because:
+  #   - NOMAD's Services are ClusterIP — the ALB controller's mutations only
+  #     matter for LoadBalancer/Ingress-type resources.
+  #   - Once the controller is healthy, subsequent Service mutations apply
+  #     normally; only the brief startup race is affected.
+  set {
+    name  = "webhookConfig.failurePolicy"
+    value = "Ignore"
+  }
 }
 
 # resource "helm_release" "shuffle" {
