@@ -93,7 +93,7 @@ resource "aws_security_group" "cheap_test_ec2_sg" {
 resource "aws_instance" "cheap_test_ubuntu" {
   ami                         = data.aws_ami.ubuntu-2404.id
   instance_type               = "t3.nano"
-  subnet_id                   = module.vpc.public_subnets[0]
+  subnet_id                   = module.vpc.public_subnet_ids[0]
   vpc_security_group_ids      = [aws_security_group.cheap_test_ec2_sg.id]
   associate_public_ip_address = true
 
