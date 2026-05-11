@@ -675,6 +675,37 @@ jobs:
           kubectl apply -f new-infra/k8s/nomad-oasis/nomad-proxy-configmap-patch.yaml
           kubectl -n nomad-oasis rollout restart deploy/nomad-oasis-proxy
 
+          # Patch the NOMAD app configmap to add keycloak.public_server_url —
+          # the chart 1.4.2 template does not render this field. Without it,
+          # NOMAD's GUI uses server_url (cluster-internal) for browser auth
+          # redirects, which fails from the user's browser.
+          # NOMAD config supports public_server_url separately from server_url:
+          #   - server_url: backend OIDC discovery + token validation (cluster DNS)
+          #   - public_server_url: browser auth flow URLs (port-forward localhost)
+          # If public_server_url is unset, NOMAD defaults it to server_url. Set
+          # it here via JSON manipulation so the GUI emits localhost-based URLs
+          # that match the port-forward path through nginx /auth/.
+          echo "=== Patching NOMAD configmap with public_server_url ==="
+          kubectl -n nomad-oasis get cm nomad-oasis-configmap -o json > /tmp/cm.json
+          python3 <<'PYEOF'
+          import json
+          with open('/tmp/cm.json') as f:
+              d = json.load(f)
+          y = d['data']['nomad.yaml']
+          target = '  server_url: http://nomad-oasis-keycloak-http/auth/'
+          replacement = target + '\n  public_server_url: http://localhost/auth/'
+          if 'public_server_url' not in y:
+              y = y.replace(target, replacement)
+              d['data']['nomad.yaml'] = y
+              with open('/tmp/cm.json', 'w') as f:
+                  json.dump(d, f)
+              print("Patched: added public_server_url")
+          else:
+              print("Already patched: public_server_url present")
+          PYEOF
+          kubectl apply -f /tmp/cm.json
+          kubectl -n nomad-oasis rollout restart deploy/nomad-oasis-app deploy/nomad-oasis-worker
+
           # Wait for the new proxy pod to become Available.
           # `kubectl rollout status` waits for the entire rollout to complete
           # which includes terminating the old pod — observed up to 3-6 min
