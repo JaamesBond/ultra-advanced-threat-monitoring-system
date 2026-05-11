@@ -622,23 +622,38 @@ keycloak:
   # Probes — keycloakx 7.1.9 chart processes these via `tpl` so they MUST be
   # passed as strings (block scalar with `|`), NOT as maps. A map raises:
   #   wrong type for value; expected string; got map[string]interface {}
-  # at statefulset.yaml:166. The chart's default probes hit /health/live and
-  # /health/ready which require KC_HEALTH_ENABLED=true. We use the realm-master
-  # endpoint instead because we haven't enabled the health management interface.
+  # at statefulset.yaml:166.
+  #
+  # Keycloak 24 with KC_HEALTH_ENABLED=true exposes /health/started,
+  # /health/ready, /health/live on the management port (http-internal=9000).
+  # These are CHEAP (no DB queries) and the correct primitives to use.
+  # The management interface does NOT honor KC_HTTP_RELATIVE_PATH —
+  # paths are /health/* not /auth/health/*. The chart's auto-added
+  # startupProbe gets this wrong (path: /auth/health) which is why
+  # the pod never reaches Ready — override here with the correct path.
+  startupProbe: |
+    httpGet:
+      path: /health/started
+      port: http-internal
+    initialDelaySeconds: 30
+    periodSeconds: 5
+    failureThreshold: 60
+    timeoutSeconds: 5
+
   livenessProbe: |
     httpGet:
-      path: /auth/realms/master
-      port: http
-    initialDelaySeconds: 120
+      path: /health/live
+      port: http-internal
+    initialDelaySeconds: 0
     periodSeconds: 20
     failureThreshold: 15
-    timeoutSeconds: 10
+    timeoutSeconds: 5
 
   readinessProbe: |
     httpGet:
-      path: /auth/realms/master
-      port: http
-    initialDelaySeconds: 30
+      path: /health/ready
+      port: http-internal
+    initialDelaySeconds: 0
     periodSeconds: 10
     failureThreshold: 10
     timeoutSeconds: 5
