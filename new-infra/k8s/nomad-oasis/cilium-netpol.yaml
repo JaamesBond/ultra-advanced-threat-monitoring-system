@@ -331,6 +331,20 @@ spec:
         - ports:
             - port: "8000"
               protocol: TCP
+    # proxy → Keycloak (browser /auth/ pass-through for OAuth login flow)
+    # nginx's /auth/ location block proxies to nomad-oasis-keycloak-http:80.
+    # Without this rule Cilium drops the connection at the SYN packet:
+    #   nomad-oasis-proxy <> nomad-oasis-keycloak-0:8080 Policy denied DROPPED
+    # Browser then sees 504 Gateway Time-out from nginx.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: keycloak
+            app.kubernetes.io/instance: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
 ---
 # ---------------------------------------------------------------------------
 # Policy 4: MongoDB
