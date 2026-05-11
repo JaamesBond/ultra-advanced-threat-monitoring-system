@@ -107,7 +107,7 @@ resource "helm_release" "cilium" {
   # pod IPs are unregistered on any AWS ENI, and VPC DNS is broken (GAP resolved
   # 2026-05-11).
   set {
-    name  = "operator.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    name  = "serviceAccounts.operator.annotations.eks\\.amazonaws\\.com/role-arn"
     value = aws_iam_role.cilium_operator.arn
   }
   set {
