@@ -396,12 +396,6 @@ jobs:
             sleep 10
           done
 
-      # Apply system CNPs BEFORE any other Helm releases start.
-      # ALB controller, ESO, Falco, and Tetragon all need egress rules to be
-      # present from first-start or they CrashLoopBackOff under always-enforce.
-      - name: Apply system network policies (Stage 2a — before other releases)
-        run: kubectl kustomize new-infra/k8s/system-netpols | kubectl apply -f -
-
       # Stage 2b: Deploy security stack + ESO + ALB controller — but NOT NOMAD yet.
       # NOMAD's helm chart hard-codes a `lookup` of K8s Secret "{release}-mongodb"
       # at template-render time to embed the mongo password into its configmap.
@@ -420,6 +414,27 @@ jobs:
             -target=aws_iam_role_policy.external_secrets_secrets_manager \
             -target=kubernetes_storage_class.efs_nomad \
             -target=helm_release.aws_load_balancer_controller
+
+      # Apply system network policies after Stage 2b (post-Helm namespace creation).
+      #
+      # Under policyEnforcementMode=default (in effect since the 2026-05-10 recovery,
+      # confirmed in CLAUDE.md), endpoints without a selecting CNP are NOT denied by
+      # default — policy enforcement only activates for endpoints that a CNP explicitly
+      # selects. There is therefore no urgency to place CNPs before Helm releases start;
+      # CNPs only need to exist before the workloads they select begin running.
+      #
+      # The previous position (Stage 2a, before any Helm releases) caused a hard failure:
+      # the `external-secrets` and `falco` namespaces are created by Stage 2b Helm
+      # releases; applying the CNPs before Stage 2b meant `kubectl apply` returned
+      # `namespaces "external-secrets" not found` and `namespaces "falco" not found`
+      # (run 25672627928). Moving this step to after Stage 2b guarantees all target
+      # namespaces exist.
+      #
+      # The early best-effort apply (pre-Stage-1, continue-on-error: true) still runs
+      # on warm-start as a harmless no-op. The authoritative apply below (post-Stage-2)
+      # is the convergence guarantee for both warm and cold starts.
+      - name: Apply system network policies (post-Stage-2b)
+        run: kubectl kustomize new-infra/k8s/system-netpols | kubectl apply -f -
 
       # Stage 2c: Apply NOMAD ExternalSecrets and wait for ESO to sync them
       # BEFORE deploying the NOMAD helm release. The chart's lookup of
