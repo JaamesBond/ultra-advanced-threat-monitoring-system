@@ -24,3 +24,6 @@ resources:
   - external-secrets/nomad-north-secret.yaml
   - external-secrets/nomad-datacite-secret.yaml
   - cilium-netpol.yaml
+  - keycloak-realm-import-configmap.yaml
+  - keycloak-db-init-job.yaml
+  - nomad-proxy-configmap-patch.yaml

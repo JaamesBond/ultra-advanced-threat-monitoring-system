@@ -72,13 +72,17 @@ nomad:
 
     oasis:
       is_oasis: true
-      uses_central_user_management: true
+      uses_central_user_management: false
 
-    # Keycloak federation — federate to nomad-lab.eu production realm.
-    # This is the central NOMAD user management; no local Keycloak needed for v1.
+    # Keycloak — local instance running as keycloakx sub-chart in same release.
+    # Browser access: http://localhost:<port>/auth/ via kubectl port-forward on the proxy.
+    # Backchannel (NOMAD backend → Keycloak): http://nomad-oasis-keycloak/auth/
+    # KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true separates these two URL spaces so
+    # the browser issuer (localhost) and the backend token endpoint (cluster DNS)
+    # both work without hostAliases or special routing.
     keycloak:
-      server_url: "https://nomad-lab.eu/fairdi/keycloak/auth/"
-      realm_name: "fairdi_nomad_prod"
+      server_url: "http://nomad-oasis-keycloak/auth/"
+      realm_name: "nomad-oasis"
       username: admin
       client_id: "nomad_public"
 
@@ -217,17 +221,17 @@ nomad:
         memory: "256Mi"   # was 512Mi
         cpu: "100m"       # was 250m
       limits:
-        memory: "1Gi"     # was 2Gi
-        cpu: "500m"       # was 2000m
+        memory: "2Gi"     # was 2Gi
+        cpu: "2000m"      # was 2000m
     livenessProbe:
       initialDelaySeconds: 60
       periodSeconds: 15
-      failureThreshold: 80
+      failureThreshold: 200
       timeoutSeconds: 30
     readinessProbe:
       initialDelaySeconds: 60
       periodSeconds: 15
-      failureThreshold: 80
+      failureThreshold: 200
       timeoutSeconds: 30
 
   worker:
@@ -495,19 +499,126 @@ jupyterhub:
   enabled: false
 
 # =============================================================================
-# Keycloak — DISABLED for v1
+# Keycloak (codecentric/keycloakx sub-chart)
 #
-# NOMAD federated to nomad-lab.eu central Keycloak (fairdi_nomad_prod realm).
-# No local Keycloak is needed for a standard Oasis installation.
+# Local Keycloak replaces the nomad-lab.eu central IdP. Browser login works
+# via the existing kubectl port-forward on nomad-oasis-proxy:80.
 #
-# To enable a local Keycloak (e.g. air-gapped or custom realm):
-#   1. Set keycloak.enabled: true
-#   2. Add keycloak sub-chart values (codecentric/keycloakx)
-#   3. Update nomad.config.keycloak.server_url to local Keycloak endpoint
-#   4. Set keycloak nodeSelector + tolerations to match nomad node group
+# URL design:
+#   - KC_HOSTNAME=http://localhost        — issuer in tokens (browser sees localhost)
+#   - KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true — NOMAD backend uses the cluster DNS
+#     name (http://nomad-oasis-keycloak/auth/) for token endpoint calls;
+#     Keycloak derives this dynamically from the incoming request URL.
+#   - No hostAliases needed on nomad.app or nomad.worker.
+#
+# Realm bootstrap:
+#   - --import-realm at startup imports keycloak-realm-import-configmap
+#   - Realm contains: public client nomad_public, testuser testpass123,
+#     redirect URIs http://localhost/*, webOrigins http://localhost
+#   - Skipped on warm-restart if realm already exists (Keycloak idempotent)
+#
+# Database:
+#   - PostgreSQL shared with Temporal (same StatefulSet, separate DB + role)
+#   - keycloak-db-init-job.yaml (applied by kustomize) creates the DB/role
+#     idempotently before the Keycloak pod starts (pipeline enforces order)
+#
+# Cold-restart safety:
+#   - Realm JSON in git (configmap) → re-imported every fresh cluster
+#   - DB init Job is idempotent (\gexec + IF NOT EXISTS pattern)
+#   - nginx ConfigMap overlay re-applied + proxy rolled-restarted in pipeline
 # =============================================================================
 keycloak:
-  enabled: false
+  enabled: true
+
+  image:
+    tag: "24.0.5"
+
+  nodeSelector:
+    role: nomad
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: nomad
+      effect: NoSchedule
+
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "100m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+
+  # Import the nomad-oasis realm on every fresh start.
+  # Keycloak skips import if the realm already exists (warm-restart safe).
+  command:
+    - "/opt/keycloak/bin/kc.sh"
+    - "start"
+    - "--import-realm"
+
+  extraEnv: |
+    - name: KC_HOSTNAME
+      value: "http://localhost"
+    - name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC
+      value: "true"
+    - name: KC_HTTP_ENABLED
+      value: "true"
+    - name: KC_HOSTNAME_STRICT
+      value: "false"
+    - name: KC_HOSTNAME_STRICT_HTTPS
+      value: "false"
+    - name: KC_PROXY
+      value: "edge"
+    - name: KC_DB
+      value: "postgres"
+    - name: KC_DB_URL
+      value: "jdbc:postgresql://nomad-oasis-postgresql:5432/keycloak"
+    - name: KC_DB_USERNAME
+      value: "keycloak"
+    - name: KC_DB_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: nomad-keycloak-secret
+          key: db_password
+    - name: KEYCLOAK_ADMIN
+      value: "admin"
+    - name: KEYCLOAK_ADMIN_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: nomad-keycloak-secret
+          key: password
+
+  extraVolumes: |
+    - name: realm-import
+      configMap:
+        name: keycloak-realm-import
+
+  extraVolumeMounts: |
+    - name: realm-import
+      mountPath: /opt/keycloak/data/import
+      readOnly: true
+
+  service:
+    type: ClusterIP
+    httpPort: 8080
+
+  livenessProbe:
+    httpGet:
+      path: /auth/realms/master
+      port: 8080
+    initialDelaySeconds: 120
+    periodSeconds: 20
+    failureThreshold: 15
+    timeoutSeconds: 10
+
+  readinessProbe:
+    httpGet:
+      path: /auth/realms/master
+      port: 8080
+    initialDelaySeconds: 120
+    periodSeconds: 20
+    failureThreshold: 15
+    timeoutSeconds: 10
 
 # =============================================================================
 # KEDA autoscaler — disabled for v1

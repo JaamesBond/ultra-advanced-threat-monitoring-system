@@ -1,0 +1,83 @@
+#--------------------------------------------------------------
+# Keycloak realm import ConfigMap
+#
+# DEPLOYED TO: bc-prd EKS, namespace nomad-oasis
+#
+# Mounted at /opt/keycloak/data/import inside the Keycloak pod.
+# Keycloak processes --import-realm at startup and imports all JSON
+# files in that directory. If the realm already exists (warm-restart),
+# Keycloak skips the import silently — fully idempotent.
+#
+# Realm: nomad-oasis
+#   - Public client:  nomad_public (no client secret required)
+#   - Redirect URIs:  http://localhost/* (covers port-forward on any port)
+#   - Web origins:    http://localhost  (CORS — same origin as redirect)
+#   - Test user:      testuser / testpass123 (dev/test only)
+#
+# Cold-restart safety: this ConfigMap is git-tracked and applied via
+# kustomize on every pipeline run — the realm is always re-importable
+# on a fresh cluster with no persistent Keycloak state.
+#--------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-realm-import
+  namespace: nomad-oasis
+  labels:
+    app.kubernetes.io/part-of: xdr-platform
+    app.kubernetes.io/component: nomad-oasis
+data:
+  nomad-oasis-realm.json: |
+    {
+      "id": "nomad-oasis",
+      "realm": "nomad-oasis",
+      "enabled": true,
+      "sslRequired": "none",
+      "registrationAllowed": false,
+      "loginWithEmailAllowed": true,
+      "duplicateEmailsAllowed": false,
+      "resetPasswordAllowed": false,
+      "editUsernameAllowed": false,
+      "bruteForceProtected": false,
+      "clients": [
+        {
+          "clientId": "nomad_public",
+          "enabled": true,
+          "publicClient": true,
+          "directAccessGrantsEnabled": true,
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "serviceAccountsEnabled": false,
+          "redirectUris": [
+            "http://localhost/*"
+          ],
+          "webOrigins": [
+            "http://localhost"
+          ],
+          "protocol": "openid-connect",
+          "attributes": {
+            "pkce.code.challenge.method": "S256"
+          }
+        }
+      ],
+      "users": [
+        {
+          "username": "testuser",
+          "enabled": true,
+          "emailVerified": true,
+          "email": "testuser@nomad-oasis.local",
+          "firstName": "Test",
+          "lastName": "User",
+          "credentials": [
+            {
+              "type": "password",
+              "value": "testpass123",
+              "temporary": false
+            }
+          ],
+          "realmRoles": [
+            "default-roles-nomad-oasis"
+          ]
+        }
+      ]
+    }

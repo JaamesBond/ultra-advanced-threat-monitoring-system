@@ -371,6 +371,7 @@ jobs:
           NOMAD_OASIS_MONGO_ROOT_PASSWORD:   ${{ secrets.NOMAD_OASIS_MONGO_ROOT_PASSWORD || '' }}
           NOMAD_OASIS_KEYCLOAK_PASSWORD:     ${{ secrets.NOMAD_OASIS_KEYCLOAK_PASSWORD || '' }}
           NOMAD_OASIS_KEYCLOAK_CLIENT_SECRET: ${{ secrets.NOMAD_OASIS_KEYCLOAK_CLIENT_SECRET || '' }}
+          NOMAD_KEYCLOAK_DB_PASSWORD:        ${{ secrets.NOMAD_KEYCLOAK_DB_PASSWORD || '' }}
           NOMAD_OASIS_NORTH_HUB_TOKEN:       ${{ secrets.NOMAD_OASIS_NORTH_HUB_TOKEN || '' }}
           NOMAD_OASIS_DATACITE_USERNAME:     ${{ secrets.NOMAD_OASIS_DATACITE_USERNAME || '' }}
           NOMAD_OASIS_DATACITE_PASSWORD:     ${{ secrets.NOMAD_OASIS_DATACITE_PASSWORD || '' }}
@@ -573,6 +574,132 @@ jobs:
             deploy/nomad-oasis-temporal-matching --timeout=300s
           kubectl -n nomad-oasis rollout status \
             deploy/nomad-oasis-temporal-worker --timeout=300s
+
+      # Step A: Run Keycloak DB init Job
+      #
+      # Creates the 'keycloak' PostgreSQL role and database idempotently.
+      # Must run BEFORE the Keycloak pod attempts to connect to PostgreSQL.
+      # The pipeline ordering here is the correctness guarantee — no Helm
+      # hooks are used (this Job is kustomize-managed, not Helm-managed).
+      #
+      # Delete-before-apply: Job spec.template is immutable after creation.
+      # Any re-run that changes image, env, or script would get "field is
+      # immutable" without this delete step.
+      - name: Run Keycloak DB init Job (Step A)
+        run: |
+          set -euo pipefail
+          echo "=== Step A: Keycloak DB init ==="
+
+          # Wait for PostgreSQL pod to be Ready (up to 300s)
+          echo "Waiting for PostgreSQL pod Ready..."
+          kubectl -n nomad-oasis wait \
+            --for=condition=ready pod \
+            -l app.kubernetes.io/name=postgresql \
+            --timeout=300s
+
+          # Delete any previous run of the Job (spec.template is immutable)
+          kubectl -n nomad-oasis delete job keycloak-db-init --ignore-not-found
+
+          # Apply the init Job from the already-applied kustomize manifests
+          kubectl apply -f new-infra/k8s/nomad-oasis/keycloak-db-init-job.yaml
+
+          # Wait for the Job to complete (120s budget — psql init is fast)
+          echo "Waiting for keycloak-db-init Job to complete..."
+          kubectl -n nomad-oasis wait \
+            --for=condition=complete \
+            job/keycloak-db-init \
+            --timeout=120s
+
+          echo "=== Keycloak DB init complete ==="
+
+      # Step B: Apply NOMAD proxy nginx ConfigMap overlay and restart proxy
+      #
+      # The Helm chart generates nomad-oasis-configmap-proxy without an /auth/
+      # location block. This overlay (same ConfigMap name + namespace) overwrites
+      # the chart-generated data with a version that adds /auth/ → Keycloak.
+      # Rollout restart forces nginx to reload the new config from the ConfigMap.
+      #
+      # This step is idempotent — re-applying the same ConfigMap is a no-op if
+      # content is unchanged. The pipeline runs this after every Helm release so
+      # the overlay is never silently reverted by a Helm upgrade.
+      - name: Apply NOMAD proxy nginx ConfigMap overlay and restart (Step B)
+        run: |
+          set -euo pipefail
+          echo "=== Step B: Nginx ConfigMap overlay ==="
+
+          kubectl apply -f new-infra/k8s/nomad-oasis/nomad-proxy-configmap-patch.yaml
+
+          kubectl -n nomad-oasis rollout restart deploy/nomad-oasis-proxy
+          kubectl -n nomad-oasis rollout status deploy/nomad-oasis-proxy --timeout=120s
+
+          echo "=== Proxy nginx overlay applied and restarted ==="
+
+      # Step C: Verify Keycloak hostname config
+      #
+      # Waits for Keycloak pod Ready (300s), then fetches the OIDC discovery
+      # document via a transient curl pod and asserts that the emitted issuer
+      # contains "localhost". This catches KC_HOSTNAME misconfigs (e.g. if
+      # the env var wasn't picked up, the issuer would be the pod IP or cluster
+      # DNS name, breaking browser-side token validation).
+      #
+      # The curl pod runs on role=nomad with the NoSchedule toleration so it
+      # always schedules on the nomad node group regardless of workload pool
+      # saturation. --rm --restart=Never guarantees cleanup on completion.
+      - name: Verify Keycloak hostname config (Step C)
+        run: |
+          set -euo pipefail
+          echo "=== Step C: Keycloak issuer verification ==="
+
+          # Wait for Keycloak pod Ready (up to 300s)
+          echo "Waiting for Keycloak pod Ready..."
+          kubectl -n nomad-oasis wait \
+            --for=condition=ready pod \
+            -l app.kubernetes.io/name=keycloak \
+            --timeout=300s
+
+          # Fetch OIDC discovery document from within the cluster.
+          # Uses the cluster Service DNS name — backchannel path.
+          DISCOVERY=$(kubectl run keycloak-verify-$RANDOM \
+            --namespace nomad-oasis \
+            --image=curlimages/curl:8.5.0 \
+            --restart=Never \
+            --rm \
+            --attach \
+            --quiet \
+            --overrides='{
+              "spec": {
+                "nodeSelector": {"role": "nomad"},
+                "tolerations": [{
+                  "key": "dedicated",
+                  "operator": "Equal",
+                  "value": "nomad",
+                  "effect": "NoSchedule"
+                }]
+              }
+            }' \
+            -- curl -sf --max-time 10 \
+            http://nomad-oasis-keycloak:8080/auth/realms/nomad-oasis/.well-known/openid-configuration \
+            2>/dev/null || echo "CURL_FAILED")
+
+          if [ "$DISCOVERY" = "CURL_FAILED" ]; then
+            echo "ERROR: Could not reach Keycloak discovery endpoint."
+            echo "Check: kubectl -n nomad-oasis logs deploy/nomad-oasis-keycloak"
+            exit 1
+          fi
+
+          ISSUER=$(echo "$DISCOVERY" | grep -o '"issuer":"[^"]*"' | cut -d'"' -f4 || echo "")
+          echo "Keycloak issuer: ${ISSUER}"
+
+          if echo "$ISSUER" | grep -q "localhost"; then
+            echo "PASS: Issuer contains 'localhost' — KC_HOSTNAME configured correctly."
+          else
+            echo "FAIL: Issuer does NOT contain 'localhost': ${ISSUER}"
+            echo "KC_HOSTNAME may not be set correctly in the Keycloak pod."
+            echo "Check: kubectl -n nomad-oasis exec deploy/nomad-oasis-keycloak -- env | grep KC_HOSTNAME"
+            exit 1
+          fi
+
+          echo "=== Keycloak verification complete ==="
 
       - name: Wait for CRDs to propagate
         run: |

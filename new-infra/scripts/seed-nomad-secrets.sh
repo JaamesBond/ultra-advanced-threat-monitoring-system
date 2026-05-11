@@ -106,6 +106,7 @@ API_SECRET="${NOMAD_OASIS_API_SECRET:-$PLACEHOLDER}"
 MONGO_ROOT_PASSWORD="${NOMAD_OASIS_MONGO_ROOT_PASSWORD:-$PLACEHOLDER}"
 KEYCLOAK_PASSWORD="${NOMAD_OASIS_KEYCLOAK_PASSWORD:-$PLACEHOLDER}"
 KEYCLOAK_CLIENT_SECRET="${NOMAD_OASIS_KEYCLOAK_CLIENT_SECRET:-$PLACEHOLDER}"
+KEYCLOAK_DB_PASSWORD="${NOMAD_KEYCLOAK_DB_PASSWORD:-$PLACEHOLDER}"
 NORTH_HUB_TOKEN="${NOMAD_OASIS_NORTH_HUB_TOKEN:-$PLACEHOLDER}"
 DATACITE_USERNAME="${NOMAD_OASIS_DATACITE_USERNAME:-$PLACEHOLDER}"
 DATACITE_PASSWORD="${NOMAD_OASIS_DATACITE_PASSWORD:-$PLACEHOLDER}"
@@ -115,6 +116,7 @@ DATACITE_PASSWORD="${NOMAD_OASIS_DATACITE_PASSWORD:-$PLACEHOLDER}"
 [ -z "$MONGO_ROOT_PASSWORD" ]     && MONGO_ROOT_PASSWORD="$PLACEHOLDER"
 [ -z "$KEYCLOAK_PASSWORD" ]       && KEYCLOAK_PASSWORD="$PLACEHOLDER"
 [ -z "$KEYCLOAK_CLIENT_SECRET" ]  && KEYCLOAK_CLIENT_SECRET="$PLACEHOLDER"
+[ -z "$KEYCLOAK_DB_PASSWORD" ]    && KEYCLOAK_DB_PASSWORD="$PLACEHOLDER"
 [ -z "$NORTH_HUB_TOKEN" ]         && NORTH_HUB_TOKEN="$PLACEHOLDER"
 [ -z "$DATACITE_USERNAME" ]       && DATACITE_USERNAME="$PLACEHOLDER"
 [ -z "$DATACITE_PASSWORD" ]       && DATACITE_PASSWORD="$PLACEHOLDER"
@@ -145,15 +147,19 @@ write_secret "bc/nomad-oasis/mongo" "$nomad_mongo_json"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # [3/5] bc/nomad-oasis/keycloak
-#   Keys: password, client_secret
-#   Used by: nomad.secrets.keycloak.password / .clientSecret
-#   v1: keycloak is disabled — both keys default to "unused"
+#   Keys: password, client_secret, db_password
+#   Used by:
+#     password      → KEYCLOAK_ADMIN_PASSWORD env in keycloakx sub-chart
+#     client_secret → nomad.secrets.keycloak.clientSecret (future OIDC client)
+#     db_password   → KC_DB_PASSWORD env (Keycloak → PostgreSQL auth)
+#   db_password sourced from NOMAD_KEYCLOAK_DB_PASSWORD GitHub Secret.
 # ─────────────────────────────────────────────────────────────────────────────
 echo "[3/5] bc/nomad-oasis/keycloak" >&2
 nomad_keycloak_json=$(jq -cn \
   --arg password       "$KEYCLOAK_PASSWORD" \
   --arg client_secret  "$KEYCLOAK_CLIENT_SECRET" \
-  '{"password": $password, "client_secret": $client_secret}')
+  --arg db_password    "$KEYCLOAK_DB_PASSWORD" \
+  '{"password": $password, "client_secret": $client_secret, "db_password": $db_password}')
 write_secret "bc/nomad-oasis/keycloak" "$nomad_keycloak_json"
 
 # ─────────────────────────────────────────────────────────────────────────────

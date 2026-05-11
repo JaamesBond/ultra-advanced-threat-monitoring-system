@@ -123,6 +123,18 @@ spec:
               protocol: TCP
             - port: "8000"    # NOMAD app HTTP (worker calls back)
               protocol: TCP
+    # NOMAD app → Keycloak (local IdP, port 8080)
+    # Selector is best-guess app.kubernetes.io/name=keycloak — verify on first
+    # deploy via: kubectl get pod -n nomad-oasis -l app.kubernetes.io/name=keycloak
+    # -o jsonpath='{.items[0].metadata.labels}' and patch if labels differ.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: keycloak
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
     # STS VPC endpoint — CIDR, not FQDN (ipcache not populated in ENI mode)
     - toCIDRSet:
         - cidr: 10.30.10.209/32   # STS VPC endpoint ENI eni-0a05d9050d3fc6f46
@@ -232,6 +244,16 @@ spec:
             - port: "5672"
               protocol: TCP
             - port: "8000"    # NOMAD app HTTP for API calls
+              protocol: TCP
+    # NOMAD worker → Keycloak (local IdP, port 8080)
+    # Best-guess selector — verify on first deploy (see nomad-app-netpol comment above).
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: keycloak
+      toPorts:
+        - ports:
+            - port: "8080"
               protocol: TCP
     # STS VPC endpoint
     - toCIDRSet:
@@ -604,6 +626,99 @@ spec:
             - port: "443"
               protocol: TCP
     # Image registry (toFQDNs broken in ENI mode)
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+---
+# ---------------------------------------------------------------------------
+# Policy 8: Keycloak (codecentric/keycloakx sub-chart)
+#
+# Selector: app.kubernetes.io/name=keycloak (best-guess — codecentric/keycloakx
+# applies this label to its pods). If Hubble shows drops on the Keycloak path
+# after first deploy, verify the actual pod labels:
+#   kubectl get pod -n nomad-oasis -l app.kubernetes.io/name=keycloak \
+#     -o jsonpath='{.items[0].metadata.labels}'
+# and patch the endpointSelector + fromEndpoints selectors to match.
+# ---------------------------------------------------------------------------
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: nomad-keycloak-netpol
+  namespace: nomad-oasis
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak
+  ingress:
+    # NOMAD app + worker → Keycloak for token validation and user auth
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: nomad
+            app.kubernetes.io/instance: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # NOMAD proxy → Keycloak for /auth/ pass-through (browser login flow)
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: nomad
+            app.kubernetes.io/instance: nomad-oasis
+            app.kubernetes.io/component: proxy
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # Keycloak DB init Job (runs in nomad-oasis namespace)
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # Hubble observability
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:app.kubernetes.io/name: cilium
+  egress:
+    # DNS
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:eks.amazonaws.com/component: coredns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: "*"
+    # Keycloak → PostgreSQL (keycloak DB created by init Job)
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: nomad-oasis
+            app.kubernetes.io/name: postgresql
+            app.kubernetes.io/instance: nomad-oasis
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # STS VPC endpoint (for image pull auth)
+    - toCIDRSet:
+        - cidr: 10.30.10.209/32
+        - cidr: 10.30.11.123/32
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # Image registry (quay.io/keycloak — toFQDNs broken in ENI mode)
     - toEntities:
         - world
       toPorts:

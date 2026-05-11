@@ -1,0 +1,126 @@
+#--------------------------------------------------------------
+# Keycloak DB Init Job
+#
+# DEPLOYED TO: bc-prd EKS, namespace nomad-oasis
+#
+# Creates a dedicated PostgreSQL role and database for Keycloak,
+# sharing the PostgreSQL StatefulSet that Temporal uses.
+#
+# Idempotency:
+#   Uses \gexec to evaluate CREATE ROLE IF NOT EXISTS and
+#   CREATE DATABASE IF NOT EXISTS in a single psql session.
+#   Safe to re-apply on warm-restart — no-ops if role/DB exist.
+#
+# Pipeline ordering (enforced by terraform-deploy.yml):
+#   1. Wait for postgresql pod Ready (300s)
+#   2. kubectl delete job keycloak-db-init --ignore-not-found
+#      (Job spec.template is immutable; delete-before-apply avoids
+#       "field is immutable" errors on re-runs with changed env/image)
+#   3. kubectl apply -f keycloak-db-init-job.yaml
+#   4. kubectl wait --for=condition=complete job/keycloak-db-init (120s)
+#   5. Deploy Helm release (Keycloak starts, finds DB + role ready)
+#
+# NO Helm hook annotations — this Job is applied via kustomize, not
+# Helm. Helm hook annotations (helm.sh/hook: pre-install,pre-upgrade)
+# are ignored by kubectl apply and would silently do nothing here.
+# The pipeline step ordering above is the correctness guarantee.
+#
+# Scheduling:
+#   Scheduled on role=nomad node with dedicated=nomad:NoSchedule
+#   toleration — same node group as PostgreSQL.
+#--------------------------------------------------------------
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: keycloak-db-init
+  namespace: nomad-oasis
+  labels:
+    app.kubernetes.io/part-of: xdr-platform
+    app.kubernetes.io/component: nomad-oasis
+    app.kubernetes.io/name: keycloak-db-init
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: xdr-platform
+        app.kubernetes.io/component: nomad-oasis
+        app.kubernetes.io/name: keycloak-db-init
+    spec:
+      restartPolicy: OnFailure
+      nodeSelector:
+        role: nomad
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: nomad
+          effect: NoSchedule
+      containers:
+        - name: psql-init
+          image: postgres:15-alpine
+          env:
+            - name: PGHOST
+              value: "nomad-oasis-postgresql"
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              value: "postgres"
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  # Bitnami chart: postgres superuser password is in the
+                  # nomad-oasis-postgresql secret under the key
+                  # "postgres-password". This secret is auto-created by
+                  # the Bitnami PostgreSQL chart from the Helm values.
+                  name: nomad-oasis-postgresql
+                  key: postgres-password
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nomad-keycloak-secret
+                  key: db_password
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+
+              echo "=== Keycloak DB init — $(date) ==="
+
+              # Use \gexec to execute the result of a SELECT that generates
+              # CREATE statements. \gexec feeds each row of the query result
+              # as a SQL command. This gives us conditional CREATE without
+              # requiring procedural PL/pgSQL.
+              #
+              # Pattern: SELECT 'CREATE ROLE ...' WHERE NOT EXISTS (...)
+              # If the role/db exists, the SELECT returns zero rows → no-op.
+              # If it doesn't exist, the SELECT returns one row → CREATE runs.
+
+              psql -v ON_ERROR_STOP=1 -d postgres << SQL
+              -- Create keycloak role if it doesn't exist
+              SELECT 'CREATE ROLE keycloak LOGIN PASSWORD ''' || :'KC_DB_PASSWORD' || ''''
+              WHERE NOT EXISTS (
+                SELECT FROM pg_roles WHERE rolname = 'keycloak'
+              )
+              \gexec
+
+              -- Create keycloak database if it doesn't exist
+              SELECT 'CREATE DATABASE keycloak OWNER keycloak'
+              WHERE NOT EXISTS (
+                SELECT FROM pg_database WHERE datname = 'keycloak'
+              )
+              \gexec
+
+              -- Grant privileges (idempotent)
+              GRANT ALL PRIVILEGES ON DATABASE keycloak TO keycloak;
+              SQL
+
+              echo "=== Keycloak DB init complete ==="
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "10m"
+            limits:
+              memory: "64Mi"
+              cpu: "100m"

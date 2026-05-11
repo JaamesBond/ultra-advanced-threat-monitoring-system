@@ -1,0 +1,115 @@
+#--------------------------------------------------------------
+# NOMAD proxy nginx ConfigMap overlay
+#
+# DEPLOYED TO: bc-prd EKS, namespace nomad-oasis
+#
+# Patches the chart-generated ConfigMap "nomad-oasis-configmap-proxy"
+# to add an /auth/ location block that proxies browser Keycloak requests
+# to the local Keycloak ClusterIP service.
+#
+# Pipeline self-heals this after every Helm release:
+#   kubectl apply -f nomad-proxy-configmap-patch.yaml
+#   kubectl -n nomad-oasis rollout restart deploy/nomad-oasis-proxy
+#   kubectl -n nomad-oasis rollout status deploy/nomad-oasis-proxy --timeout=120s
+#
+# Why: Helm's chart-generated nginx.conf has no /auth/ block. A kubectl
+# apply of this ConfigMap (same name, same namespace) overwrites the
+# chart-generated data. Rollout restart forces nginx to reload the new config.
+#
+# TODO: verify nginx.conf matches chart-generated content on first deploy.
+# The cluster was torn down at the time this file was authored (2026-05-11).
+# On first deploy, run:
+#   kubectl get cm nomad-oasis-configmap-proxy -n nomad-oasis -o yaml
+# and compare the worker_processes, timeouts, and location blocks against
+# what is below. Update this file and re-commit if differences are found.
+# The /auth/ block at the bottom is the only net-new addition.
+#--------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nomad-oasis-configmap-proxy
+  namespace: nomad-oasis
+  labels:
+    app.kubernetes.io/part-of: xdr-platform
+    app.kubernetes.io/component: nomad-oasis
+data:
+  nginx.conf: |
+    worker_processes 1;
+
+    events {
+      worker_connections 1024;
+    }
+
+    http {
+      include       /etc/nginx/mime.types;
+      default_type  application/octet-stream;
+
+      sendfile        on;
+      keepalive_timeout 65;
+
+      # Increase timeouts for long-running NOMAD API calls (e.g. upload, parse)
+      proxy_connect_timeout   60s;
+      proxy_send_timeout      600s;
+      proxy_read_timeout      600s;
+      send_timeout            600s;
+
+      client_max_body_size 35m;
+
+      server {
+        listen 80;
+
+        # ---------------------------------------------------------------
+        # NOMAD GUI — React SPA served from the app container
+        # ---------------------------------------------------------------
+        location / {
+          proxy_pass         http://nomad-oasis-app:8000;
+          proxy_set_header   Host $host;
+          proxy_set_header   X-Real-IP $remote_addr;
+          proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header   X-Forwarded-Proto $scheme;
+          proxy_http_version 1.1;
+          proxy_set_header   Upgrade $http_upgrade;
+          proxy_set_header   Connection "upgrade";
+        }
+
+        # ---------------------------------------------------------------
+        # NOMAD API — FastAPI backend
+        # ---------------------------------------------------------------
+        location /nomad-oasis/ {
+          proxy_pass         http://nomad-oasis-app:8000;
+          proxy_set_header   Host $host;
+          proxy_set_header   X-Real-IP $remote_addr;
+          proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header   X-Forwarded-Proto $scheme;
+          proxy_http_version 1.1;
+          proxy_set_header   Upgrade $http_upgrade;
+          proxy_set_header   Connection "upgrade";
+          client_max_body_size 35m;
+        }
+
+        # ---------------------------------------------------------------
+        # Keycloak — local IdP for browser login
+        #
+        # Proxies /auth/ to the Keycloak ClusterIP service so that the
+        # browser (accessing via kubectl port-forward on localhost:<port>)
+        # can reach Keycloak without a separate port-forward.
+        #
+        # KC_HOSTNAME=http://localhost means Keycloak emits tokens with
+        # issuer=http://localhost/auth/realms/nomad-oasis regardless of
+        # the upstream proxy URL — no rewriting needed here.
+        # ---------------------------------------------------------------
+        location /auth/ {
+          proxy_pass         http://nomad-oasis-keycloak:8080/auth/;
+          proxy_set_header   Host $host;
+          proxy_set_header   X-Real-IP $remote_addr;
+          proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header   X-Forwarded-Proto $scheme;
+          proxy_http_version 1.1;
+          proxy_set_header   Upgrade $http_upgrade;
+          proxy_set_header   Connection "upgrade";
+          proxy_buffer_size          128k;
+          proxy_buffers              4 256k;
+          proxy_busy_buffers_size    256k;
+        }
+      }
+    }
