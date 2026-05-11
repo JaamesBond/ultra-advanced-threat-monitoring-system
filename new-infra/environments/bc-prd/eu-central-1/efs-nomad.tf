@@ -59,12 +59,26 @@ resource "aws_security_group" "nomad_efs" {
 
 # ---------------------------------------------------------------------------
 # Mount targets — one per private subnet (covers both AZs)
+#
+# count instead of for_each: on cold-start, module.vpc.private_subnet_ids is
+# apply-time-unknown (subnets are being created in the same plan), so toset()
+# cannot produce plan-time-known keys — Terraform errors. count only needs the
+# *number* to be known at plan time; element values (subnet_id) can be
+# apply-time-unknown.
+#
+# bc-prd is permanently 2-AZ (eu-central-1a + eu-central-1b), so count = 2 is
+# safe to hard-code. If AZs are ever expanded, increment this value AND run
+# `terraform state mv` for existing mount targets before applying to avoid
+# destroying live mount targets on warm-state deployments:
+#   terraform state mv \
+#     'aws_efs_mount_target.nomad_oasis["subnet-<old-id>"]' \
+#     'aws_efs_mount_target.nomad_oasis[0]'
 # ---------------------------------------------------------------------------
 resource "aws_efs_mount_target" "nomad_oasis" {
-  for_each = toset(module.vpc.private_subnet_ids)
+  count = 2 # one per bc-prd private subnet — eu-central-1a and eu-central-1b
 
   file_system_id  = aws_efs_file_system.nomad_oasis.id
-  subnet_id       = each.value
+  subnet_id       = module.vpc.private_subnet_ids[count.index]
   security_groups = [aws_security_group.nomad_efs.id]
 }
 
