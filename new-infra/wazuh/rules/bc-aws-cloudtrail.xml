@@ -1,21 +1,20 @@
 <!--
-  bc-sigma-aws.xml
-  Generated from: sigma/rules/aws-cloudtrail/
-  Wazuh rule ID range: 100300-100399 (bc-sigma-aws)
+  bc-aws-cloudtrail.xml — Custom Wazuh rules for AWS CloudTrail telemetry.
 
-  Sources that trigger these rules:
-    - wodle aws-s3 (cloudtrail bucket: bc-cloudtrail-logs)
-    - Wazuh decoder: aws-cloudtrail (built-in)
+  Rule ID range: 100300-100399 (reserved for bc-aws)
+  Telemetry source: wodle aws-s3 module on the Wazuh manager, reading the
+                    bc-cloudtrail-logs S3 bucket. Decoded by the built-in
+                    Wazuh decoder "aws-cloudtrail".
 
-  DO NOT edit manually — edit the Sigma YAML and run:
-    make compile
+  Deployed to: /var/ossec/etc/rules/bc-aws-cloudtrail.xml on the manager
+               by phase3-install-wazuh.sh on instance boot.
 -->
-<group name="bc-sigma,aws,cloudtrail,">
+<group name="bc-aws,cloudtrail,">
 
   <!-- ============================================================
        100300 — Console login without MFA
-       Sigma: aws-console-login-no-mfa.yml
        MITRE: T1078 (Valid Accounts)
+       Level 12: high severity, paged.
   ============================================================ -->
   <rule id="100300" level="12">
     <decoded_as>json</decoded_as>
@@ -23,7 +22,7 @@
     <field name="eventName">ConsoleLogin</field>
     <field name="responseElements.ConsoleLogin">Success</field>
     <field name="additionalEventData.MFAUsed">No</field>
-    <description>Sigma: AWS Console login without MFA - $(userIdentity.userName) from $(sourceIPAddress)</description>
+    <description>AWS Console login without MFA — $(userIdentity.userName) from $(sourceIPAddress)</description>
     <mitre>
       <id>T1078</id>
     </mitre>
@@ -31,15 +30,15 @@
   </rule>
 
   <!-- ============================================================
-       100301 — Root account used
-       Sigma: aws-root-account-usage.yml
+       100301 — Root account used (any console sign-in event)
        MITRE: T1078.004 (Cloud Accounts)
+       Level 15: critical, always page.
   ============================================================ -->
   <rule id="100301" level="15">
     <decoded_as>json</decoded_as>
     <field name="userIdentity.type">Root</field>
     <field name="eventType">AwsConsoleSignIn</field>
-    <description>Sigma: AWS root account used - CRITICAL - from $(sourceIPAddress)</description>
+    <description>AWS root account used — CRITICAL — from $(sourceIPAddress)</description>
     <mitre>
       <id>T1078.004</id>
     </mitre>
@@ -48,14 +47,14 @@
 
   <!-- ============================================================
        100302 — Security Group modified
-       Sigma: aws-security-group-modified.yml
        MITRE: T1562.007 (Disable or Modify Cloud Firewall)
+       Level 8: medium — review during business hours.
   ============================================================ -->
   <rule id="100302" level="8">
     <decoded_as>json</decoded_as>
     <field name="eventSource">ec2.amazonaws.com</field>
     <field name="eventName">\.*(SecurityGroup).*</field>
-    <description>Sigma: AWS Security Group modified - $(eventName) by $(userIdentity.userName)</description>
+    <description>AWS Security Group modified — $(eventName) by $(userIdentity.userName)</description>
     <mitre>
       <id>T1562.007</id>
     </mitre>
@@ -63,15 +62,15 @@
   </rule>
 
   <!-- ============================================================
-       100303 — IAM role modified outside pipeline
-       Sigma: aws-iam-role-modified.yml
+       100303 — IAM role or policy modified outside the pipeline
        MITRE: T1136 (Create Account)
+       Level 10: high — anything not GitHubActionsDeployRole is suspect.
   ============================================================ -->
   <rule id="100303" level="10">
     <decoded_as>json</decoded_as>
     <field name="eventSource">iam.amazonaws.com</field>
     <field name="eventName">\.*(Role|Policy).*</field>
-    <description>Sigma: AWS IAM role modified - $(eventName) by $(userIdentity.userName)</description>
+    <description>AWS IAM role/policy modified — $(eventName) by $(userIdentity.userName)</description>
     <mitre>
       <id>T1136</id>
     </mitre>

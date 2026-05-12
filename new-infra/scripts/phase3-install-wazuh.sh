@@ -37,7 +37,11 @@ REGION="${REGION:-eu-central-1}"
 # must stay in sync — see PINNING INVARIANT comment above.
 WAZUH_VERSION="${WAZUH_VERSION:-4.14.4}"
 WAZUH_SECRET="bc/wazuh/manager"
-CERT_BUCKET="bc-uatms-wazuh-snapshots"
+# Account-suffixed bucket created by Terraform (locals.tf : wazuh_bucket).
+# Falls back to the legacy un-suffixed name for backward compat. The bucket
+# is passed in via user_data env so we don't hardcode the account ID here.
+WAZUH_S3_BUCKET="${WAZUH_S3_BUCKET:-bc-uatms-wazuh-snapshots}"
+CERT_BUCKET="${WAZUH_S3_BUCKET}"
 CERT_DATE="$(date +%Y%m%d)"
 CERT_S3_KEY="certs/wazuh-certs-${CERT_DATE}.tar"
 SCRIPT_NAME="$(basename "$0")"
@@ -1388,6 +1392,35 @@ EOF
     fi
   else
     fail "Manager API did not respond within 300s — password sync not performed. Install incomplete." "wazuh-manager"
+  fi
+
+  # -------------------------------------------------------------------------
+  # Sync custom Wazuh rules from S3
+  # -------------------------------------------------------------------------
+  # XML rule files live in git at new-infra/wazuh/rules/ and are uploaded to
+  # s3://bc-uatms-wazuh-snapshots-<account>/rules/ by Terraform (see
+  # wazuh-ec2.tf : aws_s3_object.wazuh_rules). The user_data hash includes
+  # those files so a rule change forces an instance replacement, and
+  # this block reloads wazuh-manager so the new rules take effect on boot.
+  log "Syncing custom Wazuh rules from s3://${WAZUH_S3_BUCKET}/rules/..."
+  RULES_SYNC_OUT=$(aws s3 sync "s3://${WAZUH_S3_BUCKET}/rules/" /var/ossec/etc/rules/ \
+    --region "${REGION}" --exclude "*" --include "*.xml" 2>&1) || true
+  echo "${RULES_SYNC_OUT}" | sed 's/^/  /'
+  chown -R wazuh:wazuh /var/ossec/etc/rules/
+  chmod 660 /var/ossec/etc/rules/*.xml 2>/dev/null || true
+
+  RULE_COUNT=$(find /var/ossec/etc/rules -maxdepth 1 -name "bc-*.xml" -type f | wc -l)
+  log "Custom rule files installed: ${RULE_COUNT}"
+  if [[ "${RULE_COUNT}" -gt 0 ]]; then
+    log "Restarting wazuh-manager to load custom rules..."
+    systemctl restart wazuh-manager \
+      || fail "wazuh-manager restart failed after rule sync" "wazuh-manager"
+    # Wait for analysisd to come back; if rules have syntax errors, the
+    # manager refuses to start and journalctl shows the offending file.
+    sleep 5
+    systemctl is-active wazuh-manager >/dev/null \
+      || fail "wazuh-manager not active after rule reload — check rule XML syntax" "wazuh-manager"
+    log "wazuh-manager restarted with custom rules loaded."
   fi
 
   # Enable MISP sync timer

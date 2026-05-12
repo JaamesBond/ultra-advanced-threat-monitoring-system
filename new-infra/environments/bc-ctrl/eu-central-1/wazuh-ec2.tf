@@ -250,6 +250,23 @@ resource "aws_s3_object" "wazuh_install_script" {
   }
 }
 
+# Custom Wazuh rule XML files — synced to /var/ossec/etc/rules/ on the manager
+# by phase3-install-wazuh.sh. Adding a new XML file under new-infra/wazuh/rules/
+# automatically uploads it; no Terraform edit needed.
+resource "aws_s3_object" "wazuh_rules" {
+  for_each               = fileset("${path.module}/../../../wazuh/rules", "*.xml")
+  bucket                 = local.wazuh_bucket
+  key                    = "rules/${each.value}"
+  source                 = "${path.module}/../../../wazuh/rules/${each.value}"
+  source_hash            = filemd5("${path.module}/../../../wazuh/rules/${each.value}")
+  server_side_encryption = "AES256"
+  force_destroy          = true
+
+  lifecycle {
+    ignore_changes = [object_lock_mode, object_lock_retain_until_date, object_lock_legal_hold_status]
+  }
+}
+
 ###############################################################
 # Wazuh all-in-one instance
 ###############################################################
@@ -282,6 +299,7 @@ resource "aws_instance" "wazuh" {
     exec > >(tee /var/log/wazuh-install.log | logger -t wazuh-install) 2>&1
 
     # Script hash (forces instance replacement when script changes): ${filemd5("${path.module}/../../../scripts/phase3-install-wazuh.sh")}
+    # Rules hash (forces replacement when any rule XML changes): ${md5(join(",", [for f in fileset("${path.module}/../../../wazuh/rules", "*.xml") : filemd5("${path.module}/../../../wazuh/rules/${f}")]))}
 
     dnf update -y
     dnf install -y unzip jq
@@ -297,12 +315,17 @@ resource "aws_instance" "wazuh" {
       /tmp/phase3-install-wazuh.sh --region eu-central-1
     chmod +x /tmp/phase3-install-wazuh.sh
 
-    HOST_ROLE=all_in_one bash /tmp/phase3-install-wazuh.sh
+    HOST_ROLE=all_in_one \
+    WAZUH_S3_BUCKET=${local.wazuh_bucket} \
+      bash /tmp/phase3-install-wazuh.sh
   EOF
 
   tags = merge(local.common_tags, { Name = "wazuh-ctrl" })
 
-  depends_on = [aws_s3_object.wazuh_install_script]
+  depends_on = [
+    aws_s3_object.wazuh_install_script,
+    aws_s3_object.wazuh_rules,
+  ]
 }
 
 resource "aws_ebs_volume" "wazuh_data" {

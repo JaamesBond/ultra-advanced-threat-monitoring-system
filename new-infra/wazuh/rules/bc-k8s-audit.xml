@@ -1,0 +1,36 @@
+<!--
+  bc-k8s-audit.xml — Custom Wazuh rules for Kubernetes audit log telemetry.
+
+  Rule ID range: 100400-100499 (reserved for bc-k8s)
+  Telemetry source: K8s API server audit logs.
+
+  IMPORTANT: K8s audit log ingestion is NOT wired up yet. EKS does not emit
+  audit logs to CloudWatch by default — this requires
+  `cluster_enabled_log_types = ["audit"]` on the EKS module and a Wazuh
+  CloudWatch wodle / Lambda forwarder to ship them to the manager. Until
+  then, these rules will not fire. Tracked as a follow-up.
+
+  Deployed to: /var/ossec/etc/rules/bc-k8s-audit.xml on the manager.
+-->
+<group name="bc-k8s,kubernetes,audit,">
+
+  <!-- ============================================================
+       100400 — Privileged pod created
+       MITRE: T1611 (Escape to Host)
+       Level 14: critical — privileged pods can mount the host kernel.
+       Expected false positives: Suricata DaemonSet (needs NET_ADMIN),
+       wazuh-agent DaemonSet. Suppress by namespace if needed.
+  ============================================================ -->
+  <rule id="100400" level="14">
+    <decoded_as>json</decoded_as>
+    <field name="verb">create</field>
+    <field name="objectRef.resource">pods</field>
+    <field name="requestObject.spec.containers.securityContext.privileged">true</field>
+    <description>K8s privileged pod created in $(objectRef.namespace) by $(user.username)</description>
+    <mitre>
+      <id>T1611</id>
+    </mitre>
+    <group>container_escape,privilege_escalation,</group>
+  </rule>
+
+</group>
