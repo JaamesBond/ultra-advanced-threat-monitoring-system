@@ -1371,11 +1371,45 @@ REPO
   # -------------------------------------------------------------------------
   # Pull config, module, and template from Wazuh CDN
   # -------------------------------------------------------------------------
-  # Bug C fix: 4.9/ path is retired; use 4.x rolling path.
-  log "Downloading filebeat.yml from Wazuh 4.x template..."
-  curl -fsSL "https://packages.wazuh.com/4.x/tpl/wazuh/filebeat/filebeat.yml" \
-    -o /etc/filebeat/filebeat.yml \
-    || fail "Failed to download filebeat.yml from packages.wazuh.com"
+  # The 4.x/tpl/ CDN path returns HTTP 403 (retired). Write filebeat.yml inline
+  # so the script never depends on that URL. The sed patches below (lines ~1411–1427)
+  # match hosts:[...] and ssl.certificate_authorities: which are both present here.
+  log "Writing filebeat.yml from inline template (packages.wazuh.com/4.x/tpl/ path is retired)..."
+  cat > /etc/filebeat/filebeat.yml <<'FILEBEAT_YML'
+# Wazuh - Filebeat configuration file
+output.elasticsearch:
+  hosts: ["127.0.0.1:9200"]
+  protocol: https
+  username: ${username}
+  password: ${password}
+  ssl.certificate_authorities:
+    - /etc/filebeat/certs/root-ca.pem
+  ssl.certificate: "/etc/filebeat/certs/filebeat.pem"
+  ssl.key: "/etc/filebeat/certs/filebeat.key"
+
+setup.template.json.enabled: true
+setup.template.json.path: '/etc/filebeat/wazuh-template.json'
+setup.template.json.name: 'wazuh'
+setup.template.overwrite: true
+setup.ilm.overwrite: true
+setup.ilm.enabled: false
+
+filebeat.modules:
+  - module: wazuh
+    alerts:
+      enabled: true
+    archives:
+      enabled: false
+
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: /var/log/filebeat
+  name: filebeat
+  keepfiles: 7
+  permissions: 0644
+logging.metrics.enabled: false
+FILEBEAT_YML
 
   log "Extracting wazuh-filebeat module..."
   mkdir -p /usr/share/filebeat/module
