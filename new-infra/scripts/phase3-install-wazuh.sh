@@ -515,33 +515,73 @@ EOF
 
   # The OpenSearch 'admin' user is reserved and cannot be changed via REST API.
   # Use wazuh-passwords-tool.sh which patches internal_users.yml directly via securityadmin.
+  # Use the 4.x rolling URL — the 4.9-versioned path returns HTTP 403 (retired CDN).
   log "Setting admin password via wazuh-passwords-tool.sh..."
-  PASS_TOOL_URL="https://packages.wazuh.com/4.9/wazuh-passwords-tool.sh"
+  PASS_TOOL_URL="https://packages.wazuh.com/4.x/wazuh-passwords-tool.sh"
   curl -fsSL "${PASS_TOOL_URL}" -o /tmp/wazuh-passwords-tool.sh \
     || fail "Failed to download wazuh-passwords-tool.sh"
+  # Strip Windows CR line endings — the CDN delivers CRLF which causes bash
+  # syntax errors ("$'\r': command not found") on Linux.
+  sed -i 's/\r//' /tmp/wazuh-passwords-tool.sh
   chmod +x /tmp/wazuh-passwords-tool.sh
 
-  # Check which password currently works
-  if curl -sk -u "${INDEXER_USERNAME}:${INDEXER_PASSWORD}" \
-      "https://localhost:9200/_cluster/health" \
+  # Check which password currently works.
+  # MUST use -f/--fail so curl exits non-zero on HTTP 4xx/5xx. Without -f,
+  # curl exits 0 on 401 Unauthorized (HTTP errors are not curl errors by default),
+  # causing the if-branch to always evaluate true and silently skip rotation.
+  # Use PRIVATE_IP (not localhost) to match the TLS cert SAN.
+  if curl -skf -u "${INDEXER_USERNAME}:${INDEXER_PASSWORD}" \
+      "https://${PRIVATE_IP}:9200/_cluster/health" \
       --connect-timeout 5 --max-time 10 >/dev/null 2>&1; then
     log "Indexer already using secrets password — skipping rotation."
   else
-    bash /tmp/wazuh-passwords-tool.sh \
-      -a -A -au "${INDEXER_USERNAME}" -ap "admin" \
-      -u "${INDEXER_USERNAME}" -p "${INDEXER_PASSWORD}" \
-      2>&1 | tee /tmp/wazuh-passwords-tool.log \
-      || log "WARNING: wazuh-passwords-tool.sh exited non-zero — check /tmp/wazuh-passwords-tool.log"
-    log "Password rotation attempted."
+    log "Indexer not using secrets password — performing bcrypt rotation via indexer-security-init.sh..."
+    # Ensure python3-bcrypt is installed (may not be on fresh AL2023)
+    python3 -c "import bcrypt" 2>/dev/null || dnf install -y python3-bcrypt -q
+
+    # Generate bcrypt hash from target password using Python
+    HASH=$(python3 - "${INDEXER_PASSWORD}" <<'PYEOF'
+import bcrypt, sys
+pw = sys.argv[1].encode()
+print(bcrypt.hashpw(pw, bcrypt.gensalt(12)).decode())
+PYEOF
+)
+    log "Bcrypt hash generated (length: ${#HASH})"
+
+    # Patch internal_users.yml with new hash using Python (avoids sed regex issues)
+    cp "${SEC_CONFIG}/internal_users.yml" "${SEC_CONFIG}/internal_users.yml.bak"
+    python3 - "${SEC_CONFIG}/internal_users.yml" "${INDEXER_USERNAME}" "${HASH}" <<'PYEOF'
+import sys, yaml
+filepath, username, new_hash = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(filepath) as f:
+    data = yaml.safe_load(f)
+if username not in data:
+    raise SystemExit(f"User '{username}' not found in {filepath}")
+data[username]['hash'] = new_hash
+with open(filepath, 'w') as f:
+    yaml.dump(data, f, default_flow_style=False)
+print(f"Patched {username} hash in {filepath}")
+PYEOF
+    log "internal_users.yml patched with new hash."
+
+    # Apply the updated security config using the official Wazuh wrapper.
+    # indexer-security-init.sh handles JAVA_HOME, cert paths, and host resolution.
+    SECURITY_INIT="/usr/share/wazuh-indexer/bin/indexer-security-init.sh"
+    bash "${SECURITY_INIT}" --host "${PRIVATE_IP}" 2>&1 | tail -15 \
+      || log "WARNING: indexer-security-init.sh exited non-zero — rotation may have partially applied"
+
+    log "Password rotation attempted. Waiting 10s for security plugin to reload..."
+    sleep 10
   fi
 
-  # Post-rotation verify
-  if ! curl -sk -u "${INDEXER_USERNAME}:${INDEXER_PASSWORD}" \
-      "https://localhost:9200/_cluster/health" \
+  # Post-rotation verify: use -f so a 401 is a real failure, not a silent pass.
+  if ! curl -skf -u "${INDEXER_USERNAME}:${INDEXER_PASSWORD}" \
+      "https://${PRIVATE_IP}:9200/_cluster/health" \
       --connect-timeout 5 --max-time 10 >/dev/null 2>&1; then
-    log "WARNING: Indexer does not accept secrets password — falling back to default 'admin'"
+    log "WARNING: Indexer does not accept secrets password after rotation — dashboard and filebeat may fail auth"
+  else
+    log "Post-rotation verify: indexer credential confirmed working."
   fi
-  log "Post-rotation verify: new indexer credential confirmed working."
 
   log "=== [INDEXER] Installation complete ==="
 fi
@@ -664,8 +704,11 @@ if [[ "${HOST_ROLE}" == "manager" || "${HOST_ROLE}" == "all_in_one" ]]; then
   # Indexer IP: localhost in all_in_one, tag-discovered in standalone
   # -------------------------------------------------------------------------
   if [[ "${HOST_ROLE}" == "all_in_one" ]]; then
-    INDEXER_IP="127.0.0.1"
-    log "all_in_one mode — Indexer IP: ${INDEXER_IP} (localhost)"
+    # Use the private IP (not 127.0.0.1) because the TLS cert generated by
+    # wazuh-certs-tool.sh only has the private IP in its SAN. Connecting via
+    # 127.0.0.1 causes: "x509: certificate is valid for <privateIP>, not 127.0.0.1".
+    INDEXER_IP="${PRIVATE_IP}"
+    log "all_in_one mode — Indexer IP: ${INDEXER_IP} (private IP, matches TLS cert SAN)"
   else
     log "Discovering Indexer IP (tag Name=wazuh-indexer-ctrl)..."
     INDEXER_IP="$(aws ec2 describe-instances \
@@ -1575,9 +1618,13 @@ if [[ "${HOST_ROLE}" == "dashboard" || "${HOST_ROLE}" == "all_in_one" ]]; then
   # Manager/Indexer IPs: localhost in all_in_one, tag-discovered in standalone
   # -------------------------------------------------------------------------
   if [[ "${HOST_ROLE}" == "all_in_one" ]]; then
-    MANAGER_IP="127.0.0.1"
-    INDEXER_IP="127.0.0.1"
-    log "all_in_one mode — Manager/Indexer IP: localhost"
+    # Use PRIVATE_IP (not 127.0.0.1) to match the TLS cert SANs generated
+    # by wazuh-certs-tool.sh. The dashboard uses verificationMode: none so
+    # TLS hostname verification is disabled for the backend connection, but
+    # the cert must still be reachable. Private IP works for both.
+    MANAGER_IP="${PRIVATE_IP}"
+    INDEXER_IP="${PRIVATE_IP}"
+    log "all_in_one mode — Manager/Indexer IP: ${PRIVATE_IP} (private IP, matches TLS cert SAN)"
   else
     log "Discovering Manager IP (tag Name=wazuh-manager-ctrl)..."
     MANAGER_IP="$(aws ec2 describe-instances \
