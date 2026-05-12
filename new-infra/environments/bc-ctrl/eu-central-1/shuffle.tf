@@ -105,3 +105,13 @@ resource "aws_iam_instance_profile" "shuffle_ec2" {
 
   tags = merge(local.common_tags, { Name = "shuffle-ec2-profile" })
 }
+
+resource "aws_route53_record" "shuffle_dns_record" {
+  zone_id = aws_route53_zone.bc_ctrl_internal.zone_id
+  name    = "shuffle.bc-ctrl.internal"
+  type    = "A"
+  ttl     = 60
+  records = [aws_instance.shuffle_ec2.private_ip]
+
+  depends_on = [ aws_instance.shuffle_ec2 ]
+}
