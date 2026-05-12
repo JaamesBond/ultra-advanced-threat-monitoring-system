@@ -188,7 +188,19 @@ API_USERNAME="$(echo "${SECRET_JSON}" | jq -r '.API_USERNAME // "wazuh-wui"')"
 API_PASSWORD="$(echo "${SECRET_JSON}" | jq -r '.API_PASSWORD')"
 CLUSTER_KEY="$(echo "${SECRET_JSON}" | jq -r '.PLACEHOLDER_CLUSTER_KEY')"
 MISP_API_KEY="$(echo "${SECRET_JSON}" | jq -r '.PLACEHOLDER_MISP_API_KEY')"
-AWS_ACCOUNT_ID="$(echo "${SECRET_JSON}" | jq -r '.PLACEHOLDER_AWS_ACCOUNT_ID')"
+# AWS_ACCOUNT_ID: the secret used to hold a placeholder, but the key was never
+# populated → jq returned the literal string "null" → ossec.conf got
+# <aws_account_id>null</aws_account_id> → aws-s3 wodle failed with
+# "Error parsing arguments" for CloudTrail ingestion. Account ID is not a
+# secret (it's in every IAM ARN), so pull it from IMDS instance identity.
+AWS_ACCOUNT_ID="$(curl -s \
+  -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" \
+  "http://169.254.169.254/latest/dynamic/instance-identity/document" \
+  --connect-timeout 5 --max-time 10 2>/dev/null \
+  | jq -r '.accountId' 2>/dev/null || true)"
+[[ -n "${AWS_ACCOUNT_ID}" && "${AWS_ACCOUNT_ID}" != "null" ]] \
+  || fail "Could not derive AWS_ACCOUNT_ID from IMDS instance identity document"
+log "AWS account ID from IMDS: ${AWS_ACCOUNT_ID}"
 SHUFFLE_HOOK_ID="$(echo "${SECRET_JSON}" | jq -r '.PLACEHOLDER_SHUFFLE_HOOK_ID')"
 
 [[ -n "${INDEXER_PASSWORD}" && "${INDEXER_PASSWORD}" != "null" ]] \
