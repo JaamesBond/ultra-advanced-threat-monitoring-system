@@ -53,7 +53,7 @@
   <rule id="100302" level="8">
     <decoded_as>json</decoded_as>
     <field name="eventSource">ec2.amazonaws.com</field>
-    <field name="eventName">\.*(SecurityGroup).*</field>
+    <field name="eventName" type="pcre2">.*SecurityGroup.*</field>
     <description>AWS Security Group modified — $(eventName) by $(userIdentity.userName)</description>
     <mitre>
       <id>T1562.007</id>
@@ -69,7 +69,7 @@
   <rule id="100303" level="10">
     <decoded_as>json</decoded_as>
     <field name="eventSource">iam.amazonaws.com</field>
-    <field name="eventName">\.*(Role|Policy).*</field>
+    <field name="eventName" type="pcre2">.*(Role|Policy).*</field>
     <description>AWS IAM role/policy modified — $(eventName) by $(userIdentity.userName)</description>
     <mitre>
       <id>T1136</id>
