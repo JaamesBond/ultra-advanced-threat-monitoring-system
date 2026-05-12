@@ -46,7 +46,27 @@ SCRIPT_NAME="$(basename "$0")"
 # Helpers
 # ---------------------------------------------------------------------------
 log()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${SCRIPT_NAME}] $*"; }
-fail() { log "FATAL: $1"; exit 1; }
+
+# dump_diag <unit> — print the last 60 journal lines + systemd status for a
+# unit. Used by fail() and the ERR trap to surface root cause in CloudWatch /
+# user-data logs instead of forcing an SSH session to read /var/log.
+dump_diag() {
+  local unit="$1"
+  [[ -z "${unit}" ]] && return 0
+  echo "--- diag: systemctl status ${unit} ---"
+  systemctl status "${unit}" --no-pager -l 2>&1 | head -20 || true
+  echo "--- diag: journalctl -u ${unit} (last 60) ---"
+  journalctl -u "${unit}" --no-pager -n 60 2>&1 || true
+  echo "--- end diag ---"
+}
+
+# fail "msg"               -> log + exit 1
+# fail "msg" "unit.service" -> log + dump the unit's recent logs + exit 1
+fail() {
+  log "FATAL: $1"
+  [[ -n "${2:-}" ]] && dump_diag "$2"
+  exit 1
+}
 
 # Bug E fix: ERR trap — print the failing line number so set -e aborts are
 # visible in CloudWatch / user-data logs instead of silently stopping.
@@ -428,7 +448,7 @@ EOF
   systemctl enable wazuh-indexer
   if ! systemctl is-active --quiet wazuh-indexer; then
     systemctl start wazuh-indexer \
-      || fail "systemctl start wazuh-indexer failed"
+      || fail "systemctl start wazuh-indexer failed" "wazuh-indexer"
   else
     log "wazuh-indexer already running — skipping start"
   fi
@@ -459,7 +479,7 @@ EOF
     sleep 10
   done
 
-  "${HEALTH_OK}" || fail "Indexer cluster did not reach green/yellow after 600s — check: journalctl -u wazuh-indexer"
+  "${HEALTH_OK}" || fail "Indexer cluster did not reach green/yellow after 600s" "wazuh-indexer"
 
   # -------------------------------------------------------------------------
   # Run security initialisation script
@@ -792,7 +812,15 @@ if [[ "${HOST_ROLE}" == "manager" || "${HOST_ROLE}" == "all_in_one" ]]; then
     <port>1515</port>
     <use_source_ip>no</use_source_ip>
     <purge>yes</purge>
-    <use_password>yes</use_password>
+    <!-- GAP-001 (PRE_PROD_GAPS.md): enrollment-time password disabled.
+         Enabling it without also writing /var/ossec/etc/authd.pass AND
+         distributing the same password to the wazuh-agent DaemonSet
+         (e.g. via External Secrets) makes agent registration fail with
+         "Invalid password. Unable to add agent". Network-level isolation
+         (VPC peering + SG allowlist on 1514/1515) is the current control.
+         When GAP-001 is closed, flip this back to "yes" alongside the
+         agent-side password provisioning. -->
+    <use_password>no</use_password>
     <ciphers>HIGH:!ADH:!EXP:!MD5:!RC4:!3DES:!CAMELLIA:@STRENGTH</ciphers>
     <ssl_verify_host>no</ssl_verify_host>
     <ssl_manager_cert>/var/ossec/etc/sslmanager.cert</ssl_manager_cert>
@@ -1290,7 +1318,7 @@ EOF
 
   log "Enabling and starting wazuh-manager..."
   systemctl enable --now wazuh-manager \
-    || fail "systemctl enable --now wazuh-manager failed"
+    || fail "systemctl enable --now wazuh-manager failed" "wazuh-manager"
 
   # Wait for Manager API to become available (up to 5 min)
   log "Waiting for Wazuh Manager API on port 55000..."
@@ -1359,7 +1387,7 @@ EOF
       log "WARNING: Could not obtain API token for post-install tasks"
     fi
   else
-    fail "Manager API did not respond within 300s — password sync not performed. Install incomplete."
+    fail "Manager API did not respond within 300s — password sync not performed. Install incomplete." "wazuh-manager"
   fi
 
   # Enable MISP sync timer
@@ -1543,7 +1571,7 @@ SSLBLOCK
     if systemctl is-active --quiet filebeat; then break; fi
   done
   systemctl is-active --quiet filebeat \
-    || { journalctl -u filebeat --no-pager -n 40; fail "filebeat did not become active within 30s"; }
+    || fail "filebeat did not become active within 30s" "filebeat"
   log "filebeat is active."
 
   # -------------------------------------------------------------------------
@@ -1711,7 +1739,7 @@ EOF
   # -------------------------------------------------------------------------
   log "Enabling and starting wazuh-dashboard..."
   systemctl enable --now wazuh-dashboard \
-    || fail "systemctl enable --now wazuh-dashboard failed"
+    || fail "systemctl enable --now wazuh-dashboard failed" "wazuh-dashboard"
 
   # Wait for dashboard to respond on port 443 (up to 5 min)
   log "Waiting for Wazuh Dashboard on HTTPS port 443..."
@@ -2013,6 +2041,64 @@ service auditd restart \
   || systemctl restart auditd \
   || log "WARNING: auditd restart failed — rules loaded but service may need manual restart"
 log "Auditd restarted."
+
+# ===========================================================================
+# SECTION 4b — FINAL Wazuh API password reconciliation (manager / all_in_one)
+# ===========================================================================
+# Why this exists: the in-line rotation around line ~1314 sets the password
+# correctly and verifies it, but the wazuh-manager service finishes its
+# first-time RBAC SQLite initialization asynchronously over the next several
+# minutes. We observed installs where the verify passed but a later
+# write by the manager reverted wazuh-wui to the factory password
+# (wazuh-wui/wazuh-wui), leaving the dashboard with "ERROR3099 — Invalid
+# credentials" until a manual re-rotation. This block runs at the end of the
+# script, AFTER filebeat/dashboard/falco/auditd are all settled, and:
+#   1. waits for any pending RBAC init to land
+#   2. checks if the SM password already authenticates — if yes, done
+#   3. otherwise authenticates with the factory password and re-PUTs the SM
+#      password, then verifies. Idempotent and safe to re-run.
+# Once Wazuh ships a fix for the RBAC race (or we move to seeding via
+# users.yaml), this whole block can be deleted.
+if [[ "${HOST_ROLE}" == "manager" || "${HOST_ROLE}" == "all_in_one" ]]; then
+  log "=== [API] Final wazuh-wui password reconciliation ==="
+  sleep 30  # let any in-flight RBAC init complete
+
+  SM_OK=$(curl -sfk -u "${API_USERNAME}:${API_PASSWORD}" \
+    "https://localhost:55000/security/user/authenticate?raw=true" \
+    --connect-timeout 5 --max-time 10 2>/dev/null || true)
+
+  if [[ -n "${SM_OK}" ]]; then
+    log "API password already matches Secrets Manager value — no action needed."
+  else
+    log "API password reverted to factory — re-rotating from factory to SM value..."
+    FACTORY_TOKEN=$(curl -sfk -u "${API_USERNAME}:${API_USERNAME}" \
+      "https://localhost:55000/security/user/authenticate?raw=true" \
+      --connect-timeout 5 --max-time 10 2>/dev/null || true)
+    if [[ -z "${FACTORY_TOKEN}" ]]; then
+      log "WARNING: neither factory nor SM password works — manual intervention needed"
+    else
+      USER_ID=$(curl -sfk -H "Authorization: Bearer ${FACTORY_TOKEN}" \
+        "https://localhost:55000/security/users" 2>/dev/null \
+        | jq -r ".data.affected_items[] | select(.username==\"${API_USERNAME}\") | .id" \
+        | head -1)
+      curl -sfk -H "Authorization: Bearer ${FACTORY_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -X PUT "https://localhost:55000/security/users/${USER_ID}" \
+        -d "{\"password\": \"${API_PASSWORD}\"}" >/dev/null 2>&1 \
+        && log "Re-rotation PUT succeeded." \
+        || log "WARNING: re-rotation PUT failed"
+
+      VERIFY=$(curl -sfk -u "${API_USERNAME}:${API_PASSWORD}" \
+        "https://localhost:55000/security/user/authenticate?raw=true" \
+        --connect-timeout 5 --max-time 10 2>/dev/null || true)
+      if [[ -n "${VERIFY}" ]]; then
+        log "Final API password verified — dashboard auth will succeed."
+      else
+        log "WARNING: post-rotation verify still failing — dashboard may show 3099 error"
+      fi
+    fi
+  fi
+fi
 
 # ===========================================================================
 # SECTION 5 — SUMMARY
