@@ -1,0 +1,81 @@
+<!--
+  bc-sigma-aws.xml
+  Generated from: sigma/rules/aws-cloudtrail/
+  Wazuh rule ID range: 100300-100399 (bc-sigma-aws)
+
+  Sources that trigger these rules:
+    - wodle aws-s3 (cloudtrail bucket: bc-cloudtrail-logs)
+    - Wazuh decoder: aws-cloudtrail (built-in)
+
+  DO NOT edit manually — edit the Sigma YAML and run:
+    make compile
+-->
+<group name="bc-sigma,aws,cloudtrail,">
+
+  <!-- ============================================================
+       100300 — Console login without MFA
+       Sigma: aws-console-login-no-mfa.yml
+       MITRE: T1078 (Valid Accounts)
+  ============================================================ -->
+  <rule id="100300" level="12">
+    <decoded_as>json</decoded_as>
+    <field name="eventSource">signin.amazonaws.com</field>
+    <field name="eventName">ConsoleLogin</field>
+    <field name="responseElements.ConsoleLogin">Success</field>
+    <field name="additionalEventData.MFAUsed">No</field>
+    <description>Sigma: AWS Console login without MFA - $(userIdentity.userName) from $(sourceIPAddress)</description>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+    <group>authentication,pci_dss_8.3,gdpr_IV_35.7.d,</group>
+  </rule>
+
+  <!-- ============================================================
+       100301 — Root account used
+       Sigma: aws-root-account-usage.yml
+       MITRE: T1078.004 (Cloud Accounts)
+  ============================================================ -->
+  <rule id="100301" level="15">
+    <decoded_as>json</decoded_as>
+    <field name="userIdentity.type">Root</field>
+    <field name="eventType">AwsConsoleSignIn</field>
+    <description>Sigma: AWS root account used - CRITICAL - from $(sourceIPAddress)</description>
+    <mitre>
+      <id>T1078.004</id>
+    </mitre>
+    <group>authentication,pci_dss_10.2.2,gdpr_IV_35.7.d,</group>
+  </rule>
+
+  <!-- ============================================================
+       100302 — Security Group modified
+       Sigma: aws-security-group-modified.yml
+       MITRE: T1562.007 (Disable or Modify Cloud Firewall)
+  ============================================================ -->
+  <rule id="100302" level="8">
+    <decoded_as>json</decoded_as>
+    <field name="eventSource">ec2.amazonaws.com</field>
+    <field name="eventName">\.*(SecurityGroup).*</field>
+    <description>Sigma: AWS Security Group modified - $(eventName) by $(userIdentity.userName)</description>
+    <mitre>
+      <id>T1562.007</id>
+    </mitre>
+    <group>configuration_changed,pci_dss_1.1.1,</group>
+  </rule>
+
+  <!-- ============================================================
+       100303 — IAM role modified outside pipeline
+       Sigma: aws-iam-role-modified.yml
+       MITRE: T1136 (Create Account)
+  ============================================================ -->
+  <rule id="100303" level="10">
+    <decoded_as>json</decoded_as>
+    <field name="eventSource">iam.amazonaws.com</field>
+    <field name="eventName">\.*(Role|Policy).*</field>
+    <description>Sigma: AWS IAM role modified - $(eventName) by $(userIdentity.userName)</description>
+    <mitre>
+      <id>T1136</id>
+    </mitre>
+    <group>configuration_changed,pci_dss_8.1,</group>
+  </rule>
+
+</group>
