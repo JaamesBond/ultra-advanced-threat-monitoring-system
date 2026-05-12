@@ -1452,6 +1452,13 @@ logging.files:
   keepfiles: 7
   permissions: 0644
 logging.metrics.enabled: false
+
+# Filebeat 7.10.2 ships a seccomp allowlist built for older kernels. Amazon
+# Linux 2023 kernel 6.x uses clone3 for pthread_create, which is not in that
+# list → EPERM → runtime/cgo abort. Setting default_action: allow disables
+# the restrictive filter while keeping the seccomp hook in place.
+seccomp:
+  default_action: allow
 FILEBEAT_YML
 
   log "Extracting wazuh-filebeat module..."
