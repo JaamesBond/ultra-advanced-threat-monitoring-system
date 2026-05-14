@@ -286,9 +286,15 @@ spec:
       app.kubernetes.io/instance: nomad-oasis
       app.kubernetes.io/component: proxy
   ingress:
-    # External HTTP access (from ALB target groups once ingress is enabled in Phase I)
+    # ALB → proxy (port 80). ALB targets pods in ip mode — traffic arrives
+    # from ALB ENIs in the VPC. Cilium may classify these ENIs as either
+    # "world" (external) or "cluster" (intra-VPC remote-node identity) depending
+    # on which Cilium identity the ENI gets. Both must be allowed; using only
+    # "world" causes intermittent drops when the ENI maps to cluster identity.
+    # Pattern mirrors the kube-apiserver dual-entity rule in system-netpols.
     - fromEntities:
         - world
+        - cluster
       toPorts:
         - ports:
             - port: "80"

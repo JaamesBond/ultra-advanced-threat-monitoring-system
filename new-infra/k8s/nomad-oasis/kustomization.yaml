@@ -27,3 +27,4 @@ resources:
   - keycloak-realm-import-configmap.yaml
   - keycloak-db-init-job.yaml
   - nomad-proxy-configmap-patch.yaml
+  - nomad-ingress.yaml

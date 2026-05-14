@@ -10,8 +10,10 @@
 #
 # Realm: nomad-oasis
 #   - Public client:  nomad_public (no client secret required)
-#   - Redirect URIs:  http://localhost/* (covers port-forward on any port)
-#   - Web origins:    http://localhost  (CORS — same origin as redirect)
+#   - Redirect URIs:  https://nomad.bc-ctrl.internal/* (ALB + TLS)
+#                     http://localhost/*               (SSM port-forward fallback)
+#   - Web origins:    https://nomad.bc-ctrl.internal  (CORS — production)
+#                     http://localhost                 (CORS — dev fallback)
 #   - Test user:      testuser / testpass123 (dev/test only)
 #
 # Cold-restart safety: this ConfigMap is git-tracked and applied via
@@ -49,9 +51,11 @@ data:
           "implicitFlowEnabled": false,
           "serviceAccountsEnabled": false,
           "redirectUris": [
+            "https://nomad.bc-ctrl.internal/*",
             "http://localhost/*"
           ],
           "webOrigins": [
+            "https://nomad.bc-ctrl.internal",
             "http://localhost"
           ],
           "protocol": "openid-connect",

@@ -29,12 +29,10 @@ nomad:
 
   config:
     services:
-      # api_host: set to real FQDN when Phase I (ACM + public zone) unblocks ingress.
-      # Until then, access via: kubectl port-forward -n nomad-oasis svc/nomad-oasis-proxy 8080:80
-      api_host: "localhost"
+      api_host: "nomad.bc-ctrl.internal"
       api_base_path: /nomad-oasis
-      api_port: 80
-      https: false   # set to true when ACM cert + ingress.enabled=true (Phase I)
+      api_port: 443
+      https: true
       upload_limit: 10
 
     mongo:
@@ -75,11 +73,13 @@ nomad:
       uses_central_user_management: false
 
     # Keycloak — local instance running as keycloakx sub-chart in same release.
-    # Browser access: http://localhost:<port>/auth/ via kubectl port-forward on the proxy.
-    # Backchannel (NOMAD backend → Keycloak): http://nomad-oasis-keycloak/auth/
-    # KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true separates these two URL spaces so
-    # the browser issuer (localhost) and the backend token endpoint (cluster DNS)
-    # both work without hostAliases or special routing.
+    # Browser access: https://nomad.bc-ctrl.internal/auth/ via internal ALB.
+    # Emergency dev access: kubectl port-forward svc/nomad-oasis-proxy 8080:80
+    #   then http://localhost:8080/auth/ (realm still has localhost redirect URIs).
+    # Backchannel (NOMAD backend → Keycloak): http://nomad-oasis-keycloak-http/auth/
+    # KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true separates these two URL spaces so the
+    # browser issuer (nomad.bc-ctrl.internal) and the backend token endpoint
+    # (cluster DNS) both work without hostAliases or special routing.
     keycloak:
       server_url: "http://nomad-oasis-keycloak-http/auth/"
       realm_name: "nomad-oasis"
@@ -152,14 +152,12 @@ nomad:
         key: "token"
 
   # ---------------------------------------------------------------------------
-  # Ingress — DISABLED for v1 (Phase I: ACM cert + public zone blocked)
-  #
-  # To re-enable when Phase I completes:
-  #   1. Set ingress.enabled: true
-  #   2. Set nomad.config.services.api_host: <your-fqdn>
-  #   3. Set nomad.config.services.https: true
-  #   4. Uncomment annotations below and fill in certificate-arn from acm-nomad.tf
-  #   5. Ensure aws_load_balancer_controller Helm release is deployed (it already is)
+  # Ingress — DISABLED on the Helm chart side (Phase I complete: ACM cert +
+  # internal Route53 zone are now active). Traffic enters via the standalone
+  # Ingress resource defined in new-infra/k8s/nomad-oasis/nomad-ingress.yaml,
+  # which is applied by kustomize and uses group.name=xdr-shared so multiple
+  # services share the same ALB. Keeping chart ingress disabled avoids a
+  # duplicate Ingress conflict and keeps ALB group management out of Helm.
   # ---------------------------------------------------------------------------
   ingress:
     enabled: false
@@ -568,35 +566,33 @@ keycloak:
     - "--import-realm"
 
   extraEnv: |
-    # KC_HOSTNAME must be HOSTNAME ONLY (no scheme) in Keycloak 24. Setting
-    # "http://localhost" caused the frontend URL to render as
-    #   issuer: http://http//localhost/...
-    # (double http, mangled colon) because Keycloak literally prepended its
-    # own scheme to the value. With just "localhost" + KC_HOSTNAME_STRICT_HTTPS=false
-    # Keycloak constructs frontend URLs as http://localhost/auth/...
-    #
-    # Use KC_HOSTNAME_URL for a fully-formed URL if you need to override scheme
-    # or port; we don't need that here because port 80 is implicit.
+    # KC_HOSTNAME must be HOSTNAME ONLY (no scheme) in Keycloak 24.
+    # Now set to the production FQDN behind the internal ALB. Keycloak
+    # prepends its own scheme based on KC_HOSTNAME_STRICT_HTTPS, which
+    # we set to true so that all frontend URLs (OIDC issuer, redirect URIs
+    # in tokens, etc.) are constructed as https://nomad.bc-ctrl.internal/auth/...
     - name: KC_HOSTNAME
-      value: "localhost"
+      value: "nomad.bc-ctrl.internal"
     - name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC
       value: "true"
     - name: KC_HTTP_ENABLED
       value: "true"
     - name: KC_HOSTNAME_STRICT
-      value: "false"
+      value: "true"
     - name: KC_HOSTNAME_STRICT_HTTPS
-      value: "false"
-    # KC_PROXY=edge was removed because it tells Keycloak it's behind a TLS-
-    # terminating proxy, which makes Keycloak set the Secure flag on session
-    # cookies. The dev-path is HTTP all the way through (port-forward + nginx
-    # + Keycloak in plain HTTP), so the browser DROPS Secure cookies, and the
-    # next POST has no AUTH_SESSION_ID cookie → "Cookie not found. Please
-    # make sure cookies are enabled in your browser." (400 Bad Request).
-    #
-    # The chart already sets KC_PROXY_HEADERS=forwarded automatically, which
-    # is the modern (Keycloak 24+) equivalent and doesn't force Secure cookies.
-    # KC_PROXY itself is deprecated in Keycloak 24 and not needed.
+      value: "true"
+    # KC_PROXY_HEADERS=xforwarded instructs Keycloak 24 to trust the
+    # X-Forwarded-Proto / X-Forwarded-Host headers emitted by the ALB.
+    # This is the Keycloak 24-correct replacement for the deprecated
+    # KC_PROXY=edge. Without this Keycloak ignores X-Forwarded-Proto and
+    # constructs OIDC URLs using its own internal scheme (http), breaking
+    # the OIDC discovery document and token issuer checks.
+    # KC_PROXY=edge is explicitly NOT set — it was removed in commit d6b779d
+    # because it is deprecated in Keycloak 24 and was also causing Secure
+    # cookie issues on the plain-HTTP dev path (moot now that we're HTTPS,
+    # but still deprecated and not needed).
+    - name: KC_PROXY_HEADERS
+      value: "xforwarded"
     - name: KC_DB
       value: "postgres"
     - name: KC_DB_URL

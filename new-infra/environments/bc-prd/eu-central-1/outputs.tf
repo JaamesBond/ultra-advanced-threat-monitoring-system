@@ -3,6 +3,20 @@ output "vpc_id" {
 }
 
 # ---------------------------------------------------------------------------
+# ACM — self-signed wildcard cert for *.bc-ctrl.internal (internal ALB)
+#
+# Consumed by:
+#   - pipeline-engineer: pipeline seds this ARN into the Ingress YAML via the
+#     same ${AWS_ACCOUNT_ID} substitution pattern used for ECR image refs.
+#   - security-stack-engineer: ALB Ingress annotation
+#     alb.ingress.kubernetes.io/certificate-arn: <this value>
+# ---------------------------------------------------------------------------
+output "acm_cert_arn" {
+  description = "ARN of the self-signed wildcard ACM cert for *.bc-ctrl.internal — used as alb.ingress.kubernetes.io/certificate-arn on the xdr-shared ALB Ingress"
+  value       = aws_acm_certificate.xdr_internal.arn
+}
+
+# ---------------------------------------------------------------------------
 # EFS — NOMAD Oasis (consumed by security-stack-engineer for StorageClass ref)
 # ---------------------------------------------------------------------------
 output "nomad_efs_file_system_id" {

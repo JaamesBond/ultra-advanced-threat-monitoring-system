@@ -39,7 +39,7 @@ data:
   nginx.conf: |
     server {
       listen        80;
-      server_name   www.example.com;
+      server_name   nomad.bc-ctrl.internal;
       proxy_set_header Host $host;
 
       proxy_connect_timeout 10;
@@ -125,19 +125,23 @@ data:
       # listens on its --http-relative-path=/auth so the trailing slash
       # on proxy_pass preserves the path (no rewrite needed).
       #
-      # KC_HOSTNAME=http://localhost on Keycloak means tokens carry
-      # iss=http://localhost/auth/realms/nomad-oasis regardless of which
-      # hostname the upstream uses. KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true
-      # makes Keycloak's discovery jwks_uri use the request Host header,
-      # so NOMAD backend (which calls via cluster DNS) gets a backchannel
-      # URL it can resolve.
+      # TLS terminates at the ALB. The proxy → Keycloak hop is plain HTTP,
+      # but Keycloak must believe the original request was HTTPS so that:
+      #   1. OIDC issuer in tokens is https://nomad.bc-ctrl.internal/auth/...
+      #   2. Keycloak sets SameSite=None; Secure on session cookies.
+      #   3. Redirect URIs constructed by Keycloak use https://.
+      # KC_PROXY_HEADERS=xforwarded (set in nomad-values.yaml) makes
+      # Keycloak trust X-Forwarded-* headers. We hardcode Proto=https
+      # rather than forwarding $scheme (which would be http at this hop).
       # ---------------------------------------------------------------
       location /auth/ {
         proxy_pass http://nomad-oasis-keycloak-http/auth/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host nomad.bc-ctrl.internal;
+        proxy_set_header X-Forwarded-Port 443;
         proxy_buffer_size       128k;
         proxy_buffers           4 256k;
         proxy_busy_buffers_size 256k;
