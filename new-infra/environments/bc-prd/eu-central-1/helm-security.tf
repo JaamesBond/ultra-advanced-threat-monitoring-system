@@ -696,44 +696,28 @@ resource "helm_release" "aws_load_balancer_controller" {
     value = aws_iam_role.alb_controller.arn
   }
 
-  # Admission webhook cold-start mitigations.
+  # Disable the Service-mutator admission webhook.
   #
-  # The ALB controller chart (v1.13.0) registers several admission webhooks.
-  # On cold-start there is a window where the controller pod's IP is not yet
-  # routable from the apiserver, causing webhook calls to time out. Two
-  # webhooks are configured with failurePolicy=Fail, which converts those
-  # timeouts into hard errors that block resource creates.
+  # The chart registers three mutating webhooks (mpod, mservice, mtgb).
+  # The mservice one intercepts every Service create on the apiserver. On
+  # cold-start (or any time an ALB controller pod has a stale/unrouted IP)
+  # apiserver calls to the webhook time out. The chart hardcodes
+  # failurePolicy=Fail for mservice (webhookConfig.failurePolicy only affects
+  # mpod in this chart version), so timeouts block the Service create:
   #
-  # --- mservice (mutating, Service creates) ---
-  # Intercepted every Service create; hardcoded failurePolicy=Fail in the
-  # chart (webhookConfig.failurePolicy does NOT cover this webhook — it only
-  # covers mpod). Disabled entirely because all our Services are ClusterIP;
-  # the mservice webhook only labels LoadBalancer-type Services for ALB/NLB
-  # binding. The controller's own reconciliation loop handles those without
-  # the webhook being present.
+  #   failed to create resource: Internal error occurred: failed calling
+  #   webhook "mservice.elbv2.k8s.aws": context deadline exceeded
   #
-  #   Symptom: "failed calling webhook \"mservice.elbv2.k8s.aws\":
-  #             context deadline exceeded"
-  #
+  # Disabling the webhook entirely is the right move for this stack:
+  #   - All our in-cluster Services (NOMAD, security stack) are ClusterIP.
+  #   - The mservice webhook only adds AWS-specific labels to LoadBalancer-
+  #     type Services for ALB/NLB binding — we have no LoadBalancer Services.
+  #   - If LoadBalancer Services are ever introduced (e.g., for Hubble UI
+  #     ingress), the chart's Service controller still reconciles them
+  #     using its own discovery loop; the webhook is only an optimization.
   set {
     name  = "enableServiceMutatorWebhook"
     value = "false"
-  }
-
-  # --- vingress (validating, Ingress creates) ---
-  # Validates Ingress resources before admission. Controlled by the dedicated
-  # value webhookConfig.ingressValdationFailurePolicy (note upstream typo:
-  # "Valda" not "Valida"). Default is Fail. Set to Ignore so that a cold-start
-  # timeout does not block the nomad-oasis-ingress apply. The controller still
-  # reconciles the Ingress after it's admitted — validation is not skipped
-  # permanently, only the blocking admission gate is softened.
-  #
-  #   Symptom: "failed calling webhook \"vingress.elbv2.k8s.aws\":
-  #             context deadline exceeded"  (run 25863112449, commit a98999b)
-  #
-  set {
-    name  = "webhookConfig.ingressValdationFailurePolicy"
-    value = "Ignore"
   }
 }
 
