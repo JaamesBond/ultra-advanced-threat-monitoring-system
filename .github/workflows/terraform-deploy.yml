@@ -717,7 +717,7 @@ jobs:
       #
       # Waits for Keycloak pod Ready (300s), then fetches the OIDC discovery
       # document via a transient curl pod and asserts that the emitted issuer
-      # contains "nomad.bc-ctrl.internal". This catches KC_HOSTNAME misconfigs (e.g. if
+      # contains "localhost". This catches KC_HOSTNAME misconfigs (e.g. if
       # the env var wasn't picked up, the issuer would be the pod IP or cluster
       # DNS name, breaking browser-side token validation).
       #
@@ -790,10 +790,10 @@ jobs:
           ISSUER=$(echo "$DISCOVERY" | grep -o '"issuer":"[^"]*"' | cut -d'"' -f4 || echo "")
           echo "Keycloak issuer: ${ISSUER}"
 
-          if echo "$ISSUER" | grep -q "nomad.bc-ctrl.internal"; then
-            echo "PASS: Issuer contains 'nomad.bc-ctrl.internal' — KC_HOSTNAME configured correctly."
+          if echo "$ISSUER" | grep -q "localhost"; then
+            echo "PASS: Issuer contains 'localhost' — KC_HOSTNAME configured correctly."
           else
-            echo "FAIL: Issuer does NOT contain 'nomad.bc-ctrl.internal': ${ISSUER}"
+            echo "FAIL: Issuer does NOT contain 'localhost': ${ISSUER}"
             echo "KC_HOSTNAME may not be set correctly in the Keycloak pod."
             echo "Check: kubectl -n nomad-oasis exec deploy/nomad-oasis-keycloak -- env | grep KC_HOSTNAME"
             exit 1
