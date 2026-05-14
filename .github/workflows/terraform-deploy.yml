@@ -294,17 +294,7 @@ jobs:
             -target=aws_iam_role.alb_controller \
             -target=aws_iam_role_policy.alb_controller \
             -target=aws_iam_role.cilium_operator \
-            -target=aws_iam_role_policy.cilium_operator_eni \
-            -target=tls_private_key.xdr_internal \
-            -target=tls_self_signed_cert.xdr_internal \
-            -target=aws_acm_certificate.xdr_internal
-
-      - name: Capture ACM cert ARN from Terraform output
-        working-directory: new-infra/environments/bc-prd/eu-central-1
-        run: |
-          ACM_CERT_ARN=$(terraform output -raw acm_cert_arn)
-          echo "ACM_CERT_ARN=${ACM_CERT_ARN}" >> $GITHUB_ENV
-          echo "ACM cert ARN: ${ACM_CERT_ARN}"
+            -target=aws_iam_role_policy.cilium_operator_eni
 
       - name: Configure kubectl (bc-prd-eks)
         run: |
@@ -880,29 +870,8 @@ jobs:
       - name: Deploy NOMAD Oasis K8s manifests (bc-prd)
         run: |
           kubectl kustomize new-infra/k8s/nomad-oasis \
-            | sed "s|\${AWS_ACCOUNT_ID}|${{ env.AWS_ACCOUNT_ID }}|g" \
-            | sed "s|\${ACM_CERT_ARN}|${ACM_CERT_ARN}|g" \
+            | sed "s/\${AWS_ACCOUNT_ID}/${{ env.AWS_ACCOUNT_ID }}/g" \
             | kubectl apply -f -
-
-      - name: Wait for NOMAD Ingress ALB hostname (Stage 2c)
-        run: |
-          ALB_HOSTNAME=""
-          for i in $(seq 1 30); do
-            ALB_HOSTNAME=$(kubectl -n nomad-oasis get ingress nomad-oasis-ingress \
-              -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
-            if [ -n "$ALB_HOSTNAME" ]; then
-              echo "Ingress ALB ready: $ALB_HOSTNAME"
-              echo "ALB_HOSTNAME=${ALB_HOSTNAME}" >> $GITHUB_ENV
-              break
-            fi
-            echo "Waiting for ALB hostname... attempt $i/30"
-            sleep 10
-          done
-          if [ -z "$ALB_HOSTNAME" ]; then
-            echo "ERROR: Ingress did not get an ALB hostname after 5 minutes"
-            kubectl -n nomad-oasis describe ingress nomad-oasis-ingress
-            exit 1
-          fi
 
       # Post-deploy readiness check — confirms NOMAD pods scheduled and
       # healthy on the nomad node group within 30 minutes. Uses
@@ -926,59 +895,3 @@ jobs:
             --for=condition=ready pod \
             -l app.kubernetes.io/name=nomad \
             --timeout=1800s
-
-      # ---------------------------------------------------------------
-      # Stage 3a: Wire Route53 DNS to the ALB provisioned by the Ingress.
-      #
-      # data.aws_lb.xdr_shared uses the tag ingress.k8s.aws/stack=xdr-shared
-      # to look up the ALB created by the ALB Controller in Stage 2c. This
-      # data source MUST NOT run in Stage 1 — the ALB does not exist yet at
-      # that point and the lookup would return no results, causing an apply
-      # error. It must run after the "Wait for NOMAD Ingress ALB hostname"
-      # step above confirms the ALB is fully provisioned.
-      #
-      # The two Route53 records are ALIAS records pointing at the ALB DNS
-      # name. Both nomad.bc-ctrl.internal and hubble.bc-ctrl.internal resolve
-      # to the shared ALB which routes by Host header.
-      # ---------------------------------------------------------------
-      - name: "Terraform Apply (Prd) — Stage 3a: Route53 DNS → ALB"
-        working-directory: new-infra/environments/bc-prd/eu-central-1
-        run: |
-          terraform apply -auto-approve \
-            -target=data.aws_lb.xdr_shared \
-            -target=aws_route53_record.nomad \
-            -target=aws_route53_record.hubble
-
-      # Final TLS validation — verify nomad.bc-ctrl.internal resolves via
-      # the ALB and Keycloak's OIDC discovery endpoint returns HTTP 200.
-      # Runs inside a transient curl pod (curlimages/curl) on the nomad
-      # node so it has DNS access to the bc-ctrl.internal private zone.
-      # The -k flag is required because the cert is self-signed (GAP-002).
-      - name: Verify HTTPS ingress end-to-end (Stage 3a)
-        run: |
-          HTTP_CODE=$(kubectl run -n nomad-oasis tls-check-$RANDOM \
-            --rm -i --restart=Never \
-            --image=curlimages/curl:8.5.0 \
-            --overrides='{
-              "spec": {
-                "nodeSelector": {"role": "nomad"},
-                "tolerations": [{
-                  "key": "dedicated",
-                  "operator": "Equal",
-                  "value": "nomad",
-                  "effect": "NoSchedule"
-                }]
-              }
-            }' \
-            --command -- \
-            curl -sk -o /dev/null -w "%{http_code}" \
-            https://nomad.bc-ctrl.internal/auth/realms/nomad-oasis/.well-known/openid-configuration \
-            2>/dev/null || echo "CURL_FAILED")
-          echo "OIDC discovery endpoint response: ${HTTP_CODE}"
-          if [ "${HTTP_CODE}" != "200" ]; then
-            echo "ERROR: Expected HTTP 200 from OIDC discovery endpoint, got: ${HTTP_CODE}"
-            echo "Check: kubectl -n nomad-oasis describe ingress nomad-oasis-ingress"
-            echo "Check: kubectl -n nomad-oasis logs deploy/nomad-oasis-keycloak"
-            exit 1
-          fi
-          echo "PASS: nomad.bc-ctrl.internal HTTPS + Keycloak OIDC endpoint verified."

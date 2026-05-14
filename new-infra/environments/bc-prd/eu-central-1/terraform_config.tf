@@ -14,13 +14,6 @@ terraform {
       source  = "hashicorp/kubernetes"
       version = "~> 2.0"
     }
-    tls = {
-      # Already pulled in as a transitive dep by the EKS module (v4.2.1 in
-      # .terraform.lock.hcl). Declaring it here makes the dependency explicit
-      # and allows tls_private_key / tls_self_signed_cert in acm.tf.
-      source  = "hashicorp/tls"
-      version = ">= 3.0"
-    }
   }
 
   backend "s3" {
