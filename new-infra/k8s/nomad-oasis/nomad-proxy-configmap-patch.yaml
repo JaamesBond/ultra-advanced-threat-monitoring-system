@@ -141,5 +141,20 @@ data:
         proxy_buffer_size       128k;
         proxy_buffers           4 256k;
         proxy_busy_buffers_size 256k;
+
+        # Keycloak 24 defaults session cookies to SameSite=None;Secure.
+        # The dev-path is plain HTTP (port-forward → nginx → Keycloak), so
+        # the browser silently drops Secure-flagged cookies, and the next
+        # POST has no AUTH_SESSION_ID cookie → "Cookie not found. Please
+        # make sure cookies are enabled in your browser." (HTTP 400).
+        #
+        # nginx 1.19.3+ proxy_cookie_flags rewrites Set-Cookie headers on
+        # the way back to the browser. We strip "secure" so cookies stay
+        # over HTTP, and downgrade "samesite=lax" so they're accepted on
+        # the form-submit POST without the Secure pairing requirement.
+        #
+        # When real HTTPS lands (ALB + ACM, see feature/production-https-alb),
+        # delete these two lines — Keycloak's defaults work natively over TLS.
+        proxy_cookie_flags ~ nosecure samesite=lax;
       }
     }
