@@ -80,19 +80,19 @@ For simple, single-domain tasks, skip step 1 — dispatch domain agent directly,
 |----------|------|--------|----|------------------------|---------|
 | `wazuh-ctrl` | t3.xlarge | private[0] | Amazon Linux 2023 | `wazuh-manager.bc-ctrl.internal`, `wazuh-indexer.bc-ctrl.internal`, `wazuh-dashboard.bc-ctrl.internal` | Wazuh all-in-one (Manager + OpenSearch Indexer + Dashboard). 60 GiB root + 200 GiB gp3 data EBS |
 | `misp-ctrl` | t3.large | private[0] | Amazon Linux 2023 | `misp.bc-ctrl.internal` | MISP threat intel platform + co-located MySQL. 30 GiB root + 60 GiB gp3 data EBS |
-| `shuffle-ec2` | t3.large | private[0] | Ubuntu 24.04 | — | Shuffle SOAR v2.2.0 via Docker Compose. No IAM instance profile registered yet. |
+| `splunk-soar-ec2` | t3.xlarge | private[0] | (Splunk SOAR AMI) | `splunk-soar.bc-ctrl.internal` | Splunk SOAR — defined in `splunksoar.tf` but **commented out** (not yet provisioned). Uncomment before demo. |
 | `github-runner-ctrl` | t3.small | public[0] | Amazon Linux 2023 | — | Self-hosted GitHub Actions runner. Used by `production-plane` CI job |
 
 Wazuh and MISP install via scripts fetched from S3 at boot (`bc-uatms-wazuh-snapshots` bucket). To re-provision, taint and re-apply: `terraform taint aws_instance.wazuh` or `aws_instance.misp`.
 
-**Shuffle** is deployed as Docker Compose on Ubuntu 24.04 — NOT on EKS. Requires `vm.max_map_count=262144` (set via sysctl in user_data). Runs Shuffle v2.2.0.
+**Splunk SOAR** replaces Shuffle as the SOAR platform. Terraform is in `splunksoar.tf` (bc-ctrl) but is fully commented out — **not currently running**. Uncomment and `terraform apply` in `bc-ctrl` before the demo. Planned instance: `t3.xlarge`, AMI `ami-00f1f079c46642ed1`, bc-ctrl private subnet, 100 GiB gp3, SSM instance profile, DNS at `splunk-soar.bc-ctrl.internal`.
 
 ### bc-prd EKS
 
 - **Cluster**: `bc-uatms-prd-eks`, Kubernetes 1.35, private endpoint + public (kept public until Helm complete)
 - **Nodes**: 2× `t3.medium` (min/max/desired = 2). DO NOT use t3.small (pod limit too low).
 - **CNI**: Cilium in ENI mode (`ipam.mode=eni`, `routingMode=native`). aws-node intentionally disabled via `nodeSelector: non-existent=true`.
-- **EBS CSI**: Currently disabled (commented out) — required only if Shuffle is re-enabled.
+- **EBS CSI**: Currently disabled (commented out) — required only if Splunk SOAR (or other stateful workload) is added to EKS.
 
 ### Security Stack (bc-prd Helm Releases)
 
@@ -115,7 +115,7 @@ Cilium has Hubble relay + UI enabled (`policyEnforcementMode=default`). Falco us
 
 **CRITICAL**: Zeek and Suricata DaemonSets require `nodeSelector: role: workload`. If this node label is missing from the node group, pods will never schedule — 0 replicas is NOT an error in the DaemonSet itself.
 
-**Shuffle SOAR**: Moved off EKS entirely. Now runs as Docker Compose on `shuffle-ec2` (t3.large, Ubuntu 24.04) in bc-ctrl private subnet. The EKS Helm release remains commented out.
+**Splunk SOAR**: Replaces Shuffle. Terraform defined in `splunksoar.tf` (bc-ctrl) but fully commented out — not currently provisioned. No EKS involvement.
 
 ### Data Flow (Telemetry Pipeline)
 
@@ -176,18 +176,18 @@ These are not yet wired to any SIEM pipeline — they document intended detectio
 - **Terraform Configs**: `new-infra/environments/{env}/eu-central-1/`
 - **bc-ctrl VPC/fck-nat/peering**: `new-infra/environments/bc-ctrl/eu-central-1/vpc.tf`
 - **bc-ctrl GitHub Runner + MISP**: `new-infra/environments/bc-ctrl/eu-central-1/vm.tf`
-- **bc-ctrl Shuffle EC2**: `new-infra/environments/bc-ctrl/eu-central-1/shuffle.tf`
+- **bc-ctrl Splunk SOAR EC2**: `new-infra/environments/bc-ctrl/eu-central-1/splunksoar.tf` (commented out — uncomment before demo)
 - **bc-ctrl Wazuh EC2**: `new-infra/environments/bc-ctrl/eu-central-1/wazuh-ec2.tf`
 - **bc-ctrl DNS (Route53)**: `new-infra/environments/bc-ctrl/eu-central-1/route53.tf`
 - **bc-prd VPC/fck-nat/peering/endpoints**: `new-infra/environments/bc-prd/eu-central-1/vpc.tf`
 - **bc-prd EKS**: `new-infra/environments/bc-prd/eu-central-1/eks.tf`
 - **bc-prd Security Stack (Helm)**: `new-infra/environments/bc-prd/eu-central-1/helm-security.tf`
 - **K8s Manifests**: `new-infra/k8s/{wazuh-agent,suricata,zeek,tetragon}/`
-- **Sigma Rules**: `new-infra/k8s/sigma/rules/{aws-cloudtrail,kubernetes}/`
+- **Wazuh Custom Rules**: `new-infra/wazuh/rules/bc-aws-cloudtrail.xml`, `bc-k8s-audit.xml` (native Wazuh XML, uploaded by `phase3-install-wazuh.sh`)
 - **Wazuh Install Script**: `new-infra/scripts/phase3-install-wazuh.sh`
 - **MISP Install Script**: `new-infra/scripts/phase4-install-misp.sh`
 - **Victim Machine Scripts**: `new-infra/scripts/victim-install-{wazuh-agent,suricata,zeek}.sh`, `victim-configure-detection.sh`
-- **Shuffle EC2**: `new-infra/environments/bc-ctrl/eu-central-1/shuffle.tf` (Docker Compose on Ubuntu 24.04, bc-ctrl private subnet)
+- **Splunk SOAR EC2**: `new-infra/environments/bc-ctrl/eu-central-1/splunksoar.tf` (commented out — uncomment before demo, then `terraform apply` in bc-ctrl)
 - **Modules**: `new-infra/modules/network/vpc/`, `vpc_peering/`, `vpc/endpoints/`, `eks-addons/`
 - **Rollout Plan**: `SECURITY_STACK_ROLLOUT_PLAN.md` (phase tracker — read before touching stack)
 
@@ -339,7 +339,7 @@ Summary of open gaps:
 - **GAP-002**: MISP sidecars use `curl -k` — certificate validation disabled, MITM risk
 - **GAP-003**: No container image signing or admission control — supply chain unverified
 - **GAP-004**: Wazuh all-in-one is a single point of failure for the entire telemetry pipeline
-- **GAP-005**: Shuffle EC2 has no SSM instance profile — no out-of-band access
+- **GAP-005**: Splunk SOAR EC2 not yet provisioned (Terraform commented out in `splunksoar.tf`) — uncomment before demo
 - **GAP-006**: No Wazuh active response configured — detection only, no automated enforcement
 - **GAP-007**: No certificate rotation plan for when GAP-001/002 are fixed
 - **GAP-008**: No OpenSearch S3 snapshot repository — historical alerts lost on EC2 failure, no compliance archive
@@ -359,11 +359,11 @@ Summary of open gaps:
 - **API key**: Stored in `bc/misp*` Secrets Manager paths. Zeek and Suricata sidecars pull this via External Secrets.
 - **Self-signed cert**: MISP uses a self-signed cert. Sidecars use `curl -k` — see **GAP-002** in `PRE_PROD_GAPS.md`.
 
-### Shuffle (EC2 — bc-ctrl)
-- **Moved off EKS** — now `shuffle-ec2` (t3.large, Ubuntu 24.04, private subnet) in bc-ctrl, running Shuffle v2.2.0 via Docker Compose.
-- Requires `vm.max_map_count=262144` for OpenSearch (set in user_data via sysctl).
-- No SSM instance profile registered yet — access only via VPC-internal routing.
-- EKS Helm release remains commented out in `helm-security.tf`.
+### Splunk SOAR (EC2 — bc-ctrl)
+- **Replaces Shuffle** — Terraform defined in `splunksoar.tf` (bc-ctrl) but fully commented out. **Not currently running.**
+- To provision: uncomment all resources in `splunksoar.tf` and run `terraform apply` in `new-infra/environments/bc-ctrl/eu-central-1/`. Do this before the demo.
+- Planned spec: `t3.xlarge`, AMI `ami-00f1f079c46642ed1`, 100 GiB gp3, bc-ctrl private subnet, SSM instance profile, Route53 at `splunk-soar.bc-ctrl.internal`.
+- No EKS involvement.
 
 ### Cilium ENI Mode
 - aws-node DaemonSet is kept running but neutered via `nodeSelector: non-existent=true` on the original aws-node pods — Cilium takes over IP management completely.

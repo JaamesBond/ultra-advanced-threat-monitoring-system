@@ -82,6 +82,7 @@ nomad:
     # both work without hostAliases or special routing.
     keycloak:
       server_url: "http://nomad-oasis-keycloak-http/auth/"
+      public_server_url: "http://localhost:8080/auth/"
       realm_name: "nomad-oasis"
       username: admin
       client_id: "nomad_public"
