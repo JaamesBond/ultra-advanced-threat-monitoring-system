@@ -23,7 +23,7 @@
 #                       PLACEHOLDER_SHUFFLE_HOOK_ID, API_USERNAME, INDEXER_USERNAME
 #
 # S3 bucket for certs handoff:
-#   s3://bc-uatms-terraform-state/certs/wazuh-certs-YYYYMMDD.tar
+#   s3://bc-uatms-terraform-state-252159218834/certs/wazuh-certs-YYYYMMDD.tar
 # =============================================================================
 set -euo pipefail
 
