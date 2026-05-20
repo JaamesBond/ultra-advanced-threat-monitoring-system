@@ -48,10 +48,13 @@ spec:
       serviceAccountName: zeek
       terminationGracePeriodSeconds: 30
 
-      nodeSelector:
-        role: workload
-
-      tolerations: []
+      # Sensors must cover every node — no nodeSelector.
+      # Tolerate the nomad-dedicated taint so we observe NOMAD Oasis traffic too.
+      tolerations:
+        - key: "dedicated"
+          operator: "Equal"
+          value: "nomad"
+          effect: "NoSchedule"
 
       #--------------------------------------------------------------
       # Host namespace — required for raw packet capture on eth0

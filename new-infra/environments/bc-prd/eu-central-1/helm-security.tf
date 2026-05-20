@@ -225,6 +225,25 @@ resource "helm_release" "falco" {
     name  = "collectors.containerEngine.enabled"
     value = "true"
   }
+
+  # Tolerate the nomad-dedicated taint so Falco runs on every node,
+  # including ip-10-30-11-243 where the NOMAD Oasis stack is co-located.
+  set {
+    name  = "tolerations[0].key"
+    value = "dedicated"
+  }
+  set {
+    name  = "tolerations[0].operator"
+    value = "Equal"
+  }
+  set {
+    name  = "tolerations[0].value"
+    value = "nomad"
+  }
+  set {
+    name  = "tolerations[0].effect"
+    value = "NoSchedule"
+  }
 }
 
 resource "helm_release" "tetragon" {

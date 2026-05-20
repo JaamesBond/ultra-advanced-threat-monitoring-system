@@ -88,12 +88,13 @@ spec:
       serviceAccountName: suricata
       terminationGracePeriodSeconds: 60
 
-      # Land on the workload nodegroup in bc-prd
-      nodeSelector:
-        role: workload
-
-      # Collector nodegroup has no taints — no tolerations needed
-      tolerations: []
+      # Sensors must cover every node — no nodeSelector.
+      # Tolerate the nomad-dedicated taint so we observe NOMAD Oasis traffic too.
+      tolerations:
+        - key: "dedicated"
+          operator: "Equal"
+          value: "nomad"
+          effect: "NoSchedule"
 
       #--------------------------------------------------------------
       # Host namespace sharing — required for packet capture
