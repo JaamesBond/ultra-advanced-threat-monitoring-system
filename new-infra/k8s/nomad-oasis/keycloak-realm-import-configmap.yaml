@@ -9,10 +9,24 @@
 # Keycloak skips the import silently — fully idempotent.
 #
 # Realm: nomad-oasis
-#   - Public client:  nomad_public (no client secret required)
-#   - Redirect URIs:  http://localhost/* (covers port-forward on any port)
-#   - Web origins:    http://localhost  (CORS — same origin as redirect)
-#   - Test user:      testuser / testpass123 (dev/test only)
+#   - Public client:     nomad_public (no client secret required)
+#   - Admin client:      admin-cli (direct access, for NOMAD backend admin API)
+#   - Redirect URIs:     http://localhost/* (covers port-forward on any port)
+#   - Web origins:       http://localhost  (CORS — same origin as redirect)
+#   - Test user:         testuser / testpass123 (dev/test only)
+#
+# Admin user (nomad-oasis realm) — NOT in this ConfigMap (contains a secret
+# password). Created by the "Setup Keycloak nomad-oasis admin user" pipeline
+# step (Step A2) which reads the password from nomad-keycloak-secret and
+# calls the Keycloak admin API. Required so NOMAD's KeycloakAdmin client
+# (which authenticates against realm_name=nomad-oasis, not master) can call
+# the KC admin API for user lookups. Without it every authenticated NOMAD
+# request fails with "unknown user (403)".
+#
+# testuser.createdTimestamp — users imported without createdTimestamp in the
+# realm JSON have the field absent from the KC admin API response, which
+# causes KeyError in NOMAD's __user_from_keycloak_user. Use any epoch ms
+# value here; Keycloak normalises it on import.
 #
 # Cold-restart safety: this ConfigMap is git-tracked and applied via
 # kustomize on every pipeline run — the realm is always re-importable
@@ -58,6 +72,16 @@ data:
           "attributes": {
             "pkce.code.challenge.method": "S256"
           }
+        },
+        {
+          "clientId": "admin-cli",
+          "enabled": true,
+          "publicClient": true,
+          "directAccessGrantsEnabled": true,
+          "standardFlowEnabled": false,
+          "implicitFlowEnabled": false,
+          "serviceAccountsEnabled": false,
+          "protocol": "openid-connect"
         }
       ],
       "users": [
@@ -68,6 +92,7 @@ data:
           "email": "testuser@nomad-oasis.local",
           "firstName": "Test",
           "lastName": "User",
+          "createdTimestamp": 1000000000000,
           "credentials": [
             {
               "type": "password",

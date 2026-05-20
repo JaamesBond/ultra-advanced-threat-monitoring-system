@@ -62,6 +62,22 @@ data:
           application/x-javascript
           application/json;
 
+      # Rewrite internal Keycloak hostname to localhost in all upstream
+      # responses. env.js (served under /nomad-oasis/gui/) hardcodes
+      # keycloakBase=http://nomad-oasis-keycloak-http/auth which is
+      # K8s-internal and unreachable from outside the cluster. Server-level
+      # placement ensures this applies to every location block.
+      # proxy_set_header Accept-Encoding "" forces upstream to send plain
+      # text so sub_filter can process it before nginx gzips for the client.
+      proxy_set_header Accept-Encoding "";
+      sub_filter "nomad-oasis-keycloak-http" "localhost:8080";
+      # KC_HOSTNAME=localhost makes Keycloak generate http://localhost/auth/...
+      # (port 80) in HTML form actions. Rewrite those to port 8080 so the
+      # browser posts to the port-forward address.
+      sub_filter "http://localhost/auth" "http://localhost:8080/auth";
+      sub_filter_types *;
+      sub_filter_once off;
+
       location / {
         proxy_pass http://nomad-oasis-app:8000;
       }
@@ -141,6 +157,11 @@ data:
         proxy_buffer_size       128k;
         proxy_buffers           4 256k;
         proxy_busy_buffers_size 256k;
+
+        # KC_HOSTNAME=localhost makes Keycloak issue 302 Location headers
+        # pointing to http://localhost/auth/... (port 80). Rewrite them to
+        # port 8080 so the browser follows the redirect through the port-forward.
+        proxy_redirect "http://localhost/auth/" "http://localhost:8080/auth/";
 
         # Keycloak 24 defaults session cookies to SameSite=None;Secure.
         # The dev-path is plain HTTP (port-forward → nginx → Keycloak), so

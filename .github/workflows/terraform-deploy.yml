@@ -791,6 +791,69 @@ jobs:
 
           echo "=== Keycloak verification complete ==="
 
+      # Step A2: Set up admin user in nomad-oasis Keycloak realm
+      #
+      # NOMAD's KeycloakAdmin client authenticates against realm_name="nomad-oasis"
+      # (user_realm_name=None defaults to realm_name). The built-in "admin" user only
+      # exists in the "master" realm, not "nomad-oasis". Without this step, every NOMAD
+      # user lookup fails with "unknown user (403)" because KeycloakAdmin gets 401 on
+      # every admin API call.
+      #
+      # Uses kcadm.sh inside the Keycloak pod to:
+      #   1. Authenticate to master realm as "admin" (password from nomad-keycloak-secret)
+      #   2. Upsert "admin" user in "nomad-oasis" realm with the same password
+      #   3. Grant realm-admin role on realm-management client to that user
+      #
+      # Idempotent: user create 409 (already exists) is swallowed; add-roles is
+      # idempotent in Keycloak (no error if role already assigned).
+      #
+      # Runs after Step C because Step C guarantees Keycloak pod is Ready and
+      # responding before we attempt kcadm.sh calls.
+      - name: Setup Keycloak nomad-oasis admin user (Step A2)
+        run: |
+          set -euo pipefail
+          echo "=== Step A2: Keycloak nomad-oasis admin user setup ==="
+
+          KC_POD="nomad-oasis-keycloak-0"
+
+          # Read the admin password from the ESO-synced K8s secret
+          ADMIN_PASS=$(kubectl -n nomad-oasis get secret nomad-keycloak-secret \
+            -o jsonpath='{.data.password}' | base64 -d)
+
+          # Authenticate kcadm against the master realm
+          kubectl -n nomad-oasis exec "${KC_POD}" -- \
+            /opt/keycloak/bin/kcadm.sh config credentials \
+              --server http://localhost:8080/auth \
+              --realm master \
+              --user admin \
+              --password "${ADMIN_PASS}"
+
+          # Upsert: create if not exists (409 = already exists, that's fine)
+          kubectl -n nomad-oasis exec "${KC_POD}" -- \
+            /opt/keycloak/bin/kcadm.sh create users \
+              -r nomad-oasis \
+              -s username=admin \
+              -s enabled=true \
+            || true
+
+          # Set (or reset) the password — idempotent
+          kubectl -n nomad-oasis exec "${KC_POD}" -- \
+            /opt/keycloak/bin/kcadm.sh set-password \
+              -r nomad-oasis \
+              --username admin \
+              --new-password "${ADMIN_PASS}"
+
+          # Grant realm-admin role on realm-management client — idempotent
+          kubectl -n nomad-oasis exec "${KC_POD}" -- \
+            /opt/keycloak/bin/kcadm.sh add-roles \
+              -r nomad-oasis \
+              --uusername admin \
+              --cclientid realm-management \
+              --rolename realm-admin
+
+          echo "Admin user in nomad-oasis realm: configured."
+          echo "=== Step A2 complete ==="
+
       - name: Wait for CRDs to propagate
         run: |
           # kubectl wait returns NotFound immediately if CRD doesn't exist yet.
