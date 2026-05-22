@@ -24,6 +24,16 @@ spec:
         - ports:
             - port: "4244"
               protocol: TCP
+    # DNS to CoreDNS: kubeProxyReplacement=true DNAT's 172.20.0.10 to pod ENI IPs (10.30.x.x).
+    # toEntities:cluster alone does not match the post-DNAT identity; add toCIDRSet covering
+    # the entire bc-prd VPC so DNAT'd CoreDNS pod IPs are always reachable. Same bug class as
+    # external-secrets STS fix — see CLAUDE.md "Cilium ENI Mode" section.
+    - toCIDRSet:
+        - cidr: 10.30.0.0/16
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
     - toEntities:
         - cluster
         - remote-node

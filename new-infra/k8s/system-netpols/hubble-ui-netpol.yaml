@@ -24,6 +24,13 @@ spec:
             - port: "8081"
               protocol: TCP
   egress:
+    # DNS: same kubeProxyReplacement DNAT issue — add toCIDRSet for bc-prd VPC pod IPs.
+    - toCIDRSet:
+        - cidr: 10.30.0.0/16
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
     - toEntities:
         - cluster
         - remote-node
