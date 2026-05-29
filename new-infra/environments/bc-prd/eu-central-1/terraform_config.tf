@@ -17,7 +17,7 @@ terraform {
   }
 
   backend "s3" {
-    bucket = "bc-uatms-terraform-state-252159218834"
+    bucket = "bc-uatms-terraform-state-997916278486"
     key    = "v8/environments/bc-prd/terraform.tfstate"
     region = "eu-central-1"
   }
@@ -42,7 +42,7 @@ data "aws_caller_identity" "current" {}
 data "terraform_remote_state" "ctrl" {
   backend = "s3"
   config = {
-    bucket = "bc-uatms-terraform-state-252159218834"
+    bucket = "bc-uatms-terraform-state-997916278486"
     key    = "v8/environments/bc-ctrl/terraform.tfstate"
     region = "eu-central-1"
   }

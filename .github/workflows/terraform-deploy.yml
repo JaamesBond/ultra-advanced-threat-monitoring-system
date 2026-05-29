@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  AWS_ACCOUNT_ID: "252159218834"
+  AWS_ACCOUNT_ID: "997916278486"
   AWS_REGION: "eu-central-1"
 
 jobs:
@@ -37,7 +37,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::252159218834:role/GitHubActionsDeployRole
+          role-to-assume: arn:aws:iam::997916278486:role/GitHubActionsDeployRole
           aws-region: eu-central-1
 
       - uses: hashicorp/setup-terraform@v3
@@ -135,7 +135,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::252159218834:role/GitHubActionsDeployRole
+          role-to-assume: arn:aws:iam::997916278486:role/GitHubActionsDeployRole
           aws-region: eu-central-1
 
       - uses: hashicorp/setup-terraform@v3
