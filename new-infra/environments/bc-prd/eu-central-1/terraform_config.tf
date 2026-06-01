@@ -39,6 +39,13 @@ provider "kubernetes" {
 
 data "aws_caller_identity" "current" {}
 
+# Resolve the SSO AdministratorAccess role dynamically so the random suffix
+# in the role name never causes drift between accounts or SSO re-deployments.
+data "aws_iam_roles" "sso_admin" {
+  name_regex  = "AWSReservedSSO_AdministratorAccess_.*"
+  path_prefix = "/aws-reserved/sso.amazonaws.com/"
+}
+
 data "terraform_remote_state" "ctrl" {
   backend = "s3"
   config = {
