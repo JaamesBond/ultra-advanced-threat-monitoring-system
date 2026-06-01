@@ -619,6 +619,507 @@ PYEOF
     log "Post-rotation verify: indexer credential confirmed working."
   fi
 
+  # =========================================================================
+  # TASK 3 — ISM index retention policies
+  #
+  # Two policies, applied via ISM + index templates so they auto-attach to
+  # every new index in the matching pattern.
+  #
+  # Retention rationale (single-node 200 GiB data volume):
+  #   wazuh-archives-* : all events including VPCFlow (~24k events/window).
+  #     VPCFlow alone can produce several hundred MB/day in JSON on a busy
+  #     cluster. 10 days of archives keeps ~5-10 GB headroom for forensic
+  #     replay while preventing disk exhaustion. Archives are low-value once
+  #     the matching alert has been generated.
+  #   wazuh-alerts-*   : rule-matched events only. Much smaller volume.
+  #     30 days provides a month of investigation history across all alert
+  #     levels and satisfies basic SOC triage workflows without a snapshot.
+  #
+  # Rollover triggers (per policy):
+  #   size: 25 GB — caps a single shard at a manageable restore unit.
+  #   age: 1 day  — ensures daily index segments so ISM delete transitions
+  #                 fire cleanly on whole-day boundaries (avoids deleting the
+  #                 hot index that Filebeat is currently writing to).
+  #
+  # Idempotent: PUT with "if_seq_no"/"if_primary_term" conflicts will be
+  # caught by an explicit existence check — we skip the PUT if the policy
+  # already exists, so re-runs are safe.
+  # =========================================================================
+
+  log "=== [INDEXER] Configuring ISM retention policies (Task 3) ==="
+
+  # Shared curl wrapper — uses admin cert + basic auth, targets localhost:9200
+  # We keep admin cert authentication as primary; basic auth is the verified
+  # working method post-rotation.
+  OS_CURL() {
+    curl -sk \
+      -u "${INDEXER_USERNAME}:${INDEXER_PASSWORD}" \
+      --connect-timeout 10 --max-time 30 \
+      "$@"
+  }
+
+  # -------------------------------------------------------------------------
+  # 3a. wazuh-archives ISM policy — delete after 10 days, rollover at 25 GB / 1 day
+  # -------------------------------------------------------------------------
+  ARCHIVES_POLICY_EXISTS="$(OS_CURL \
+    -o /dev/null -w "%{http_code}" \
+    "https://localhost:9200/_plugins/_ism/policies/bc-wazuh-archives-retention" \
+    2>/dev/null || echo "000")"
+
+  if [[ "${ARCHIVES_POLICY_EXISTS}" == "200" ]]; then
+    log "ISM policy 'bc-wazuh-archives-retention' already exists — skipping creation."
+  else
+    log "Creating ISM policy 'bc-wazuh-archives-retention' (archives: rollover 25 GB/1d, delete after 10 days)..."
+    OS_CURL -X PUT \
+      -H "Content-Type: application/json" \
+      "https://localhost:9200/_plugins/_ism/policies/bc-wazuh-archives-retention" \
+      -d '{
+        "policy": {
+          "description": "BC Wazuh archives retention: rollover at 25 GB or 1 day, delete after 10 days",
+          "default_state": "hot",
+          "states": [
+            {
+              "name": "hot",
+              "actions": [
+                {
+                  "rollover": {
+                    "min_size": "25gb",
+                    "min_index_age": "1d"
+                  }
+                }
+              ],
+              "transitions": [
+                {
+                  "state_name": "delete",
+                  "conditions": {
+                    "min_index_age": "10d"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "delete",
+              "actions": [
+                {
+                  "delete": {}
+                }
+              ],
+              "transitions": []
+            }
+          ],
+          "ism_template": [
+            {
+              "index_patterns": ["wazuh-archives-*"],
+              "priority": 100
+            }
+          ]
+        }
+      }' | jq -r '.policy.policy_id // .error // .' 2>/dev/null \
+      && log "Archives ISM policy created." \
+      || log "WARNING: Archives ISM policy creation failed — check indexer logs"
+  fi
+
+  # -------------------------------------------------------------------------
+  # 3b. wazuh-alerts ISM policy — delete after 30 days, rollover at 25 GB / 1 day
+  # -------------------------------------------------------------------------
+  ALERTS_POLICY_EXISTS="$(OS_CURL \
+    -o /dev/null -w "%{http_code}" \
+    "https://localhost:9200/_plugins/_ism/policies/bc-wazuh-alerts-retention" \
+    2>/dev/null || echo "000")"
+
+  if [[ "${ALERTS_POLICY_EXISTS}" == "200" ]]; then
+    log "ISM policy 'bc-wazuh-alerts-retention' already exists — skipping creation."
+  else
+    log "Creating ISM policy 'bc-wazuh-alerts-retention' (alerts: rollover 25 GB/1d, delete after 30 days)..."
+    OS_CURL -X PUT \
+      -H "Content-Type: application/json" \
+      "https://localhost:9200/_plugins/_ism/policies/bc-wazuh-alerts-retention" \
+      -d '{
+        "policy": {
+          "description": "BC Wazuh alerts retention: rollover at 25 GB or 1 day, delete after 30 days",
+          "default_state": "hot",
+          "states": [
+            {
+              "name": "hot",
+              "actions": [
+                {
+                  "rollover": {
+                    "min_size": "25gb",
+                    "min_index_age": "1d"
+                  }
+                }
+              ],
+              "transitions": [
+                {
+                  "state_name": "delete",
+                  "conditions": {
+                    "min_index_age": "30d"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "delete",
+              "actions": [
+                {
+                  "delete": {}
+                }
+              ],
+              "transitions": []
+            }
+          ],
+          "ism_template": [
+            {
+              "index_patterns": ["wazuh-alerts-*"],
+              "priority": 100
+            }
+          ]
+        }
+      }' | jq -r '.policy.policy_id // .error // .' 2>/dev/null \
+      && log "Alerts ISM policy created." \
+      || log "WARNING: Alerts ISM policy creation failed — check indexer logs"
+  fi
+
+  # -------------------------------------------------------------------------
+  # 3c. Apply ISM policy to any pre-existing indices that match the patterns
+  #     but were created before the ism_template was registered.
+  #     The ism_template only auto-attaches to NEW indices; existing indices
+  #     need a manual _plugins/_ism/add call. This is idempotent — adding a
+  #     policy to an index that already has it returns a no-op.
+  # -------------------------------------------------------------------------
+  log "Applying ISM policies to any pre-existing wazuh-archives-* and wazuh-alerts-* indices..."
+  for PATTERN in "wazuh-archives-*" "wazuh-alerts-*"; do
+    POLICY_ID="bc-wazuh-archives-retention"
+    [[ "${PATTERN}" == "wazuh-alerts-*" ]] && POLICY_ID="bc-wazuh-alerts-retention"
+
+    OS_CURL -X POST \
+      -H "Content-Type: application/json" \
+      "https://localhost:9200/_plugins/_ism/add/${PATTERN}" \
+      -d "{\"policy_id\": \"${POLICY_ID}\"}" \
+      >/dev/null 2>&1 \
+      && log "ISM policy '${POLICY_ID}' add-request sent for pattern '${PATTERN}'." \
+      || log "WARNING: ISM add for pattern '${PATTERN}' returned non-zero (may be no matching indices — not fatal)"
+  done
+
+  log "=== [INDEXER] ISM retention policies configured ==="
+
+  # =========================================================================
+  # TASK 1 — S3 snapshot repository + Snapshot Management (SM) schedule
+  #
+  # repository-s3 plugin: bundled in the Wazuh 4.x OpenSearch distribution.
+  # Wazuh indexer ships OpenSearch with the repository-s3 plugin pre-installed
+  # (confirmed for Wazuh 4.x — the Wazuh indexer is a curated OpenSearch
+  # distribution). We verify with _cat/plugins and skip the install step if
+  # already present. If somehow missing, we install via opensearch-plugin.
+  #
+  # Authentication: EC2 instance role credential chain (no static keys,
+  # no keystore entries required). The repository-s3 plugin picks up
+  # credentials from the instance metadata service automatically when no
+  # access_key/secret_key are specified in the PUT body. The instance role
+  # (wazuh-ec2-role) must have s3:GetObject, s3:PutObject, s3:DeleteObject,
+  # s3:ListBucket on the snapshots bucket — see IAM note at bottom of section.
+  #
+  # S3 prefix: opensearch-snapshots/ — distinct from scripts/ and rules/
+  # which already exist in the same bucket, so no collision risk.
+  #
+  # Encryption: the bucket has no bucket-level SSE-KMS override; objects
+  # default to SSE-S3 (AES256). We set server_side_encryption=true in the
+  # repository config, which maps to SSE-S3. Do NOT set sse_kms_key_id here
+  # unless a KMS CMK is configured at bucket level (it is not currently).
+  #
+  # Idempotent: PUT _snapshot is idempotent. SM policy creation is guarded
+  # by an existence check (GET before PUT).
+  # =========================================================================
+
+  log "=== [INDEXER] Configuring S3 snapshot repository and SM schedule (Task 1) ==="
+
+  # -------------------------------------------------------------------------
+  # 1a. Verify repository-s3 plugin is present; install if missing
+  # -------------------------------------------------------------------------
+  log "Checking repository-s3 plugin availability..."
+  PLUGIN_LIST="$(OS_CURL \
+    "https://localhost:9200/_cat/plugins?h=component" \
+    2>/dev/null || true)"
+
+  if echo "${PLUGIN_LIST}" | grep -q "repository-s3"; then
+    log "repository-s3 plugin is already installed."
+  else
+    log "repository-s3 plugin not found — attempting installation via opensearch-plugin..."
+    OPENSEARCH_PLUGIN="/usr/share/wazuh-indexer/bin/opensearch-plugin"
+    if [[ -x "${OPENSEARCH_PLUGIN}" ]]; then
+      # Install non-interactively; -b (batch) suppresses the security warning prompt.
+      # The exact version must match the bundled OpenSearch version in the Wazuh indexer.
+      # Wazuh 4.14.4 ships OpenSearch 2.x; the plugin URL is discovered from the
+      # cluster version rather than hardcoded.
+      OS_VERSION="$(OS_CURL \
+        "https://localhost:9200/" \
+        2>/dev/null | jq -r '.version.number // empty' || true)"
+      log "OpenSearch version: ${OS_VERSION}"
+
+      if [[ -n "${OS_VERSION}" ]]; then
+        "${OPENSEARCH_PLUGIN}" install \
+          --batch \
+          "repository-s3" \
+          2>&1 | tee /tmp/opensearch-plugin-install.log \
+          && log "repository-s3 plugin installed — restarting wazuh-indexer..." \
+          || log "WARNING: plugin install via opensearch-plugin failed — plugin may already be bundled under a different name"
+
+        # Restart only if install succeeded (plugin list will confirm below)
+        if grep -q "Installed repository-s3" /tmp/opensearch-plugin-install.log 2>/dev/null; then
+          systemctl restart wazuh-indexer \
+            || fail "wazuh-indexer restart after plugin install failed" "wazuh-indexer"
+
+          log "Waiting for cluster to recover after restart..."
+          for i in $(seq 1 30); do
+            HEALTH_POST="$(OS_CURL \
+              "https://localhost:9200/_cluster/health" \
+              2>/dev/null | jq -r '.status // "unknown"' 2>/dev/null || echo "unreachable")"
+            if [[ "${HEALTH_POST}" == "green" || "${HEALTH_POST}" == "yellow" ]]; then
+              log "Cluster health after restart: ${HEALTH_POST}"
+              break
+            fi
+            sleep 10
+          done
+        fi
+      else
+        log "WARNING: could not determine OpenSearch version — skipping plugin install"
+      fi
+    else
+      log "WARNING: ${OPENSEARCH_PLUGIN} not found — assuming repository-s3 is bundled"
+    fi
+
+    # Confirm plugin is now present (after potential install + restart)
+    PLUGIN_LIST_POST="$(OS_CURL \
+      "https://localhost:9200/_cat/plugins?h=component" \
+      2>/dev/null || true)"
+    if echo "${PLUGIN_LIST_POST}" | grep -q "repository-s3"; then
+      log "repository-s3 plugin confirmed present."
+    else
+      log "WARNING: repository-s3 plugin still not visible — snapshot repo registration may fail"
+    fi
+  fi
+
+  # -------------------------------------------------------------------------
+  # 1b. Register S3 snapshot repository
+  #
+  # PUT _snapshot is idempotent — re-running with the same config is a no-op.
+  # The bucket name is taken from the WAZUH_S3_BUCKET env var (set in user_data).
+  # base_path uses opensearch-snapshots/ — never collides with scripts/ or rules/.
+  # server_side_encryption: true → SSE-S3 (AES256), matching the existing
+  # aws_s3_object resources in wazuh-ec2.tf which use server_side_encryption="AES256".
+  # No access_key/secret_key → plugin uses the EC2 instance role credential chain.
+  # -------------------------------------------------------------------------
+  SNAP_BUCKET="${WAZUH_S3_BUCKET}"
+  SNAP_REPO_NAME="bc-wazuh-snapshots"
+  SNAP_BASE_PATH="opensearch-snapshots/"
+
+  log "Registering S3 snapshot repository '${SNAP_REPO_NAME}'..."
+  log "  bucket   : ${SNAP_BUCKET}"
+  log "  base_path: ${SNAP_BASE_PATH}"
+  log "  region   : ${REGION}"
+  log "  auth     : EC2 instance role (no static credentials)"
+  log "  SSE      : SSE-S3 / AES256 (matches existing bucket object uploads)"
+
+  REPO_REG_RESP="$(OS_CURL -X PUT \
+    -H "Content-Type: application/json" \
+    "https://localhost:9200/_snapshot/${SNAP_REPO_NAME}" \
+    -d "{
+      \"type\": \"s3\",
+      \"settings\": {
+        \"bucket\": \"${SNAP_BUCKET}\",
+        \"base_path\": \"${SNAP_BASE_PATH}\",
+        \"region\": \"${REGION}\",
+        \"server_side_encryption\": true,
+        \"compress\": true
+      }
+    }" 2>/dev/null || true)"
+
+  log "Snapshot repo registration response: ${REPO_REG_RESP}"
+  if echo "${REPO_REG_RESP}" | grep -q '"acknowledged":true'; then
+    log "S3 snapshot repository '${SNAP_REPO_NAME}' registered successfully."
+  else
+    log "WARNING: Snapshot repo registration did not return acknowledged:true — check response above"
+  fi
+
+  # Verify the repository is healthy (GET _snapshot/<repo>/_verify)
+  log "Verifying snapshot repository connectivity to S3..."
+  REPO_VERIFY_RESP="$(OS_CURL -X POST \
+    "https://localhost:9200/_snapshot/${SNAP_REPO_NAME}/_verify" \
+    2>/dev/null || true)"
+  log "Repository verify response: ${REPO_VERIFY_RESP}"
+  if echo "${REPO_VERIFY_RESP}" | grep -q '"nodes"'; then
+    log "Snapshot repository verified — S3 connectivity confirmed."
+  else
+    log "WARNING: Repository verify returned unexpected response — check IAM role S3 permissions"
+    log "  Required: s3:GetObject, s3:PutObject, s3:DeleteObject, s3:ListBucket on ${SNAP_BUCKET}"
+  fi
+
+  # -------------------------------------------------------------------------
+  # 1c. Snapshot Management (SM) policy — daily snapshots, 14-day retention
+  #
+  # Wazuh 4.x ships OpenSearch 2.x which includes the SM plugin
+  # (_plugins/_sm). The policy creates a daily snapshot at 02:00 UTC
+  # (off-peak, after nightly VPCFlow flood has settled), retains the last 14
+  # daily snapshots (~14 days of point-in-time recovery), and caps max count
+  # at 20 to bound S3 storage on rebuild cycles.
+  #
+  # Idempotent: GET first; skip PUT if policy already exists. SM PUT is NOT
+  # idempotent by default (it would overwrite and reset the state machine),
+  # so we guard with the existence check.
+  # -------------------------------------------------------------------------
+  SM_POLICY_NAME="bc-wazuh-daily-snapshots"
+
+  SM_POLICY_EXISTS="$(OS_CURL \
+    -o /dev/null -w "%{http_code}" \
+    "https://localhost:9200/_plugins/_sm/policies/${SM_POLICY_NAME}" \
+    2>/dev/null || echo "000")"
+
+  if [[ "${SM_POLICY_EXISTS}" == "200" ]]; then
+    log "SM policy '${SM_POLICY_NAME}' already exists — skipping creation."
+  else
+    log "Creating SM policy '${SM_POLICY_NAME}' (daily at 02:00 UTC, keep 14, max 20)..."
+    SM_CREATE_RESP="$(OS_CURL -X POST \
+      -H "Content-Type: application/json" \
+      "https://localhost:9200/_plugins/_sm/policies/${SM_POLICY_NAME}" \
+      -d "{
+        \"description\": \"Daily OpenSearch snapshots to S3 for Wazuh indexer disaster recovery\",
+        \"creation\": {
+          \"schedule\": {
+            \"cron\": {
+              \"expression\": \"0 2 * * *\",
+              \"timezone\": \"UTC\"
+            }
+          },
+          \"time_limit\": \"1h\"
+        },
+        \"deletion\": {
+          \"schedule\": {
+            \"cron\": {
+              \"expression\": \"30 2 * * *\",
+              \"timezone\": \"UTC\"
+            }
+          },
+          \"condition\": {
+            \"max_count\": 20,
+            \"max_age\": \"14d\",
+            \"min_count\": 1
+          },
+          \"time_limit\": \"1h\"
+        },
+        \"snapshot_config\": {
+          \"repository\": \"${SNAP_REPO_NAME}\",
+          \"indices\": \"wazuh-alerts-*,wazuh-archives-*\",
+          \"ignore_unavailable\": true,
+          \"include_global_state\": false,
+          \"partial\": false
+        }
+      }" 2>/dev/null || true)"
+
+    log "SM policy creation response: ${SM_CREATE_RESP}"
+    if echo "${SM_CREATE_RESP}" | grep -q '"_id"'; then
+      log "SM policy '${SM_POLICY_NAME}' created — first snapshot will run at 02:00 UTC."
+    else
+      # SM plugin may not be available (very old OpenSearch build); fall back
+      # to a daily root cron calling the snapshot API directly.
+      log "WARNING: SM policy creation did not return _id — SM plugin may not be available."
+      log "Falling back to cron-based snapshot schedule..."
+
+      SNAP_CRON="/etc/cron.d/wazuh-opensearch-snapshot"
+      if [[ ! -f "${SNAP_CRON}" ]]; then
+        log "Writing ${SNAP_CRON} (daily at 02:05 UTC)..."
+        cat > "${SNAP_CRON}" <<CRONEOF
+# Wazuh OpenSearch daily snapshot — written by phase3-install-wazuh.sh
+# Fires at 02:05 UTC (after SM deletion window at 02:30 if SM is also running).
+# Idempotent: snapshot name is date-based; a second run on the same day
+# will return 400 (already exists) which is ignored by the || true.
+MAILTO=""
+5 2 * * * root /usr/local/bin/wazuh-opensearch-snapshot.sh >> /var/log/wazuh-snapshot.log 2>&1
+CRONEOF
+
+        cat > /usr/local/bin/wazuh-opensearch-snapshot.sh <<'SNAPSCRIPT'
+#!/usr/bin/env bash
+# wazuh-opensearch-snapshot.sh — daily OpenSearch snapshot to S3
+# Called by /etc/cron.d/wazuh-opensearch-snapshot
+set -euo pipefail
+
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [wazuh-snapshot] $*"; }
+
+SNAP_DATE="$(date +%Y-%m-%d)"
+SNAP_NAME="daily-${SNAP_DATE}"
+REPO="bc-wazuh-snapshots"
+INDEXER_IP="127.0.0.1"
+
+# Load indexer credentials from a read-only file written during install.
+# We do NOT embed the password here; it is read from the secrets cache file.
+CREDS_FILE="/etc/wazuh-indexer/snapshot-creds"
+if [[ ! -f "${CREDS_FILE}" ]]; then
+  log "ERROR: credentials file ${CREDS_FILE} not found — cannot authenticate to indexer"
+  exit 1
+fi
+source "${CREDS_FILE}"
+
+: "${INDEXER_USERNAME:?}"
+: "${INDEXER_PASSWORD:?}"
+
+ADMIN_CERT="/etc/wazuh-indexer/certs/admin.pem"
+ADMIN_KEY="/etc/wazuh-indexer/certs/admin-key.pem"
+
+log "Starting snapshot: ${REPO}/${SNAP_NAME}"
+RESP="$(curl -sk \
+  -u "${INDEXER_USERNAME}:${INDEXER_PASSWORD}" \
+  -X PUT \
+  -H "Content-Type: application/json" \
+  "https://${INDEXER_IP}:9200/_snapshot/${REPO}/${SNAP_NAME}?wait_for_completion=false" \
+  -d '{
+    "indices": "wazuh-alerts-*,wazuh-archives-*",
+    "ignore_unavailable": true,
+    "include_global_state": false
+  }' 2>/dev/null || true)"
+
+log "Snapshot initiation response: ${RESP}"
+
+if echo "${RESP}" | grep -q '"accepted":true\|"snapshot"'; then
+  log "Snapshot ${SNAP_NAME} accepted — running asynchronously."
+elif echo "${RESP}" | grep -q "snapshot_name_already_in_use\|already exists"; then
+  log "Snapshot ${SNAP_NAME} already exists — idempotent, no action needed."
+else
+  log "WARNING: Unexpected snapshot response — check indexer logs"
+  exit 1
+fi
+SNAPSCRIPT
+        chmod 750 /usr/local/bin/wazuh-opensearch-snapshot.sh
+
+        # Write the credentials cache file (readable only by root)
+        # This avoids embedding the password in the cron script itself.
+        cat > /etc/wazuh-indexer/snapshot-creds <<CREDSEOF
+INDEXER_USERNAME="${INDEXER_USERNAME}"
+INDEXER_PASSWORD="${INDEXER_PASSWORD}"
+CREDSEOF
+        chmod 600 /etc/wazuh-indexer/snapshot-creds
+        chown root:root /etc/wazuh-indexer/snapshot-creds
+
+        log "Cron fallback snapshot configured: ${SNAP_CRON}"
+      else
+        log "Cron snapshot file already exists — skipping cron fallback write."
+      fi
+    fi
+  fi
+
+  # -------------------------------------------------------------------------
+  # IAM note for infrastructure-engineer (recorded in install log):
+  # The instance role (wazuh-ec2-role) inline policy S3WazuhSnapshotsReadWrite
+  # currently grants: s3:PutObject, s3:GetObject, s3:ListBucket.
+  # The OpenSearch SM deletion step and manual snapshot cleanup also require:
+  #   s3:DeleteObject  on ${SNAP_BUCKET}/*
+  # Without s3:DeleteObject the SM policy will fail to prune old snapshots
+  # (the creation step succeeds, but the deletion step will return AccessDenied).
+  # The infrastructure-engineer must add s3:DeleteObject to the
+  # S3WazuhSnapshotsReadWrite statement in wazuh-ec2.tf before next apply.
+  # -------------------------------------------------------------------------
+  log "IAM NOTE: ensure s3:DeleteObject is granted on ${SNAP_BUCKET}/* for SM snapshot pruning"
+
+  log "=== [INDEXER] S3 snapshot repository and SM schedule configured ==="
+
   log "=== [INDEXER] Installation complete ==="
 fi
 

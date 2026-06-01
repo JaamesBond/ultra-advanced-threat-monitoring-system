@@ -132,12 +132,23 @@ resource "aws_iam_role_policy" "wazuh_ec2_inline" {
         ]
       },
       {
+        # GAP-008: OpenSearch repository-s3 plugin snapshot operations.
+        # DeleteObject: purge expired/deleted snapshot segments.
+        # GetBucketLocation: required at repository-registration time to validate bucket region.
+        # AbortMultipartUpload + ListBucketMultipartUploads: resume/abort incomplete
+        #   multipart uploads for large shard files.
+        # Scoped strictly to the snapshots bucket; no other buckets affected.
+        # SSE on this bucket is AES256 (SSE-S3), so no KMS grant is required.
         Sid    = "S3WazuhSnapshotsReadWrite"
         Effect = "Allow"
         Action = [
           "s3:PutObject",
           "s3:GetObject",
-          "s3:ListBucket"
+          "s3:DeleteObject",
+          "s3:ListBucket",
+          "s3:GetBucketLocation",
+          "s3:AbortMultipartUpload",
+          "s3:ListBucketMultipartUploads"
         ]
         Resource = [
           aws_s3_bucket.wazuh_snapshots.arn,
