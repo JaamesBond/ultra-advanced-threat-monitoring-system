@@ -29,6 +29,25 @@ resource "aws_s3_bucket_public_access_block" "guardduty_logs" {
   restrict_public_buckets = true
 }
 
+# Defence-in-depth: encrypt all objects at rest with the GuardDuty CMK.
+# bucket_key_enabled = true reduces per-request KMS API calls by caching
+# the data key at the bucket level (~99 % reduction in KMS calls → lower cost).
+# This is additive to the GuardDuty publishing-destination KMS encryption
+# (which encrypts at write time); it ensures any object that bypasses that
+# path (e.g. a future direct S3 upload) is still encrypted.
+resource "aws_s3_bucket_server_side_encryption_configuration" "guardduty_logs" {
+  bucket = aws_s3_bucket.guardduty_logs.id
+
+  rule {
+    bucket_key_enabled = true
+
+    apply_server_side_encryption_by_default {
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.guardduty.arn
+    }
+  }
+}
+
 ###############################################################
 # AWS Config Logs
 ###############################################################

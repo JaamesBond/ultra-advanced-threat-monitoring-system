@@ -1022,26 +1022,35 @@ if [[ "${HOST_ROLE}" == "manager" || "${HOST_ROLE}" == "all_in_one" ]]; then
     </bucket>
 
     <bucket type="guardduty">
-      <name>bc-guardduty-findings</name>
-      <path>guardduty/</path>
+      <name>bc-guardduty-logs-997916278486</name>
+      <aws_account_id>${AWS_ACCOUNT_ID}</aws_account_id>
       <only_logs_after>2026-JAN-01</only_logs_after>
+      <regions>eu-central-1</regions>
     </bucket>
 
     <bucket type="vpcflow">
       <name>bc-vpcflow-logs-997916278486</name>
-      <path>AWSLogs/</path>
+      <!-- No <path> prefix: Wazuh's vpcflow handler navigates
+           AWSLogs/<account_id>/vpcflowlogs/<region>/... natively.
+           A <path>AWSLogs/</path> prefix doubled the directory to
+           AWSLogs/AWSLogs/ and caused "No logs found". -->
+      <aws_account_id>${AWS_ACCOUNT_ID}</aws_account_id>
       <only_logs_after>2026-JAN-01</only_logs_after>
       <regions>eu-central-1</regions>
     </bucket>
 
     <bucket type="config">
       <name>bc-config-logs-997916278486</name>
+      <!-- NOTE: AWS Config delivery channel not yet configured (no
+           aws_config_delivery_channel Terraform resource exists).
+           This bucket will be empty until that wiring is added.
+           Leaving the wodle block in place is harmless. -->
       <only_logs_after>2026-JAN-01</only_logs_after>
     </bucket>
 
-    <service type="inspector">
-      <regions>eu-central-1</regions>
-    </service>
+    <!-- Inspector wodle removed: aws_inspector2 is not enabled in
+         this account. The service type="inspector" block caused
+         AccessDenied errors on every poll cycle. -->
   </wodle>
 
   <!--======================================================================

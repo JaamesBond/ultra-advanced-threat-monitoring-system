@@ -1,6 +1,40 @@
 falco:
   config_files: []
 
+  # Emit alerts as JSON so Wazuh's built-in Falco decoder can parse them.
+  json_output: true
+  json_include_output_property: true
+
+  # Write alerts to a host-mounted file that the wazuh-agent DaemonSet reads.
+  # The wazuh-agent mounts the node's /var/log at /host/var/log and has a
+  # localfile stanza for /host/var/log/falco/falco.json — so the file must land
+  # at exactly /var/log/falco/falco.json on the node.
+  # keep_alive=false: Falco closes and reopens the file on each write, which
+  # lets Wazuh's inotify tail detect new events reliably.
+  file_output:
+    enabled: true
+    keep_alive: false
+    filename: /var/log/falco/falco.json
+
+  # Stdout output is kept so `kubectl logs` continues to work.
+  stdout_output:
+    enabled: true
+
+# hostPath mount: node /var/log/falco → container /var/log/falco
+# DirectoryOrCreate ensures the directory is created on first Falco startup
+# without requiring a node bootstrap script.
+# mounts.volumes / mounts.volumeMounts is the Falco chart 8.x mechanism for
+# injecting extra volumes into the Falco DaemonSet pod spec.
+mounts:
+  volumes:
+    - name: falco-log-host
+      hostPath:
+        path: /var/log/falco
+        type: DirectoryOrCreate
+  volumeMounts:
+    - name: falco-log-host
+      mountPath: /var/log/falco
+
 customRules:
   custom_rules.yaml: |-
     - rule: Terminal shell in container
