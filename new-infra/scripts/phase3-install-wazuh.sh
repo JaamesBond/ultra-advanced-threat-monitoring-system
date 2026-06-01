@@ -40,7 +40,7 @@ WAZUH_SECRET="bc/wazuh/manager"
 # Account-suffixed bucket created by Terraform (locals.tf : wazuh_bucket).
 # Falls back to the legacy un-suffixed name for backward compat. The bucket
 # is passed in via user_data env so we don't hardcode the account ID here.
-WAZUH_S3_BUCKET="${WAZUH_S3_BUCKET:-bc-uatms-wazuh-snapshots}"
+WAZUH_S3_BUCKET="${WAZUH_S3_BUCKET:-bc-uatms-wazuh-snapshots-997916278486}"
 CERT_BUCKET="${WAZUH_S3_BUCKET}"
 CERT_DATE="$(date +%Y%m%d)"
 CERT_S3_KEY="certs/wazuh-certs-${CERT_DATE}.tar"
@@ -1014,7 +1014,7 @@ if [[ "${HOST_ROLE}" == "manager" || "${HOST_ROLE}" == "all_in_one" ]]; then
     <remove_from_bucket>no</remove_from_bucket>
 
     <bucket type="cloudtrail">
-      <name>bc-cloudtrail-logs</name>
+      <name>bc-cloudtrail-logs-997916278486</name>
       <aws_account_id>${AWS_ACCOUNT_ID}</aws_account_id>
       <path>AWSLogs/</path>
       <only_logs_after>2026-JAN-01</only_logs_after>
@@ -1028,14 +1028,14 @@ if [[ "${HOST_ROLE}" == "manager" || "${HOST_ROLE}" == "all_in_one" ]]; then
     </bucket>
 
     <bucket type="vpcflow">
-      <name>bc-vpcflow-logs</name>
+      <name>bc-vpcflow-logs-997916278486</name>
       <path>AWSLogs/</path>
       <only_logs_after>2026-JAN-01</only_logs_after>
       <regions>eu-central-1</regions>
     </bucket>
 
     <bucket type="config">
-      <name>bc-config-logs</name>
+      <name>bc-config-logs-997916278486</name>
       <only_logs_after>2026-JAN-01</only_logs_after>
     </bucket>
 

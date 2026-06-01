@@ -169,7 +169,7 @@ resource "aws_iam_role_policy" "misp_ec2_inline" {
         Sid    = "S3ScriptDownload"
         Effect = "Allow"
         Action = ["s3:GetObject"]
-        Resource = ["arn:aws:s3:::${local.wazuh_bucket}/scripts/*"]
+        Resource = ["${aws_s3_bucket.wazuh_snapshots.arn}/scripts/*"]
       },
       {
         Sid    = "KMSMispEBS"
@@ -234,7 +234,7 @@ resource "aws_kms_alias" "misp_ec2" {
 }
 
 resource "aws_s3_object" "misp_install_script" {
-  bucket                 = local.wazuh_bucket
+  bucket                 = aws_s3_bucket.wazuh_snapshots.id
   key                    = "scripts/phase4-install-misp.sh"
   source                 = "${path.module}/../../../scripts/phase4-install-misp.sh"
   source_hash            = filemd5("${path.module}/../../../scripts/phase4-install-misp.sh")

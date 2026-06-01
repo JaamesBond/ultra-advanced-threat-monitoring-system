@@ -95,10 +95,10 @@ resource "aws_route" "private_nat" {
 ###############################################################
 
 resource "aws_s3_bucket" "vpcflow_logs" {
-  bucket        = "bc-vpcflow-logs"
+  bucket        = local.vpcflow_bucket
   force_destroy = true
 
-  tags = merge(local.common_tags, { Name = "bc-vpcflow-logs" })
+  tags = merge(local.common_tags, { Name = local.vpcflow_bucket })
 }
 
 resource "aws_s3_bucket_public_access_block" "vpcflow_logs" {

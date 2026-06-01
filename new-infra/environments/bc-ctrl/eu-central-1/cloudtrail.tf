@@ -1,19 +1,36 @@
 #--------------------------------------------------------------
 # CloudTrail — bc-ctrl
 #
-# Delivers all management API events to the pre-existing
-# bc-cloudtrail-logs S3 bucket so the Wazuh manager's
-# aws-s3 wodle can ingest them.
+# Delivers all management API events to S3 so the Wazuh manager's
+# aws-s3 wodle can ingest them. The bucket is now fully managed
+# by Terraform with an account-suffixed name for cold-start
+# reproducibility.
 #
-# The bucket is NOT managed by this repo (created out-of-band).
-# Only the bucket policy and the trail itself are managed here.
 # Cost: CloudTrail management events are free for the first
 # copy delivered to S3. No additional monthly cost.
 #--------------------------------------------------------------
 
 locals {
-  cloudtrail_bucket = "bc-cloudtrail-logs"
   cloudtrail_prefix = "AWSLogs/${data.aws_caller_identity.current.account_id}"
+}
+
+###############################################################
+# S3 Bucket — CloudTrail log delivery target
+###############################################################
+
+resource "aws_s3_bucket" "cloudtrail_logs" {
+  bucket        = local.cloudtrail_bucket
+  force_destroy = true
+
+  tags = merge(local.common_tags, { Name = local.cloudtrail_bucket })
+}
+
+resource "aws_s3_bucket_public_access_block" "cloudtrail_logs" {
+  bucket                  = aws_s3_bucket.cloudtrail_logs.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
 
 ###############################################################
@@ -21,7 +38,7 @@ locals {
 ###############################################################
 
 resource "aws_s3_bucket_policy" "cloudtrail" {
-  bucket = local.cloudtrail_bucket
+  bucket = aws_s3_bucket.cloudtrail_logs.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -33,7 +50,7 @@ resource "aws_s3_bucket_policy" "cloudtrail" {
           Service = "cloudtrail.amazonaws.com"
         }
         Action   = "s3:GetBucketAcl"
-        Resource = "arn:aws:s3:::${local.cloudtrail_bucket}"
+        Resource = aws_s3_bucket.cloudtrail_logs.arn
         Condition = {
           StringEquals = {
             "aws:SourceArn" = "arn:aws:cloudtrail:${local.region}:${data.aws_caller_identity.current.account_id}:trail/bc-ctrl-trail"
@@ -47,7 +64,7 @@ resource "aws_s3_bucket_policy" "cloudtrail" {
           Service = "cloudtrail.amazonaws.com"
         }
         Action   = "s3:PutObject"
-        Resource = "arn:aws:s3:::${local.cloudtrail_bucket}/${local.cloudtrail_prefix}/CloudTrail*"
+        Resource = "${aws_s3_bucket.cloudtrail_logs.arn}/${local.cloudtrail_prefix}/CloudTrail*"
         Condition = {
           StringEquals = {
             "s3:x-amz-acl"  = "bucket-owner-full-control"
@@ -57,6 +74,8 @@ resource "aws_s3_bucket_policy" "cloudtrail" {
       }
     ]
   })
+
+  depends_on = [aws_s3_bucket_public_access_block.cloudtrail_logs]
 }
 
 ###############################################################
@@ -65,7 +84,7 @@ resource "aws_s3_bucket_policy" "cloudtrail" {
 
 resource "aws_cloudtrail" "bc_ctrl" {
   name                          = "bc-ctrl-trail"
-  s3_bucket_name                = local.cloudtrail_bucket
+  s3_bucket_name                = aws_s3_bucket.cloudtrail_logs.id
   s3_key_prefix                 = ""
   include_global_service_events = true
   is_multi_region_trail         = true

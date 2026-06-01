@@ -140,8 +140,8 @@ resource "aws_iam_role_policy" "wazuh_ec2_inline" {
           "s3:ListBucket"
         ]
         Resource = [
-          "arn:aws:s3:::${local.wazuh_bucket}",
-          "arn:aws:s3:::${local.wazuh_bucket}/*"
+          aws_s3_bucket.wazuh_snapshots.arn,
+          "${aws_s3_bucket.wazuh_snapshots.arn}/*"
         ]
       },
       {
@@ -152,14 +152,14 @@ resource "aws_iam_role_policy" "wazuh_ec2_inline" {
           "s3:ListBucket"
         ]
         Resource = [
-          "arn:aws:s3:::bc-cloudtrail-logs",
-          "arn:aws:s3:::bc-cloudtrail-logs/*",
-          "arn:aws:s3:::bc-guardduty-logs",
-          "arn:aws:s3:::bc-guardduty-logs/*",
-          "arn:aws:s3:::bc-vpcflow-logs",
-          "arn:aws:s3:::bc-vpcflow-logs/*",
-          "arn:aws:s3:::bc-config-logs",
-          "arn:aws:s3:::bc-config-logs/*"
+          aws_s3_bucket.cloudtrail_logs.arn,
+          "${aws_s3_bucket.cloudtrail_logs.arn}/*",
+          aws_s3_bucket.guardduty_logs.arn,
+          "${aws_s3_bucket.guardduty_logs.arn}/*",
+          aws_s3_bucket.vpcflow_logs.arn,
+          "${aws_s3_bucket.vpcflow_logs.arn}/*",
+          aws_s3_bucket.config_logs.arn,
+          "${aws_s3_bucket.config_logs.arn}/*"
         ]
       },
       {
@@ -233,11 +233,30 @@ resource "aws_kms_alias" "wazuh_ec2" {
 }
 
 ###############################################################
+# S3 Bucket — Wazuh install scripts and rule XML files
+###############################################################
+
+resource "aws_s3_bucket" "wazuh_snapshots" {
+  bucket        = local.wazuh_bucket
+  force_destroy = true
+
+  tags = merge(local.common_tags, { Name = local.wazuh_bucket })
+}
+
+resource "aws_s3_bucket_public_access_block" "wazuh_snapshots" {
+  bucket                  = aws_s3_bucket.wazuh_snapshots.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+###############################################################
 # Install script — uploaded to S3, pulled by user_data on boot
 ###############################################################
 
 resource "aws_s3_object" "wazuh_install_script" {
-  bucket                 = local.wazuh_bucket
+  bucket                 = aws_s3_bucket.wazuh_snapshots.id
   key                    = "scripts/phase3-install-wazuh.sh"
   source                 = "${path.module}/../../../scripts/phase3-install-wazuh.sh"
   source_hash            = filemd5("${path.module}/../../../scripts/phase3-install-wazuh.sh")
@@ -255,7 +274,7 @@ resource "aws_s3_object" "wazuh_install_script" {
 # automatically uploads it; no Terraform edit needed.
 resource "aws_s3_object" "wazuh_rules" {
   for_each               = fileset("${path.module}/../../../wazuh/rules", "*.xml")
-  bucket                 = local.wazuh_bucket
+  bucket                 = aws_s3_bucket.wazuh_snapshots.id
   key                    = "rules/${each.value}"
   source                 = "${path.module}/../../../wazuh/rules/${each.value}"
   source_hash            = filemd5("${path.module}/../../../wazuh/rules/${each.value}")

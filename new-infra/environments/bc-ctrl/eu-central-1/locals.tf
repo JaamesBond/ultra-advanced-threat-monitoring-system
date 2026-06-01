@@ -15,6 +15,11 @@ locals {
     IACTool     = "Terraform"
   }
 
-  # Globally unique bucket name (old name bc-uatms-wazuh-snapshots still owned by previous account)
-  wazuh_bucket = "bc-uatms-wazuh-snapshots-${data.aws_caller_identity.current.account_id}"
+  # All S3 bucket names are account-suffixed for global uniqueness and cold-start reproducibility.
+  # The old account (845517756853) still owns the unsuffixed names — never use bare names.
+  wazuh_bucket      = "bc-uatms-wazuh-snapshots-${data.aws_caller_identity.current.account_id}"
+  vpcflow_bucket    = "bc-vpcflow-logs-${data.aws_caller_identity.current.account_id}"
+  cloudtrail_bucket = "bc-cloudtrail-logs-${data.aws_caller_identity.current.account_id}"
+  guardduty_bucket  = "bc-guardduty-logs-${data.aws_caller_identity.current.account_id}"
+  config_bucket     = "bc-config-logs-${data.aws_caller_identity.current.account_id}"
 }
