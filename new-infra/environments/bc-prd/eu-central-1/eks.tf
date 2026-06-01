@@ -1,14 +1,17 @@
+# TODO(SSO access): re-enable once EKS "invalid principal" on the AWSReservedSSO role is resolved.
+# Removed 2026-06-01 to unblock the security-stack deploy. Cluster admin still reachable via console/CLI.
+#
 # EKS requires access-entry principal ARNs WITHOUT the IAM path component.
 # The SSO role lives at path /aws-reserved/sso.amazonaws.com/<region>/, which
 # aws_iam_roles returns verbatim.  Strip it so the ARN has the form:
 #   arn:aws:iam::<account>:role/AWSReservedSSO_AdministratorAccess_<suffix>
-locals {
-  sso_admin_role_arn = replace(
-    tolist(data.aws_iam_roles.sso_admin.arns)[0],
-    "/\\/aws-reserved\\/sso\\.amazonaws\\.com\\/[a-z0-9-]+\\//",
-    "/"
-  )
-}
+# locals {
+#   sso_admin_role_arn = replace(
+#     tolist(data.aws_iam_roles.sso_admin.arns)[0],
+#     "/\\/aws-reserved\\/sso\\.amazonaws\\.com\\/[a-z0-9-]+\\//",
+#     "/"
+#   )
+# }
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
@@ -34,19 +37,23 @@ module "eks" {
   kms_key_administrators = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/GitHubActionsDeployRole"]
 
   access_entries = {
+    # TODO(SSO access): re-enable once EKS "invalid principal" on the AWSReservedSSO role is resolved.
+    # Removed 2026-06-01 to unblock the security-stack deploy. Cluster admin still reachable via console/CLI.
+    #
     # 1. SSO AdministratorAccess role — covers all human operators.
     #    ARN is path-stripped (EKS rejects path-prefixed ARNs).
     #    Role is resolved dynamically via data.aws_iam_roles.sso_admin so the
     #    random SSO suffix never requires a manual update after SSO re-deployment.
-    sso_admin = {
-      principal_arn = local.sso_admin_role_arn
-      policy_associations = {
-        admin = {
-          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-          access_scope = { type = "cluster" }
-        }
-      }
-    }
+    # sso_admin = {
+    #   principal_arn = local.sso_admin_role_arn
+    #   policy_associations = {
+    #     admin = {
+    #       policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+    #       access_scope = { type = "cluster" }
+    #     }
+    #   }
+    # }
+
     # 2. Grant access to the role assumed by GitHub Actions
     gh_deploy = {
       principal_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/GitHubActionsDeployRole"

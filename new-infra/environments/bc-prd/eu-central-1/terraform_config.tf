@@ -39,12 +39,15 @@ provider "kubernetes" {
 
 data "aws_caller_identity" "current" {}
 
+# TODO(SSO access): re-enable once EKS "invalid principal" on the AWSReservedSSO role is resolved.
+# Removed 2026-06-01 to unblock the security-stack deploy. Cluster admin still reachable via console/CLI.
+#
 # Resolve the SSO AdministratorAccess role dynamically so the random suffix
 # in the role name never causes drift between accounts or SSO re-deployments.
-data "aws_iam_roles" "sso_admin" {
-  name_regex  = "AWSReservedSSO_AdministratorAccess_.*"
-  path_prefix = "/aws-reserved/sso.amazonaws.com/"
-}
+# data "aws_iam_roles" "sso_admin" {
+#   name_regex  = "AWSReservedSSO_AdministratorAccess_.*"
+#   path_prefix = "/aws-reserved/sso.amazonaws.com/"
+# }
 
 data "terraform_remote_state" "ctrl" {
   backend = "s3"
