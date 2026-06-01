@@ -163,6 +163,21 @@ resource "aws_iam_role_policy" "wazuh_ec2_inline" {
         ]
       },
       {
+        # Required by the Wazuh vpcflow wodle (aws-s3 bucket type).
+        # DescribeFlowLogs: enumerate flow-log delivery metadata (confirmed-missing action).
+        # DescribeNetworkInterfaces: resolve ENI IDs to IP/subnet/instance metadata for alert enrichment.
+        # DescribeNetworkInterfaceAttribute: resolve interface descriptions in some Wazuh versions.
+        # ec2:Describe* actions do NOT support resource-level constraints — Resource="*" is mandatory.
+        Sid    = "EC2DescribeFlowLogsForWazuhVPCFlow"
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeFlowLogs",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:DescribeNetworkInterfaceAttribute"
+        ]
+        Resource = "*"
+      },
+      {
         Sid    = "KMSWazuhEBS"
         Effect = "Allow"
         Action = [
