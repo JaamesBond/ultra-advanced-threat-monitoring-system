@@ -1,25 +1,41 @@
 #--------------------------------------------------------------
 # GuardDuty — bc-ctrl (account 997916278486, eu-central-1)
 #
-# COST POSTURE (target ~$3-4/mo after 30-day free trial):
-#   Enabled base features (included in detector price):
+# DETECTOR OWNERSHIP: org-managed (delegated admin = account
+# 957996720803, Control Tower / Landing Zone). A detector already
+# exists in this account (ID b2cf34a7d246cd6457f9393c39b8376a,
+# Status ENABLED). Terraform MUST NOT create or manage the detector
+# or any detector feature — doing so produces:
+#   BadRequestException: The request is rejected because a detector
+#   already exists for the current account.
+# We reference it via `data "aws_guardduty_detector" "existing"` and
+# only manage our publishing destination, KMS CMK, and budget alert.
+#
+# FEATURE POSTURE (set by org admin — we cannot change these):
+#   ENABLED  (included in base price):
 #     - CloudTrail management event analysis
 #     - VPC Flow Log analysis
 #     - DNS query log analysis
-#   Explicitly DISABLED paid add-ons (see aws_guardduty_detector_feature blocks):
-#     - RUNTIME_MONITORING      (EKS/EC2 runtime agent — redundant with Falco+Tetragon)
-#     - EKS_AUDIT_LOGS          (paid; bc-prd audit log analysis not needed here)
+#   DISABLED paid add-ons (admin-controlled, matches our intent):
+#     - RUNTIME_MONITORING      (redundant with Falco+Tetragon)
+#     - EKS_AUDIT_LOGS          (not needed here)
 #     - EBS_MALWARE_PROTECTION  (expensive per-GB scan)
 #     - RDS_LOGIN_EVENTS        (no RDS in this account)
 #     - LAMBDA_NETWORK_LOGS     (no Lambda network flows of interest)
-#     - S3_DATA_EVENTS          (we only care about mgmt events, not data-plane S3 calls)
+#     - S3_DATA_EVENTS          (mgmt events only)
 #
-# Budget alert:  aws_budgets_budget chosen over Cost Anomaly Detection.
-# Rationale: the budget is a hard monthly ceiling across the full account,
-# giving an early warning if any resource drifts. Cost Anomaly Detection
-# fires on statistical spikes — useful for large accounts but overkill here.
-# A $30/mo ceiling with 80%+100% email alerts is simple, zero extra cost,
-# and covers GuardDuty creep as well as any other runaway resource.
+# WHAT THIS FILE MANAGES:
+#   1. data.aws_guardduty_detector.existing — read-only reference
+#   2. aws_kms_key.guardduty + alias        — CMK for findings encryption
+#   3. aws_s3_bucket_policy.guardduty_logs  — grants GuardDuty write
+#   4. aws_guardduty_publishing_destination.s3 — findings → S3 bucket
+#   5. aws_budgets_budget.monthly_ceiling   — $30/mo cost ceiling
+#
+# Budget alert: aws_budgets_budget (not Cost Anomaly Detection).
+# Rationale: a hard monthly ceiling across the full account gives an
+# early warning if any resource drifts. $30/mo with 80%+100% email
+# alerts is simple, zero extra cost, and covers GuardDuty creep as
+# well as any other runaway resource.
 #
 # Wazuh ingestion path:
 #   GuardDuty → s3:PutObject → aws_s3_bucket.guardduty_logs (bc-guardduty-logs-*)
@@ -27,85 +43,16 @@
 #--------------------------------------------------------------
 
 ###############################################################
-# GuardDuty Detector
-###############################################################
-
-resource "aws_guardduty_detector" "main" {
-  enable                       = true
-  finding_publishing_frequency = "FIFTEEN_MINUTES"
-
-  tags = merge(local.common_tags, { Name = "bc-ctrl-guardduty" })
-}
-
-###############################################################
-# Feature gates — explicitly DISABLE all paid optional features
+# Data source — reference the org-managed detector
 #
-# aws_guardduty_detector_feature is available in hashicorp/aws
-# >= 4.46 (well within the ">= 6.23" constraint in terraform_config.tf).
-# Each feature block is independent; omitting one leaves the feature
-# at its AWS default (DISABLED for new detectors, but pinning all
-# six here makes the cost posture explicit and drift-proof).
-#
-# ADDITIONAL_CONFIGURATION sub-blocks are only valid for
-# RUNTIME_MONITORING (the EKS/EC2 runtime agent toggles). All
-# other features have no sub-configuration — do NOT add
-# additional_configuration to those blocks.
+# `data "aws_guardduty_detector"` with no arguments queries the
+# current account + region and returns the active detector.
+# This form has been valid since hashicorp/aws v4.x and is fully
+# supported by the ">= 6.23" constraint in terraform_config.tf.
+# The data source exposes: id, finding_publishing_frequency, status.
 ###############################################################
 
-resource "aws_guardduty_detector_feature" "runtime_monitoring" {
-  detector_id = aws_guardduty_detector.main.id
-  name        = "RUNTIME_MONITORING"
-  status      = "DISABLED"
-
-  # Sub-feature: auto-deploy runtime agent on EKS nodes. Only
-  # settable when the parent feature is DISABLED — keep DISABLED.
-  additional_configuration {
-    name   = "EKS_ADDON_MANAGEMENT"
-    status = "DISABLED"
-  }
-
-  # Sub-feature: auto-deploy runtime agent on EC2 instances.
-  additional_configuration {
-    name   = "EC2_AGENT_MANAGEMENT"
-    status = "DISABLED"
-  }
-
-  # Sub-feature: auto-deploy runtime agent on ECS tasks.
-  additional_configuration {
-    name   = "ECS_FARGATE_AGENT_MANAGEMENT"
-    status = "DISABLED"
-  }
-}
-
-resource "aws_guardduty_detector_feature" "eks_audit_logs" {
-  detector_id = aws_guardduty_detector.main.id
-  name        = "EKS_AUDIT_LOGS"
-  status      = "DISABLED"
-}
-
-resource "aws_guardduty_detector_feature" "ebs_malware_protection" {
-  detector_id = aws_guardduty_detector.main.id
-  name        = "EBS_MALWARE_PROTECTION"
-  status      = "DISABLED"
-}
-
-resource "aws_guardduty_detector_feature" "rds_login_events" {
-  detector_id = aws_guardduty_detector.main.id
-  name        = "RDS_LOGIN_EVENTS"
-  status      = "DISABLED"
-}
-
-resource "aws_guardduty_detector_feature" "lambda_network_logs" {
-  detector_id = aws_guardduty_detector.main.id
-  name        = "LAMBDA_NETWORK_LOGS"
-  status      = "DISABLED"
-}
-
-resource "aws_guardduty_detector_feature" "s3_data_events" {
-  detector_id = aws_guardduty_detector.main.id
-  name        = "S3_DATA_EVENTS"
-  status      = "DISABLED"
-}
+data "aws_guardduty_detector" "existing" {}
 
 ###############################################################
 # KMS CMK — GuardDuty findings encryption
@@ -116,6 +63,8 @@ resource "aws_guardduty_detector_feature" "s3_data_events" {
 #   2. guardduty.amazonaws.com  GenerateDataKey + Encrypt, scoped
 #      to this account (aws:SourceAccount) and this detector ARN
 #      (aws:SourceArn) — prevents confused-deputy attacks.
+#   3. Wazuh EC2 role Decrypt via kms:ViaService=s3 — restricts
+#      the grant to S3 GetObject calls only.
 ###############################################################
 
 resource "aws_kms_key" "guardduty" {
@@ -149,7 +98,7 @@ resource "aws_kms_key" "guardduty" {
         Condition = {
           StringEquals = {
             "aws:SourceAccount" = data.aws_caller_identity.current.account_id
-            "aws:SourceArn"     = "arn:aws:guardduty:${local.region}:${data.aws_caller_identity.current.account_id}:detector/${aws_guardduty_detector.main.id}"
+            "aws:SourceArn"     = "arn:aws:guardduty:${local.region}:${data.aws_caller_identity.current.account_id}:detector/${data.aws_guardduty_detector.existing.id}"
           }
         }
       },
@@ -216,7 +165,7 @@ resource "aws_s3_bucket_policy" "guardduty_logs" {
         Condition = {
           StringEquals = {
             "aws:SourceAccount" = data.aws_caller_identity.current.account_id
-            "aws:SourceArn"     = "arn:aws:guardduty:${local.region}:${data.aws_caller_identity.current.account_id}:detector/${aws_guardduty_detector.main.id}"
+            "aws:SourceArn"     = "arn:aws:guardduty:${local.region}:${data.aws_caller_identity.current.account_id}:detector/${data.aws_guardduty_detector.existing.id}"
           }
         }
       },
@@ -230,9 +179,9 @@ resource "aws_s3_bucket_policy" "guardduty_logs" {
         Resource = "${aws_s3_bucket.guardduty_logs.arn}/*"
         Condition = {
           StringEquals = {
-            "s3:x-amz-acl"     = "bucket-owner-full-control"
-            "aws:SourceAccount" = data.aws_caller_identity.current.account_id
-            "aws:SourceArn"     = "arn:aws:guardduty:${local.region}:${data.aws_caller_identity.current.account_id}:detector/${aws_guardduty_detector.main.id}"
+            "s3:x-amz-acl"      = "bucket-owner-full-control"
+            "aws:SourceAccount"  = data.aws_caller_identity.current.account_id
+            "aws:SourceArn"      = "arn:aws:guardduty:${local.region}:${data.aws_caller_identity.current.account_id}:detector/${data.aws_guardduty_detector.existing.id}"
           }
         }
       }
@@ -246,22 +195,29 @@ resource "aws_s3_bucket_policy" "guardduty_logs" {
 ###############################################################
 # GuardDuty Publishing Destination — S3
 #
-# depends_on the bucket policy and KMS key policy so GuardDuty
-# can validate write access at creation time (it performs a
-# test-write during resource creation; if either policy is
-# missing the resource creation fails).
+# depends_on the bucket policy so GuardDuty can validate write
+# access at creation time (it performs a test-write during resource
+# creation; if the bucket policy is missing the creation fails).
+# The KMS key is referenced via kms_key_arn — that implicit
+# dependency is sufficient; no need to list it in depends_on.
+#
+# RESIDUAL RISK — org SCP: a member account CAN call
+# guardduty:CreatePublishingDestination on its own detector (AWS
+# docs confirm this is delegated to member accounts). However, if
+# the org SCP at account 957996720803 explicitly denies this action,
+# the next apply will fail on THIS resource specifically with
+# AccessDenied. Fallback: route findings via EventBridge → SQS →
+# Wazuh aws-sqs module (no guardduty:CreatePublishingDestination
+# permission required, and EventBridge has native GD integration).
 ###############################################################
 
 resource "aws_guardduty_publishing_destination" "s3" {
-  detector_id      = aws_guardduty_detector.main.id
+  detector_id      = data.aws_guardduty_detector.existing.id
   destination_type = "S3"
   destination_arn  = aws_s3_bucket.guardduty_logs.arn
   kms_key_arn      = aws_kms_key.guardduty.arn
 
-  depends_on = [
-    aws_s3_bucket_policy.guardduty_logs,
-    aws_kms_key.guardduty,
-  ]
+  depends_on = [aws_s3_bucket_policy.guardduty_logs]
 }
 
 ###############################################################
