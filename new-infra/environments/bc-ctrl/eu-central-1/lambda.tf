@@ -51,9 +51,13 @@ resource "aws_iam_policy" "lambda_quarantine_ec2_policy" {
       {
         Effect = "Allow"
         Action = [
-          "ec2:DescribeInstances",
-          "ec2:DescribeSecurityGroups",
-          "ec2:ModifyInstanceAttribute"
+          "ec2:DescribeInstances", // Required to identify the instance and its current state
+          "ec2:DescribeSecurityGroups", // Required to identify the instance's current security groups
+          "ec2:ModifyInstanceAttribute", // Required to modify the instance's security groups
+          "eks:DescribeCluster", // Required to get EKS cluster details if the instance is part of an EKS cluster
+          "eks:ListClusters", // Required to list EKS clusters to find the relevant cluster for the instance
+          "ec2:DissociateIamInstanceProfile",  // Required to remove any existing IAM instance profile associations
+          "ec2:DescribeIamInstanceProfileAssociations" // Required to identify existing IAM instance profile associations
         ]
         Resource = "*"
       },
