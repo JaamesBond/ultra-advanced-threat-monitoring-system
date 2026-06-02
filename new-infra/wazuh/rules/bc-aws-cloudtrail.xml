@@ -3,26 +3,67 @@
 
   Rule ID range: 100300-100399 (reserved for bc-aws)
   Telemetry source: wodle aws-s3 module on the Wazuh manager, reading the
-                    bc-cloudtrail-logs-997916278486 S3 bucket. Decoded by the built-in
-                    Wazuh decoder "aws-cloudtrail".
+                    bc-cloudtrail-logs-997916278486 S3 bucket. Decoded by the
+                    built-in Wazuh "aws" decoder.
 
   Deployed to: /var/ossec/etc/rules/bc-aws-cloudtrail.xml on the manager
-               by phase3-install-wazuh.sh on instance boot.
+               by phase3-install-wazuh.sh via S3 sync on instance boot.
+
+  SOAR contract: Rule IDs 100300-100303 are stable identifiers — Splunk SOAR
+  playbooks key on these IDs. Do NOT renumber existing rules.
+
+  >>> FIELD PREFIX (verified 2026-06-02 against the live indexer) <<<
+    The aws-s3 wodle decoder nests ALL CloudTrail fields under "aws." — the
+    built-in Wazuh amazon ruleset matches e.g. <field name="aws.eventName">.
+    Rules MUST use the aws. prefix (aws.eventSource, aws.userIdentity.*, ...)
+    or they match NOTHING. These rules previously OMITTED the prefix and so
+    never fired (confirmed: cloudtrail-group alert count was 0 while the
+    aws group had 192k+ docs). The prefix has now been added throughout.
+
+  CI role suppression (100302, 100303, 100305):
+    Changes via the GitHubActionsDeployRole assumed-role session are expected
+    IaC operations and must NOT alert. For assumed-role callers the decoder
+    populates aws.userIdentity.sessionContext.sessionIssuer.arn (the role ARN);
+    the negate field matches the role name there. If the role is renamed,
+    update the pcre2 pattern.
+
+  Deferred / blocked detections (verified 2026-06-02 — do NOT re-add blindly):
+    - SSO console login (was rule 100304, REMOVED): IAM Identity Center auth
+      events are logged in the Identity Center MANAGEMENT account 480875379870,
+      not in this member account. This trail only sees read-only sso.amazonaws.com
+      portal calls (GetSSOStatus, ListInstances). Real SSO-login detection needs
+      a rule + log source in the management account. Re-add only with that source.
+    - S3 object-access exfil (no ID assigned, NOT added): GetObject is a CloudTrail
+      DATA event. Both trails (bc-ctrl-trail + Control Tower baseline) log
+      management events only (DataResources: []). Enabling S3 data events is a
+      paid, per-event feature — gate behind a cost decision before adding.
+
+  Threat rules 100306-100312 (added 2026-06-02): defense-evasion, persistence,
+  impact, and credential/compute-abuse detections. Negate-lists were derived
+  from the ACTUAL legitimate callers observed in CloudTrail (CI role, the ESO
+  IRSA role, the wazuh/misp EC2 roles, and AWS service-linked roles), so a
+  sensitive action by anything else is high-fidelity in this SSO-only,
+  IaC-driven account. Human (SSO-admin) actions are intentionally NOT negated
+  on 100311/100312 — a person reading a secret or launching an instance by hand
+  is exactly what we want SOAR to see.
 -->
 <group name="bc-aws,cloudtrail,">
 
   <!-- ============================================================
-       100300 — Console login without MFA
-       MITRE: T1078 (Valid Accounts)
-       Level 12: high severity, paged.
+       100300 — Console login without MFA (IAM user path)
+       MITRE: T1078 (Valid Accounts)  |  Level 12: high, paged.
+
+       COVERAGE NOTE: Fires only for IAM-user console logins
+       (aws.eventSource signin.amazonaws.com, MFAUsed present). SSO logins
+       are NOT covered here — see the "Deferred" note in the file header.
   ============================================================ -->
   <rule id="100300" level="12">
     <decoded_as>json</decoded_as>
-    <field name="eventSource">signin.amazonaws.com</field>
-    <field name="eventName">ConsoleLogin</field>
-    <field name="responseElements.ConsoleLogin">Success</field>
-    <field name="additionalEventData.MFAUsed">No</field>
-    <description>AWS Console login without MFA — $(userIdentity.userName) from $(sourceIPAddress)</description>
+    <field name="aws.eventSource">signin.amazonaws.com</field>
+    <field name="aws.eventName">ConsoleLogin</field>
+    <field name="aws.responseElements.ConsoleLogin">Success</field>
+    <field name="aws.additionalEventData.MFAUsed">No</field>
+    <description>AWS Console login without MFA — $(aws.userIdentity.userName) from $(aws.sourceIPAddress)</description>
     <mitre>
       <id>T1078</id>
     </mitre>
@@ -31,14 +72,13 @@
 
   <!-- ============================================================
        100301 — Root account used (any console sign-in event)
-       MITRE: T1078.004 (Cloud Accounts)
-       Level 15: critical, always page.
+       MITRE: T1078.004 (Cloud Accounts)  |  Level 15: critical.
   ============================================================ -->
   <rule id="100301" level="15">
     <decoded_as>json</decoded_as>
-    <field name="userIdentity.type">Root</field>
-    <field name="eventType">AwsConsoleSignIn</field>
-    <description>AWS root account used — CRITICAL — from $(sourceIPAddress)</description>
+    <field name="aws.userIdentity.type">Root</field>
+    <field name="aws.eventType">AwsConsoleSignIn</field>
+    <description>AWS root account used — CRITICAL — from $(aws.sourceIPAddress)</description>
     <mitre>
       <id>T1078.004</id>
     </mitre>
@@ -46,15 +86,16 @@
   </rule>
 
   <!-- ============================================================
-       100302 — Security Group modified
+       100302 — Security Group modified (not by CI pipeline)
        MITRE: T1562.007 (Disable or Modify Cloud Firewall)
-       Level 8: medium — review during business hours.
+       Level 8: medium. Suppressed for GitHubActionsDeployRole (IaC expected).
   ============================================================ -->
   <rule id="100302" level="8">
     <decoded_as>json</decoded_as>
-    <field name="eventSource">ec2.amazonaws.com</field>
-    <field name="eventName" type="pcre2">.*SecurityGroup.*</field>
-    <description>AWS Security Group modified — $(eventName) by $(userIdentity.userName)</description>
+    <field name="aws.eventSource">ec2.amazonaws.com</field>
+    <field name="aws.eventName" type="pcre2">.*SecurityGroup.*</field>
+    <field name="aws.userIdentity.sessionContext.sessionIssuer.arn" negate="yes" type="pcre2">GitHubActionsDeployRole</field>
+    <description>AWS Security Group modified — $(aws.eventName) by $(aws.userIdentity.userName)</description>
     <mitre>
       <id>T1562.007</id>
     </mitre>
@@ -62,19 +103,177 @@
   </rule>
 
   <!-- ============================================================
-       100303 — IAM role or policy modified outside the pipeline
-       MITRE: T1136 (Create Account)
-       Level 10: high — anything not GitHubActionsDeployRole is suspect.
+       100303 — IAM role or policy modified (not by CI pipeline)
+       MITRE: T1098 (Account Manipulation)
+       Level 10: high. Suppressed for GitHubActionsDeployRole (IaC expected).
   ============================================================ -->
   <rule id="100303" level="10">
     <decoded_as>json</decoded_as>
-    <field name="eventSource">iam.amazonaws.com</field>
-    <field name="eventName" type="pcre2">.*(Role|Policy).*</field>
-    <description>AWS IAM role/policy modified — $(eventName) by $(userIdentity.userName)</description>
+    <field name="aws.eventSource">iam.amazonaws.com</field>
+    <field name="aws.eventName" type="pcre2">.*(Role|Policy).*</field>
+    <field name="aws.userIdentity.sessionContext.sessionIssuer.arn" negate="yes" type="pcre2">GitHubActionsDeployRole</field>
+    <description>AWS IAM role/policy modified — $(aws.eventName) by $(aws.userIdentity.userName)</description>
     <mitre>
-      <id>T1136</id>
+      <id>T1098</id>
     </mitre>
     <group>configuration_changed,pci_dss_8.1,</group>
+  </rule>
+
+  <!-- (100304 intentionally unused — SSO login detection removed; see header) -->
+
+  <!-- ============================================================
+       100305 — Unexpected SSM session/command on bc-ctrl EC2
+       MITRE: T1552.005 (Unsecured Credentials: Cloud Instance Metadata API)
+       Level 12: high. An attacker with ssm:StartSession/SendCommand on
+       wazuh-ctrl or misp-ctrl can read the instance profile credentials from
+       IMDS. SOAR should triage the session and rotate the profile if unexpected.
+
+       Field paths verified 2026-06-02 against a live SendCommand event:
+         aws.eventSource = ssm.amazonaws.com
+         aws.eventName   = SendCommand | StartSession
+         aws.requestParameters.instanceIds[] (SendCommand) / .target (StartSession)
+
+       Suppression: the legitimate callers are the CI role AND the SSO admin
+       role (AWSReservedSSO_AdministratorAccess_*) — both are negated. NOTE:
+       negating the SSO admin role means a compromised admin session will NOT
+       fire this rule; drop "AWSReservedSSO_AdministratorAccess" from the pcre2
+       below to turn this into full privileged-SSM-access monitoring (noisier,
+       but catches insider/credential-theft use of the admin role).
+  ============================================================ -->
+  <rule id="100305" level="12">
+    <decoded_as>json</decoded_as>
+    <field name="aws.eventSource">ssm.amazonaws.com</field>
+    <field name="aws.eventName" type="pcre2">^(StartSession|SendCommand)$</field>
+    <field name="aws.userIdentity.sessionContext.sessionIssuer.arn" negate="yes" type="pcre2">GitHubActionsDeployRole|AWSReservedSSO_AdministratorAccess</field>
+    <description>Unexpected SSM session/command — $(aws.eventName) by $(aws.userIdentity.arn)</description>
+    <mitre>
+      <id>T1552.005</id>
+    </mitre>
+    <group>credential_access,ssm,</group>
+  </rule>
+
+  <!-- ============================================================
+       100306 — CloudTrail / logging tampering
+       MITRE: T1562.008 (Disable or Modify Cloud Logs)  |  Level 13
+       Blinding the SIEM is a classic first move. Negate CI (it manages the
+       trail config via UpdateTrail/PutEventSelectors on apply).
+  ============================================================ -->
+  <rule id="100306" level="13">
+    <decoded_as>json</decoded_as>
+    <field name="aws.eventSource">cloudtrail.amazonaws.com</field>
+    <field name="aws.eventName" type="pcre2">^(StopLogging|DeleteTrail|UpdateTrail|PutEventSelectors)$</field>
+    <field name="aws.userIdentity.sessionContext.sessionIssuer.arn" negate="yes" type="pcre2">GitHubActionsDeployRole</field>
+    <description>CloudTrail logging tampered — $(aws.eventName) by $(aws.userIdentity.arn)</description>
+    <mitre>
+      <id>T1562.008</id>
+    </mitre>
+    <group>defense_evasion,cloudtrail_tampering,</group>
+  </rule>
+
+  <!-- ============================================================
+       100307 — Security detection plane disabled
+       MITRE: T1562.001 (Disable or Modify Tools)  |  Level 13
+       GuardDuty / AWS Config / Security Hub teardown. Matched on eventName
+       (eventSource varies by service). Negate CI (manages Config recorder).
+  ============================================================ -->
+  <rule id="100307" level="13">
+    <decoded_as>json</decoded_as>
+    <field name="aws.eventName" type="pcre2">^(DeleteDetector|DisableOrganizationAdminAccount|StopMonitoringMembers|DeleteConfigurationRecorder|StopConfigurationRecorder|DeleteDeliveryChannel|DisableSecurityHub|BatchDisableStandards)$</field>
+    <field name="aws.userIdentity.sessionContext.sessionIssuer.arn" negate="yes" type="pcre2">GitHubActionsDeployRole</field>
+    <description>Security detection plane disabled — $(aws.eventName) by $(aws.userIdentity.arn)</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <group>defense_evasion,detection_disabled,</group>
+  </rule>
+
+  <!-- ============================================================
+       100308 — KMS key disabled or scheduled for deletion
+       MITRE: T1485 (Data Destruction)  |  Level 14
+       KMS is central to the snapshot/encryption story. No negate — even a
+       pipeline-driven key deletion is rare and destructive enough to surface.
+  ============================================================ -->
+  <rule id="100308" level="14">
+    <decoded_as>json</decoded_as>
+    <field name="aws.eventSource">kms.amazonaws.com</field>
+    <field name="aws.eventName" type="pcre2">^(ScheduleKeyDeletion|DisableKey)$</field>
+    <description>KMS key disabled / scheduled for deletion — $(aws.requestParameters.keyId) by $(aws.userIdentity.arn)</description>
+    <mitre>
+      <id>T1485</id>
+    </mitre>
+    <group>impact,kms,data_destruction,</group>
+  </rule>
+
+  <!-- ============================================================
+       100309 — IAM access key created
+       MITRE: T1098 (Account Manipulation)  |  Level 12
+       The account is SSO-only with zero IAM users — ANY long-lived access key
+       is anomalous persistence. No negate (CI does not create keys either).
+  ============================================================ -->
+  <rule id="100309" level="12">
+    <decoded_as>json</decoded_as>
+    <field name="aws.eventSource">iam.amazonaws.com</field>
+    <field name="aws.eventName">CreateAccessKey</field>
+    <description>IAM access key created (account is SSO-only — investigate) — for user $(aws.requestParameters.userName) by $(aws.userIdentity.arn)</description>
+    <mitre>
+      <id>T1098</id>
+    </mitre>
+    <group>persistence,iam,credential_creation,</group>
+  </rule>
+
+  <!-- ============================================================
+       100310 — IAM user or login profile created
+       MITRE: T1136.001 (Create Account: Local Account)  |  Level 12
+       Establishing a non-SSO foothold. No negate.
+  ============================================================ -->
+  <rule id="100310" level="12">
+    <decoded_as>json</decoded_as>
+    <field name="aws.eventSource">iam.amazonaws.com</field>
+    <field name="aws.eventName" type="pcre2">^(CreateUser|CreateLoginProfile)$</field>
+    <description>IAM user/login profile created (account is SSO-only) — $(aws.eventName) target $(aws.requestParameters.userName) by $(aws.userIdentity.arn)</description>
+    <mitre>
+      <id>T1136.001</id>
+    </mitre>
+    <group>persistence,iam,account_creation,</group>
+  </rule>
+
+  <!-- ============================================================
+       100311 — Secrets Manager value read by unexpected principal
+       MITRE: T1552 (Unsecured Credentials)  |  Level 12
+       Legit readers (verified via CloudTrail 2026-06-02): the ESO IRSA role,
+       the CI role, and the wazuh/misp EC2 roles. A GetSecretValue from anyone
+       else — including a human SSO-admin session — is surfaced for SOAR triage.
+  ============================================================ -->
+  <rule id="100311" level="12">
+    <decoded_as>json</decoded_as>
+    <field name="aws.eventSource">secretsmanager.amazonaws.com</field>
+    <field name="aws.eventName">GetSecretValue</field>
+    <field name="aws.userIdentity.sessionContext.sessionIssuer.arn" negate="yes" type="pcre2">bc-uatms-prd-external-secrets|GitHubActionsDeployRole|wazuh-ec2-role|misp-ec2-role</field>
+    <description>Secrets Manager value read by unexpected principal — $(aws.requestParameters.secretId) by $(aws.userIdentity.arn)</description>
+    <mitre>
+      <id>T1552</id>
+    </mitre>
+    <group>credential_access,secretsmanager,</group>
+  </rule>
+
+  <!-- ============================================================
+       100312 — EC2 instance launched outside the pipeline
+       MITRE: T1496 (Resource Hijacking)  |  Level 12
+       Legit launchers (verified): CI role + AWS service-linked roles for EKS
+       node groups and Auto Scaling. Human SSO-admin launches are intentionally
+       NOT negated — that is exactly the rogue-box case (e.g. the undocumented
+       cheap-test-ubuntu-soar-test instance) we want to catch.
+  ============================================================ -->
+  <rule id="100312" level="12">
+    <decoded_as>json</decoded_as>
+    <field name="aws.eventSource">ec2.amazonaws.com</field>
+    <field name="aws.eventName">RunInstances</field>
+    <field name="aws.userIdentity.sessionContext.sessionIssuer.arn" negate="yes" type="pcre2">GitHubActionsDeployRole|AWSServiceRoleForAmazonEKSNodegroup|AWSServiceRoleForAutoScaling</field>
+    <description>EC2 instance launched outside the pipeline — by $(aws.userIdentity.arn)</description>
+    <mitre>
+      <id>T1496</id>
+    </mitre>
+    <group>execution,ec2,rogue_compute,</group>
   </rule>
 
 </group>

@@ -4,13 +4,38 @@
   Rule ID range: 100400-100499 (reserved for bc-k8s)
   Telemetry source: K8s API server audit logs.
 
-  IMPORTANT: K8s audit log ingestion is NOT wired up yet. EKS does not emit
-  audit logs to CloudWatch by default — this requires
-  `cluster_enabled_log_types = ["audit"]` on the EKS module and a Wazuh
-  CloudWatch wodle / Lambda forwarder to ship them to the manager. Until
-  then, these rules will not fire. Tracked as a follow-up.
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  WARNING — RULES IN THIS FILE DO NOT FIRE TODAY. DO NOT BUILD SOAR
+  PLAYBOOKS THAT DEPEND ON THESE RULE IDs UNTIL INGESTION IS WIRED.
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-  Deployed to: /var/ossec/etc/rules/bc-k8s-audit.xml on the manager.
+  Blocking gap 1 — EKS audit log ingestion not enabled:
+    EKS does not emit audit logs to CloudWatch by default. Enabling requires:
+      cluster_enabled_log_types = ["audit", "authenticator"]
+    in the EKS module (eks.tf), plus either:
+      (a) a Wazuh CloudWatch Logs wodle pointed at the
+          /aws/eks/bc-uatms-prd-eks/cluster log group, OR
+      (b) a Lambda subscriber that ships log events to the manager socket.
+    Neither is currently deployed. Until done, zero K8s audit events reach
+    the manager and all rules in this file are dead letters.
+
+  Blocking gap 2 — Wazuh cannot match inside JSON arrays:
+    The Wazuh rule engine evaluates <field> matches against a flat JSON
+    document extracted by a decoder. The requestObject.spec.containers field
+    in a K8s audit event is a JSON array of container objects. Wazuh's
+    decoder will not explode array elements into individually matchable
+    fields, so a rule like:
+      <field name="requestObject.spec.containers.securityContext.privileged">true</field>
+    will NEVER match — containers[0].securityContext.privileged is buried
+    inside an array element, not at the top-level key path the field match
+    expects. To make this work reliably, a pre-processing step is needed:
+    either a custom Wazuh decoder that extracts the first/any privileged
+    container flag, or a Lambda/Logstash enrichment that flattens the array
+    before forwarding to Wazuh.
+    Current rule 100400 is therefore a design placeholder only.
+
+  Deployed to: /var/ossec/etc/rules/bc-k8s-audit.xml on the manager
+               by phase3-install-wazuh.sh via S3 sync on instance boot.
 -->
 <group name="bc-k8s,kubernetes,audit,">
 
