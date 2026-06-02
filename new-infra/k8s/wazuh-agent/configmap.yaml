@@ -56,6 +56,15 @@ data:
         <label key="source">zeek-notice</label>
       </localfile>
 
+      <!-- Zeek Intel framework hits (MISP IOC matches via the misp-intel-sync
+           sidecar land here). Previously NOT shipped — added 2026-06-02 so the
+           MISP -> Zeek -> Wazuh detection chain reaches the SIEM. -->
+      <localfile>
+        <log_format>json</log_format>
+        <location>/host/var/log/zeek/intel.log</location>
+        <label key="source">zeek-intel</label>
+      </localfile>
+
       <!-- Falco alerts from the host -->
       <localfile>
         <log_format>json</log_format>

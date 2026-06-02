@@ -136,10 +136,12 @@ outputs:
         - bittorrent-dht
         - flow                  # bidirectional 5-tuple flow with byte/packet counts
         - netflow               # aggregated netflow-style records
-        - stats:
-            totals: yes
-            threads: no
-            deltas: no
+        # NOTE: 'stats' is intentionally NOT emitted to eve.json. A Suricata
+        # stats event carries ~256 JSON fields, which hits Wazuh analysisd's
+        # JSON-decoder field ceiling and is dropped with "Too many fields for
+        # JSON decoder" (~11.5k drops/day across the fleet — verified 2026-06-02).
+        # Operational counters remain available in the separate stats.log file
+        # (output 3.5 below); they are simply not shipped into the SIEM pipeline.
 
   # 3.3  TLS logging — JA3/JA3S fingerprints to separate file
   - tls-log:
