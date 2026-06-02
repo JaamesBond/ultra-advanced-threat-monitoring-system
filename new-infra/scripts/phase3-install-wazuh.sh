@@ -1622,59 +1622,13 @@ if [[ "${HOST_ROLE}" == "manager" || "${HOST_ROLE}" == "all_in_one" ]]; then
   </integration>
 
   <!--======================================================================
-       17. ACTIVE RESPONSE — automated containment
+       17. ACTIVE RESPONSE — DISABLED
+       All automated response is handled by Splunk SOAR via the Shuffle/SOAR
+       integration (section 16 above). Wazuh's role is DETECT + FORWARD only.
+       No <command> or <active-response> blocks are configured here.
+       Do NOT re-add stock firewall-drop / disable-account blocks — SOAR owns
+       the enforcement plane.
   =======================================================================-->
-  <command>
-    <name>firewall-drop</name>
-    <executable>firewall-drop</executable>
-    <timeout_allowed>yes</timeout_allowed>
-  </command>
-
-  <active-response>
-    <command>firewall-drop</command>
-    <location>local</location>
-    <rules_id>5712,5763,40101,40111,31153,31151</rules_id>
-    <timeout>3600</timeout>
-  </active-response>
-
-  <command>
-    <name>disable-account</name>
-    <executable>disable-account</executable>
-    <timeout_allowed>yes</timeout_allowed>
-  </command>
-
-  <active-response>
-    <command>disable-account</command>
-    <location>local</location>
-    <rules_id>5763,5764</rules_id>
-    <timeout>3600</timeout>
-  </active-response>
-
-  <command>
-    <name>enforcement-api-isolate</name>
-    <executable>enforcement-api-isolate.sh</executable>
-    <timeout_allowed>yes</timeout_allowed>
-  </command>
-
-  <active-response>
-    <command>enforcement-api-isolate</command>
-    <location>server</location>
-    <level>12</level>
-    <timeout>0</timeout>
-  </active-response>
-
-  <command>
-    <name>enforcement-api-block-ioc</name>
-    <executable>enforcement-api-block-ioc.sh</executable>
-    <timeout_allowed>yes</timeout_allowed>
-  </command>
-
-  <active-response>
-    <command>enforcement-api-block-ioc</command>
-    <location>server</location>
-    <rules_id>100200,100201,100202</rules_id>
-    <timeout>86400</timeout>
-  </active-response>
 
 </ossec_config>
 EOF
