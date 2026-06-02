@@ -749,30 +749,45 @@ jobs:
 
           # Fetch OIDC discovery document from within the cluster.
           # Uses the cluster Service DNS name — backchannel path.
-          DISCOVERY=$(kubectl run keycloak-verify-$RANDOM \
-            --namespace nomad-oasis \
-            --image=curlimages/curl:8.5.0 \
-            --restart=Never \
-            --rm \
-            --attach \
-            --quiet \
-            --overrides='{
-              "spec": {
-                "nodeSelector": {"role": "nomad"},
-                "tolerations": [{
-                  "key": "dedicated",
-                  "operator": "Equal",
-                  "value": "nomad",
-                  "effect": "NoSchedule"
-                }]
-              }
-            }' \
-            -- curl -sf --max-time 10 \
-            http://nomad-oasis-keycloak-http/auth/realms/nomad-oasis/.well-known/openid-configuration \
-            2>/dev/null || echo "CURL_FAILED")
+          #
+          # Retry loop: pod-Ready precedes the realm/discovery endpoint being served.
+          # Keycloak 24 often needs 10–60s after the readiness probe flips before it
+          # answers /auth/realms/…/.well-known/openid-configuration. A single-shot
+          # curl fires too early and loses the timing race ~2 of every 3 cold-starts.
+          # 12 attempts × 10s sleep = 2-minute budget before we treat it as a hard fail.
+          DISCOVERY="CURL_FAILED"
+          for attempt in $(seq 1 12); do
+            DISCOVERY=$(kubectl run keycloak-verify-${RANDOM}-${attempt} \
+              --namespace nomad-oasis \
+              --image=curlimages/curl:8.5.0 \
+              --restart=Never \
+              --rm \
+              --attach \
+              --quiet \
+              --overrides='{
+                "spec": {
+                  "nodeSelector": {"role": "nomad"},
+                  "tolerations": [{
+                    "key": "dedicated",
+                    "operator": "Equal",
+                    "value": "nomad",
+                    "effect": "NoSchedule"
+                  }]
+                }
+              }' \
+              -- curl -sf --max-time 10 \
+              http://nomad-oasis-keycloak-http/auth/realms/nomad-oasis/.well-known/openid-configuration \
+              2>/dev/null || echo "CURL_FAILED")
+            if [ "$DISCOVERY" != "CURL_FAILED" ] && echo "$DISCOVERY" | grep -q '"issuer"'; then
+              echo "Discovery doc obtained on attempt ${attempt}."
+              break
+            fi
+            echo "Attempt ${attempt}/12: discovery endpoint not ready yet — waiting 10s..."
+            sleep 10
+          done
 
-          if [ "$DISCOVERY" = "CURL_FAILED" ]; then
-            echo "ERROR: Could not reach Keycloak discovery endpoint."
+          if [ "$DISCOVERY" = "CURL_FAILED" ] || ! echo "$DISCOVERY" | grep -q '"issuer"'; then
+            echo "ERROR: Could not reach Keycloak discovery endpoint after 12 attempts (~2 min)."
             echo "Check: kubectl -n nomad-oasis logs deploy/nomad-oasis-keycloak"
             exit 1
           fi
