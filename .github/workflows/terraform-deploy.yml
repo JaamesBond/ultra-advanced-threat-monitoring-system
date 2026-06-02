@@ -895,12 +895,20 @@ jobs:
           kubectl kustomize new-infra/k8s/zeek \
             | sed "s/\${AWS_ACCOUNT_ID}/${{ env.AWS_ACCOUNT_ID }}/g" \
             | kubectl apply -f -
+          # Static ConfigMap (no content-hash suffix) → pod template never changes on apply alone;
+          # explicit restart is required to pick up ConfigMap changes.
+          kubectl rollout restart daemonset/zeek -n zeek
+          kubectl rollout status daemonset/zeek -n zeek --timeout=180s || true
 
       - name: Deploy Suricata (bc-prd)
         run: |
           kubectl kustomize new-infra/k8s/suricata \
             | sed "s/\${AWS_ACCOUNT_ID}/${{ env.AWS_ACCOUNT_ID }}/g" \
             | kubectl apply -f -
+          # disableNameSuffixHash: true means ConfigMap changes never mutate the pod template;
+          # explicit restart is required to pick up ConfigMap changes.
+          kubectl rollout restart daemonset/suricata -n suricata
+          kubectl rollout status daemonset/suricata -n suricata --timeout=180s || true
 
 
       - name: Build and push wazuh-agent image to ECR
@@ -921,6 +929,10 @@ jobs:
           kubectl kustomize new-infra/k8s/wazuh-agent \
             | sed "s/\${AWS_ACCOUNT_ID}/${{ env.AWS_ACCOUNT_ID }}/g" \
             | kubectl apply -f -
+          # Static ConfigMap → pod template never changes on apply alone;
+          # explicit restart is required to pick up ConfigMap changes.
+          kubectl rollout restart daemonset/wazuh-agent -n wazuh
+          kubectl rollout status daemonset/wazuh-agent -n wazuh --timeout=180s || true
 
       # Apply NOMAD Oasis K8s manifests (namespace, ExternalSecrets, CNPs).
       # The Helm release (applied in Stage 2 Terraform above) creates the
