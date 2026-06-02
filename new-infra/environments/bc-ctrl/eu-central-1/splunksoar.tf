@@ -54,6 +54,39 @@ resource "aws_iam_role_policy_attachment" "splunk_soar_ec2_ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+resource "aws_iam_policy" "splunk_soar_lambda_policy" {
+  name        = "splunk-soar-lambda-policy"
+  description = "Policy allowing Splunk SOAR to list and invoke Lambda functions"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "lambda:ListFunctions",
+          "lambda:GetFunction",
+          "lambda:InvokeFunction",
+          "lambda:InvokeAsync",
+          "lambda:ListTags",
+          "lambda:ListVersionsByFunction",
+          "lambda:ListAliases",
+          "lambda:ListLayerVersions",
+          "lambda:GetPolicy"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = merge(local.common_tags, { Name = "splunk-soar-lambda-policy" })
+}
+
+resource "aws_iam_role_policy_attachment" "splunk_soar_lambda_attach" {
+  role       = aws_iam_role.splunk_soar_ec2.name
+  policy_arn = aws_iam_policy.splunk_soar_lambda_policy.arn
+}
+
 resource "aws_iam_instance_profile" "splunk_soar_ec2" {
   name = "splunk-soar-ec2-profile"
   role = aws_iam_role.splunk_soar_ec2.name
