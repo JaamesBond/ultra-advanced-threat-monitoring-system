@@ -1,0 +1,57 @@
+<!--
+  bc-falco.xml — Custom Wazuh rules for Falco runtime-security telemetry.
+
+  Rule ID range: 100600-100699 (reserved for bc runtime/host sensors)
+  Telemetry source: cluster Falco on bc-prd EKS nodes writes JSON alerts to
+                    /var/log/falco/falco.json (hostPath); the wazuh-agent
+                    DaemonSet ships them (localfile source=falco). Decoded as JSON.
+
+  >>> WHY THIS FILE EXISTS (verified 2026-06-02) <<<
+    Falco events ARE arriving and decoding on the manager (sampled a real
+    "Executing binary not part of base image" Critical alert from the Zeek
+    misp-intel-sync sidecar), but produced ZERO Wazuh alerts because NO rule
+    matched them — they were archived and dropped. These rules close that gap.
+
+  Field paths (verified against a live falco.json event): Falco json_output
+    emits top-level keys: priority, rule, output, output_fields{...}, hostname,
+    source, time, tags. Rules match the bare path (no prefix).
+    Falco priorities: Emergency, Alert, Critical, Error, Warning, Notice,
+    Informational, Debug.
+
+  These are DETECT + FORWARD rules; response is owned by Splunk SOAR.
+-->
+<group name="bc-falco,runtime,">
+
+  <!-- ============================================================
+       100600 — Falco high-severity runtime alert
+       MITRE: T1059 (Command and Scripting Interpreter) — SOAR refines by rule
+       Level 13. Critical/Error/Alert/Emergency = container escape, shell spawn,
+       unexpected binary exec, sensitive mount, etc.
+  ============================================================ -->
+  <rule id="100600" level="13">
+    <decoded_as>json</decoded_as>
+    <field name="priority" type="pcre2">^(Emergency|Alert|Critical|Error)$</field>
+    <field name="rule" type="pcre2">.+</field>
+    <description>Falco runtime alert [$(priority)] — $(rule) on $(hostname)</description>
+    <mitre>
+      <id>T1059</id>
+    </mitre>
+    <group>falco,runtime_security,</group>
+  </rule>
+
+  <!-- ============================================================
+       100601 — Falco warning-level runtime event
+       MITRE: T1059  |  Level 9: medium — surfaced to SOAR for correlation.
+  ============================================================ -->
+  <rule id="100601" level="9">
+    <decoded_as>json</decoded_as>
+    <field name="priority">Warning</field>
+    <field name="rule" type="pcre2">.+</field>
+    <description>Falco runtime warning — $(rule) on $(hostname)</description>
+    <mitre>
+      <id>T1059</id>
+    </mitre>
+    <group>falco,runtime_security,</group>
+  </rule>
+
+</group>

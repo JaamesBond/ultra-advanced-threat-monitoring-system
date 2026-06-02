@@ -1,0 +1,62 @@
+<!--
+  bc-suricata.xml — Custom Wazuh rules for Suricata IDS telemetry.
+
+  Rule ID range: 100500-100599 (reserved for bc network/IDS sensors)
+  Telemetry source: Suricata eve.json on bc-prd EKS nodes, shipped to the
+                    manager by the wazuh-agent DaemonSet. Decoded as JSON;
+                    Suricata alerts carry the group "suricata" from the
+                    built-in Wazuh Suricata ruleset.
+
+  Deployed to: /var/ossec/etc/rules/bc-suricata.xml on the manager
+               by phase3-install-wazuh.sh via S3 sync on instance boot.
+
+  >>> FIELD PATHS (verified 2026-06-02 against a live Suricata alert) <<<
+    Suricata fields are decoded WITHOUT an "aws." style prefix (the indexer
+    stores them under data.*, but rules reference the bare JSON path):
+      event_type      = "alert"
+      alert.severity  = "1" (high) | "2" (medium) | "3" (low)   [string]
+      alert.category  = e.g. "A Network Trojan was detected"
+      alert.signature = human-readable rule name
+      src_ip / dest_ip / src_port / dest_port
+    These rules use <if_group>suricata</if_group> so they fire as children of
+    any built-in Suricata-group match (28 such alerts were present at verify time).
+
+  These are DETECT + FORWARD rules. Response is owned by Splunk SOAR; no
+  active-response is attached.
+-->
+<group name="bc-suricata,ids,">
+
+  <!-- ============================================================
+       100500 — Suricata high/medium-severity IDS alert
+       MITRE: T1040 (Network Sniffing — generic; SOAR refines by signature)
+       Level 12: high. ET severity 1 (high) or 2 (medium).
+  ============================================================ -->
+  <rule id="100500" level="12">
+    <if_group>suricata</if_group>
+    <field name="event_type">alert</field>
+    <field name="alert.severity" type="pcre2">^[12]$</field>
+    <description>Suricata high-severity IDS alert — $(alert.signature) src=$(src_ip) dst=$(dest_ip)</description>
+    <mitre>
+      <id>T1040</id>
+    </mitre>
+    <group>ids,suricata,network_intrusion,</group>
+  </rule>
+
+  <!-- ============================================================
+       100501 — Suricata C2 / malware-category alert
+       MITRE: T1071 (Application Layer Protocol — C2)
+       Level 14: critical. Beaconing / malware categories are the clearest
+       auto-isolate trigger for a SOAR playbook.
+  ============================================================ -->
+  <rule id="100501" level="14">
+    <if_group>suricata</if_group>
+    <field name="event_type">alert</field>
+    <field name="alert.category" type="pcre2">(?i)(Malware|Trojan|Command.and.Control|Botnet|Exploit.Kit)</field>
+    <description>Suricata C2/malware-category alert — $(alert.signature) src=$(src_ip) dst=$(dest_ip)</description>
+    <mitre>
+      <id>T1071</id>
+    </mitre>
+    <group>ids,suricata,c2,malware,</group>
+  </rule>
+
+</group>
