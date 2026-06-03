@@ -1,0 +1,242 @@
+<!--
+  bc-tetragon.xml — Custom Wazuh rules for Tetragon eBPF runtime telemetry.
+
+  Rule ID range: 100700-100799 (reserved for bc Tetragon sensor)
+
+  Allocation rationale:
+    100300-100399 = bc-aws-cloudtrail.xml
+    100400-100499 = bc-k8s-audit.xml
+    100500-100599 = bc-suricata.xml
+    100600-100699 = bc-falco.xml
+    100700-100799 = bc-tetragon.xml  ← this file (next available block)
+
+  Telemetry source: Tetragon DaemonSet (kube-system) writes JSON-line events to
+    /var/log/tetragon/tetragon.json on each node (exportDirectory set in
+    helm-security.tf). The wazuh-agent DaemonSet reads this file via the
+    existing /host/var/log hostPath mount (localfile stanza in configmap.yaml).
+    Events are decoded by Wazuh's built-in JSON decoder.
+
+  Tetragon JSON event envelope (v1.6.x protobuf → JSON export):
+    node_name          : string — EKS worker node hostname
+    time               : RFC3339 timestamp
+    One of the following top-level event-type keys is present:
+      process_exec     : { process: { binary, arguments, pid, uid,
+                             pod: { name, namespace, container.name } } }
+      process_exit     : same process sub-struct
+      process_kprobe   : { function_name, args[0].string_arg,
+                           action (e.g. "SIGKILL"),
+                           process: { binary, arguments, pod.* } }
+      process_uprobe   : { symbol, process.* }
+      process_tracepoint: { subsystem, event, process.* }
+    Wazuh's JSON decoder flattens nested keys with dot notation up to its
+    decode depth; rules reference paths like "process_kprobe.action".
+
+  Decoder note: NO custom decoder file is needed. Wazuh's built-in JSON
+    decoder handles all JSON-line input. Rules anchor to Tetragon-unique
+    field names (process_kprobe.action, process_exec.process.binary, etc.)
+    which are absent from Falco / Suricata / Zeek events, so there is no
+    cross-source false-match risk despite all using <decoded_as>json</decoded_as>.
+
+  Deployment: this file is picked up automatically by the existing Terraform
+    aws_s3_object.wazuh_rules resource in wazuh-ec2.tf, which uses
+    fileset("...wazuh/rules", "*.xml") — no Terraform edit needed.
+    phase3-install-wazuh.sh syncs s3://${WAZUH_S3_BUCKET}/rules/ →
+    /var/ossec/etc/rules/ on manager boot.
+
+  These are DETECT + FORWARD rules. Response is owned by Splunk SOAR;
+  no <active-response> is attached here.
+-->
+<group name="bc-tetragon,runtime,">
+
+  <!-- ============================================================
+       100700 — Tetragon SIGKILL enforcement action
+       MITRE: T1059 (Command and Scripting Interpreter) — blocked execution.
+       Level 14: critical. This fires when the sigkill-malicious-tools
+       TracingPolicy (tracing-policy.yaml) kills nc or nmap at exec time.
+       Presence of action=SIGKILL means the threat was blocked in-kernel.
+  ============================================================ -->
+  <rule id="100700" level="14">
+    <decoded_as>json</decoded_as>
+    <field name="process_kprobe.action">SIGKILL</field>
+    <description>Tetragon blocked malicious tool execution (SIGKILL) — function=$(process_kprobe.function_name) binary=$(process_kprobe.process.binary) args=$(process_kprobe.args) node=$(node_name)</description>
+    <mitre>
+      <id>T1059</id>
+    </mitre>
+    <group>tetragon,runtime_security,enforcement,</group>
+  </rule>
+
+  <!-- ============================================================
+       100701 — Tetragon kprobe event (non-SIGKILL)
+       MITRE: T1059 (Command and Scripting Interpreter)
+       Level 10: medium. A kprobe TracingPolicy matched but did not SIGKILL
+       (action=Post, Throttle, Override, etc.) — observability hit that
+       correlates with lateral movement or probing tools.
+  ============================================================ -->
+  <rule id="100701" level="10">
+    <decoded_as>json</decoded_as>
+    <field name="process_kprobe.function_name" type="pcre2">.+</field>
+    <field name="process_kprobe.action" type="pcre2">^(?!SIGKILL).+</field>
+    <description>Tetragon kprobe event — function=$(process_kprobe.function_name) action=$(process_kprobe.action) binary=$(process_kprobe.process.binary) node=$(node_name)</description>
+    <mitre>
+      <id>T1059</id>
+    </mitre>
+    <group>tetragon,runtime_security,kprobe,</group>
+  </rule>
+
+  <!-- ============================================================
+       100702 — Tetragon process exec: shell or interpreter spawned
+       MITRE: T1059.004 (Unix Shell), T1059.006 (Python)
+       Level 11: high. Container exec of a shell/interpreter is a strong
+       indicator of interactive breakout or post-exploitation.
+  ============================================================ -->
+  <rule id="100702" level="11">
+    <decoded_as>json</decoded_as>
+    <field name="process_exec.process.binary" type="pcre2">(?:/bin/|/usr/bin/)(?:sh|bash|dash|zsh|fish|python[23]?|perl|ruby|node|lua)</field>
+    <description>Tetragon: shell/interpreter spawned in container — binary=$(process_exec.process.binary) args=$(process_exec.process.arguments) pod=$(process_exec.process.pod.namespace)/$(process_exec.process.pod.name) node=$(node_name)</description>
+    <mitre>
+      <id>T1059</id>
+    </mitre>
+    <group>tetragon,runtime_security,exec,</group>
+  </rule>
+
+  <!-- ============================================================
+       100703 — Tetragon process exec: privilege escalation tooling
+       MITRE: T1548.001 (Setuid and Setgid), T1068 (Exploitation for Priv Esc)
+       Level 13: critical. Execution of su, sudo, nsenter, unshare, or
+       chroot from inside a container is indicative of privilege escalation.
+  ============================================================ -->
+  <rule id="100703" level="13">
+    <decoded_as>json</decoded_as>
+    <field name="process_exec.process.binary" type="pcre2">(?:/bin/|/usr/bin/|/sbin/|/usr/sbin/)(?:su|sudo|nsenter|unshare|chroot|setuid|newuidmap|newgidmap)</field>
+    <description>Tetragon: privilege escalation tool executed — binary=$(process_exec.process.binary) args=$(process_exec.process.arguments) pod=$(process_exec.process.pod.namespace)/$(process_exec.process.pod.name) node=$(node_name)</description>
+    <mitre>
+      <id>T1548</id>
+      <id>T1068</id>
+    </mitre>
+    <group>tetragon,runtime_security,privilege_escalation,</group>
+  </rule>
+
+  <!-- ============================================================
+       100704 — Tetragon process exec: network reconnaissance tool
+       MITRE: T1046 (Network Service Scanning), T1049 (System Network Connections)
+       Level 12: high. Execution of curl, wget, ncat, socat, or ss from
+       a container is unexpected and suggests data exfiltration or C2.
+       (nc/nmap are killed by TracingPolicy before reaching this rule;
+       this catches the remaining network tools not covered by SIGKILL.)
+  ============================================================ -->
+  <rule id="100704" level="12">
+    <decoded_as>json</decoded_as>
+    <field name="process_exec.process.binary" type="pcre2">(?:/bin/|/usr/bin/)(?:curl|wget|ncat|socat|ss|netstat|dig|nslookup|host)</field>
+    <description>Tetragon: network tool executed in container — binary=$(process_exec.process.binary) args=$(process_exec.process.arguments) pod=$(process_exec.process.pod.namespace)/$(process_exec.process.pod.name) node=$(node_name)</description>
+    <mitre>
+      <id>T1046</id>
+      <id>T1049</id>
+    </mitre>
+    <group>tetragon,runtime_security,network_recon,</group>
+  </rule>
+
+  <!-- ============================================================
+       PRIVILEGES-RAISE policy rules (100705–100708)
+       Source: Tetragon TracingPolicy "privileges-raise"
+              (new-infra/k8s/tetragon/privileges-raise.yaml)
+       All events arrive as PROCESS_KPROBE with
+         process_kprobe.policy_name = "privileges-raise".
+
+       Noise handling: the TracingPolicy already excludes runc and
+       containerd-shim-runc-v2 via matchBinaries NotIn at the selector
+       level. As a second layer, rules 100705 and 100706 add a Wazuh-
+       side pcre2 exclusion on process_kprobe.process.binary so that
+       any runtime binary not covered by the policy-level exclusion
+       (e.g. a vendor runc at an unexpected path) is still suppressed
+       before creating a Wazuh alert.
+  ============================================================ -->
+
+  <!-- ============================================================
+       100705 — Tetragon: setuid-to-root from non-runtime binary
+       MITRE: T1548.001 (Setuid and Setgid)
+       Level 12: high. A workload process (not runc/containerd-shim)
+       called one of the __sys_set*uid* interfaces with UID 0 — strong
+       indicator of in-container privilege escalation.
+       Function name pattern: __sys_set covers __sys_setuid,
+       __sys_setreuid, __sys_setresuid, __sys_setfsuid.
+  ============================================================ -->
+  <rule id="100705" level="12">
+    <decoded_as>json</decoded_as>
+    <field name="process_kprobe.policy_name">privileges-raise</field>
+    <field name="process_kprobe.function_name" type="pcre2">__sys_set(?:re|res|fs)?uid</field>
+    <field name="process_kprobe.process.binary" type="pcre2" negate="yes">(?:runc|containerd.shim)</field>
+    <description>Tetragon: process set UID to root (non-runtime) — function=$(process_kprobe.function_name) binary=$(process_kprobe.process.binary) pod=$(process_kprobe.process.pod.namespace)/$(process_kprobe.process.pod.name) node=$(node_name)</description>
+    <mitre>
+      <id>T1548.001</id>
+    </mitre>
+    <group>tetragon,runtime_security,privilege_escalation,setuid,</group>
+  </rule>
+
+  <!-- ============================================================
+       100706 — Tetragon: setgid-to-root from non-runtime binary
+       MITRE: T1548.001 (Setuid and Setgid)
+       Level 11: high. A workload process called __sys_set*gid* with
+       GID 0. Slightly lower than setuid-to-root (uid 0 is the more
+       critical target) but still a strong privilege-escalation signal.
+       Function name pattern: __sys_set covers __sys_setgid,
+       __sys_setregid, __sys_setresgid, __sys_setfsgid.
+  ============================================================ -->
+  <rule id="100706" level="11">
+    <decoded_as>json</decoded_as>
+    <field name="process_kprobe.policy_name">privileges-raise</field>
+    <field name="process_kprobe.function_name" type="pcre2">__sys_set(?:re|res|fs)?gid</field>
+    <field name="process_kprobe.process.binary" type="pcre2" negate="yes">(?:runc|containerd.shim)</field>
+    <description>Tetragon: process set GID to root (non-runtime) — function=$(process_kprobe.function_name) binary=$(process_kprobe.process.binary) pod=$(process_kprobe.process.pod.namespace)/$(process_kprobe.process.pod.name) node=$(node_name)</description>
+    <mitre>
+      <id>T1548.001</id>
+    </mitre>
+    <group>tetragon,runtime_security,privilege_escalation,setgid,</group>
+  </rule>
+
+  <!-- ============================================================
+       100707 — Tetragon: capabilities raised via capset
+       MITRE: T1548.003 (Sudo and Sudo Caching) / T1068 (Exploitation
+              for Privilege Escalation)
+       Level 11: high. security_capset was called with non-zero
+       effective, inheritable, or permitted capabilities. The
+       TracingPolicy's matchBinaries NotIn already drops runc/shim;
+       no secondary binary filter is needed here because capset with
+       non-zero caps from an unexpected binary is always suspicious
+       regardless of exact path. rateLimit 1m on the policy side
+       bounds storm traffic at source before events reach Wazuh.
+  ============================================================ -->
+  <rule id="100707" level="11">
+    <decoded_as>json</decoded_as>
+    <field name="process_kprobe.policy_name">privileges-raise</field>
+    <field name="process_kprobe.function_name">security_capset</field>
+    <description>Tetragon: process raised capabilities via capset — binary=$(process_kprobe.process.binary) pod=$(process_kprobe.process.pod.namespace)/$(process_kprobe.process.pod.name) node=$(node_name)</description>
+    <mitre>
+      <id>T1548</id>
+      <id>T1068</id>
+    </mitre>
+    <group>tetragon,runtime_security,privilege_escalation,capset,</group>
+  </rule>
+
+  <!-- ============================================================
+       100708 — Tetragon: unprivileged user namespace creation
+       MITRE: T1611 (Escape to Host), T1543 (Create or Modify System
+              Process)
+       Level 13: critical. create_user_ns called by a process WITHOUT
+       CAP_SYS_ADMIN — the classic container-escape prerequisite
+       (CVE-2022-0492, CVE-2022-25636, etc.). Legitimate container
+       runtimes hold CAP_SYS_ADMIN and are suppressed by the policy's
+       matchCapabilities selector, so false-positive rate is low.
+  ============================================================ -->
+  <rule id="100708" level="13">
+    <decoded_as>json</decoded_as>
+    <field name="process_kprobe.policy_name">privileges-raise</field>
+    <field name="process_kprobe.function_name">create_user_ns</field>
+    <description>Tetragon: unprivileged user namespace created (no CAP_SYS_ADMIN) — binary=$(process_kprobe.process.binary) pod=$(process_kprobe.process.pod.namespace)/$(process_kprobe.process.pod.name) node=$(node_name)</description>
+    <mitre>
+      <id>T1611</id>
+      <id>T1543</id>
+    </mitre>
+    <group>tetragon,runtime_security,privilege_escalation,userns,container_escape,</group>
+  </rule>
+
+</group>
