@@ -45,14 +45,22 @@ spec:
   #        operations that create user namespaces DO hold CAP_SYS_ADMIN, so
   #        they are naturally suppressed without a matchBinaries exclusion.
   #
-  #   Paths excluded (EKS Amazon Linux 2023 + containerd runtime defaults):
-  #     /usr/bin/runc          — OCI runtime used by containerd
+  #   Paths excluded (EKS Amazon Linux 2023 + containerd 2.2.3 runtime defaults):
+  #     /usr/sbin/runc         — OCI runtime on AL2023 + containerd 2.2.3 (confirmed live)
+  #     /usr/bin/runc          — alternate install prefix (older AMIs / manual installs)
   #     /usr/local/sbin/runc   — alternate install prefix on some EKS AMIs
-  #     /usr/bin/containerd-shim-runc-v2  — containerd shim (most common)
+  #     /usr/bin/containerd-shim-runc-v2  — containerd shim (confirmed live path)
   #     /usr/local/bin/containerd-shim-runc-v2  — alternate install prefix
+  #     /usr/lib/systemd/systemd  — systemd PID1 on AL2023; calls setresuid/setresgid/
+  #                                 capset during --switched-root boot sequence (~5-7%
+  #                                 of flood on 2/4 nodes; not a privilege-escalation
+  #                                 risk from PID1)
   #
   # rateLimit "1m" on every Post action (mirrors upstream) prevents event
-  # storms from a loop calling setuid repeatedly.
+  # storms from a loop calling setuid repeatedly. NOTE: The default rateLimit
+  # scope is per-process, so a burst of NEW runc PIDs (one per container start)
+  # each gets its own independent counter and bypasses the rate limit — the
+  # matchBinaries exclusion is the correct primary gate, not rateLimit.
   #
   # Export path:
   #   All events are PROCESS_KPROBE with policy_name="privileges-raise".
@@ -104,10 +112,12 @@ spec:
     - matchBinaries:
       - operator: "NotIn"
         values:
+        - "/usr/sbin/runc"
         - "/usr/bin/runc"
         - "/usr/local/sbin/runc"
         - "/usr/bin/containerd-shim-runc-v2"
         - "/usr/local/bin/containerd-shim-runc-v2"
+        - "/usr/lib/systemd/systemd"
       matchArgs:
       - index: 2
         operator: "NotEqual"
@@ -119,10 +129,12 @@ spec:
     - matchBinaries:
       - operator: "NotIn"
         values:
+        - "/usr/sbin/runc"
         - "/usr/bin/runc"
         - "/usr/local/sbin/runc"
         - "/usr/bin/containerd-shim-runc-v2"
         - "/usr/local/bin/containerd-shim-runc-v2"
+        - "/usr/lib/systemd/systemd"
       matchArgs:
       - index: 3
         operator: "NotEqual"
@@ -134,10 +146,12 @@ spec:
     - matchBinaries:
       - operator: "NotIn"
         values:
+        - "/usr/sbin/runc"
         - "/usr/bin/runc"
         - "/usr/local/sbin/runc"
         - "/usr/bin/containerd-shim-runc-v2"
         - "/usr/local/bin/containerd-shim-runc-v2"
+        - "/usr/lib/systemd/systemd"
       matchArgs:
       - index: 4
         operator: "NotEqual"
@@ -186,10 +200,12 @@ spec:
     - matchBinaries:
       - operator: "NotIn"
         values:
+        - "/usr/sbin/runc"
         - "/usr/bin/runc"
         - "/usr/local/sbin/runc"
         - "/usr/bin/containerd-shim-runc-v2"
         - "/usr/local/bin/containerd-shim-runc-v2"
+        - "/usr/lib/systemd/systemd"
       matchArgs:
       - index: 0
         operator: "Equal"
@@ -212,10 +228,12 @@ spec:
     - matchBinaries:
       - operator: "NotIn"
         values:
+        - "/usr/sbin/runc"
         - "/usr/bin/runc"
         - "/usr/local/sbin/runc"
         - "/usr/bin/containerd-shim-runc-v2"
         - "/usr/local/bin/containerd-shim-runc-v2"
+        - "/usr/lib/systemd/systemd"
       matchArgs:
       - index: 0
         operator: "Equal"
@@ -244,10 +262,12 @@ spec:
     - matchBinaries:
       - operator: "NotIn"
         values:
+        - "/usr/sbin/runc"
         - "/usr/bin/runc"
         - "/usr/local/sbin/runc"
         - "/usr/bin/containerd-shim-runc-v2"
         - "/usr/local/bin/containerd-shim-runc-v2"
+        - "/usr/lib/systemd/systemd"
       matchArgs:
       - index: 0
         operator: "Equal"
@@ -259,10 +279,12 @@ spec:
     - matchBinaries:
       - operator: "NotIn"
         values:
+        - "/usr/sbin/runc"
         - "/usr/bin/runc"
         - "/usr/local/sbin/runc"
         - "/usr/bin/containerd-shim-runc-v2"
         - "/usr/local/bin/containerd-shim-runc-v2"
+        - "/usr/lib/systemd/systemd"
       matchArgs:
       - index: 1
         operator: "Equal"
@@ -287,10 +309,12 @@ spec:
     - matchBinaries:
       - operator: "NotIn"
         values:
+        - "/usr/sbin/runc"
         - "/usr/bin/runc"
         - "/usr/local/sbin/runc"
         - "/usr/bin/containerd-shim-runc-v2"
         - "/usr/local/bin/containerd-shim-runc-v2"
+        - "/usr/lib/systemd/systemd"
       matchArgs:
       - index: 0
         operator: "Equal"
@@ -302,10 +326,12 @@ spec:
     - matchBinaries:
       - operator: "NotIn"
         values:
+        - "/usr/sbin/runc"
         - "/usr/bin/runc"
         - "/usr/local/sbin/runc"
         - "/usr/bin/containerd-shim-runc-v2"
         - "/usr/local/bin/containerd-shim-runc-v2"
+        - "/usr/lib/systemd/systemd"
       matchArgs:
       - index: 1
         operator: "Equal"
@@ -336,10 +362,12 @@ spec:
     - matchBinaries:
       - operator: "NotIn"
         values:
+        - "/usr/sbin/runc"
         - "/usr/bin/runc"
         - "/usr/local/sbin/runc"
         - "/usr/bin/containerd-shim-runc-v2"
         - "/usr/local/bin/containerd-shim-runc-v2"
+        - "/usr/lib/systemd/systemd"
       matchArgs:
       - index: 1  # effective UID — highest signal
         operator: "Equal"
@@ -351,10 +379,12 @@ spec:
     - matchBinaries:
       - operator: "NotIn"
         values:
+        - "/usr/sbin/runc"
         - "/usr/bin/runc"
         - "/usr/local/sbin/runc"
         - "/usr/bin/containerd-shim-runc-v2"
         - "/usr/local/bin/containerd-shim-runc-v2"
+        - "/usr/lib/systemd/systemd"
       matchArgs:
       - index: 2  # saved-set-UID
         operator: "Equal"
@@ -381,10 +411,12 @@ spec:
     - matchBinaries:
       - operator: "NotIn"
         values:
+        - "/usr/sbin/runc"
         - "/usr/bin/runc"
         - "/usr/local/sbin/runc"
         - "/usr/bin/containerd-shim-runc-v2"
         - "/usr/local/bin/containerd-shim-runc-v2"
+        - "/usr/lib/systemd/systemd"
       matchArgs:
       - index: 1  # effective GID
         operator: "Equal"
@@ -396,10 +428,12 @@ spec:
     - matchBinaries:
       - operator: "NotIn"
         values:
+        - "/usr/sbin/runc"
         - "/usr/bin/runc"
         - "/usr/local/sbin/runc"
         - "/usr/bin/containerd-shim-runc-v2"
         - "/usr/local/bin/containerd-shim-runc-v2"
+        - "/usr/lib/systemd/systemd"
       matchArgs:
       - index: 2  # saved-set-GID
         operator: "Equal"
@@ -422,10 +456,12 @@ spec:
     - matchBinaries:
       - operator: "NotIn"
         values:
+        - "/usr/sbin/runc"
         - "/usr/bin/runc"
         - "/usr/local/sbin/runc"
         - "/usr/bin/containerd-shim-runc-v2"
         - "/usr/local/bin/containerd-shim-runc-v2"
+        - "/usr/lib/systemd/systemd"
       matchArgs:
       - index: 0
         operator: "Equal"
@@ -448,10 +484,12 @@ spec:
     - matchBinaries:
       - operator: "NotIn"
         values:
+        - "/usr/sbin/runc"
         - "/usr/bin/runc"
         - "/usr/local/sbin/runc"
         - "/usr/bin/containerd-shim-runc-v2"
         - "/usr/local/bin/containerd-shim-runc-v2"
+        - "/usr/lib/systemd/systemd"
       matchArgs:
       - index: 0
         operator: "Equal"

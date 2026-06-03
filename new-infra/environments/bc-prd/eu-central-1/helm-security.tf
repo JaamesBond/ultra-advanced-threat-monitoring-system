@@ -296,6 +296,20 @@ resource "helm_release" "tetragon" {
   #     namespace would blind rule 100700. The event-type filter alone is the
   #     right gate — no namespace or binary restriction here.
   #
+  #     Volume note (2026-06-03): The primary noise gate for kprobe events is
+  #     the matchBinaries NotIn exclusion list in privileges-raise.yaml.
+  #     Live investigation on AL2023 + containerd 2.2.3 nodes found that
+  #     /usr/sbin/runc (the actual runc path on this AMI) was NOT in the
+  #     exclusion list — the policy only had /usr/bin/runc and
+  #     /usr/local/sbin/runc. That omission caused /usr/sbin/runc to generate
+  #     100% of the kprobe flood (~1.9 MB/min/node, 10 MB rotation every ~6 min).
+  #     The rateLimit:"1m" per-selector did NOT suppress this because each new
+  #     runc PID (one per container start) has an independent rate-limit counter.
+  #     Fix: /usr/sbin/runc and /usr/lib/systemd/systemd added to all
+  #     matchBinaries NotIn lists in privileges-raise.yaml. The allowList here
+  #     remains unchanged — no events should reach it from those binaries
+  #     after the TracingPolicy fix.
+  #
   #   Line 2 — PROCESS_EXEC for sensitive binaries only:
   #     binary_regex selects exactly the binaries referenced by rules 100702,
   #     100703, and 100704. Every other exec event (routine kubelet, containerd,
