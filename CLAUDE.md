@@ -2,7 +2,9 @@
 
 ## Project Overview
 
-**UATMS** (Ultra Advanced Threat Monitoring System) — a full XDR platform for Big Chemistry built on AWS `eu-central-1`, account `845517756853`.
+**UATMS** (Ultra Advanced Threat Monitoring System) — a full XDR platform for Big Chemistry built on AWS `eu-central-1`, account `997916278486`.
+
+> **Account lineage:** `845517756853` → `252159218834` → **`997916278486`** (current, corporate SSO). The live Terraform backend (`bc-uatms-terraform-state-997916278486`) and `terraform-deploy.yml` use `997916278486`. All S3 buckets are account-suffixed (e.g. `bc-uatms-wazuh-snapshots-997916278486`). Authenticate with `aws sso login --profile AdministratorAccess-997916278486` (SSO tokens expire after a few hours).
 
 Architecture: 2-VPC hub-spoke via VPC Peering. No Transit Gateway.
 - **bc-ctrl** (The Brain): `10.0.0.0/16` — Control plane, EC2-only. Wazuh all-in-one, MISP, GitHub Runner.
@@ -109,7 +111,7 @@ Cilium has Hubble relay + UI enabled (`policyEnforcementMode=default`). Falco us
 
 | DaemonSet | Namespace | Image | Purpose |
 |-----------|-----------|-------|---------|
-| `wazuh-agent` | wazuh | `845517756853.dkr.ecr.eu-central-1.amazonaws.com/wazuh-agent:4.14.4` | Ships Suricata/Zeek/Falco/syslog to Wazuh manager |
+| `wazuh-agent` | wazuh | `997916278486.dkr.ecr.eu-central-1.amazonaws.com/wazuh-agent:4.14.4` | Ships Suricata/Zeek/Falco/syslog to Wazuh manager |
 | `zeek` | zeek | `zeek/zeek:7.0.5` | Network NSM. Sidecar: `misp-intel-sync` (Alpine, pulls MISP IOCs → Zeek Intel format every 1h) |
 | `suricata` | suricata | `jasonish/suricata:7.0.7` | IDS/IPS. Sidecars: `misp-rule-sync` (Alpine, MISP → Suricata rules every 1h) + `rule-refresher` (ET Open rules every 6h) |
 
@@ -202,6 +204,8 @@ These are not yet wired to any SIEM pipeline — they document intended detectio
 - **Wazuh Version Pinning**: Pin to `4.14.4` across all three components (indexer/manager/dashboard). The `4.9.x` repo (`packages.wazuh.com/4.9/`) returned HTTP 403 — that repo is retired. Use `4.x` rolling repo which serves 4.14.4.
 - **Cilium ENI mode is the established pattern**: Do NOT switch to chaining mode. ENI mode + aws-node disabled is working and stable.
 - **CRD bootstrap order**: Apply Cilium/Falco/Tetragon Helm releases BEFORE Zeek/Suricata/wazuh-agent K8s manifests. CiliumNetworkPolicy CRDs must exist before manifests that use them.
+- **`helm_release { set {} }` CANNOT carry JSON / bracket values**: Terraform's `set {}` routes values through Helm's `--set` parser, which tokenises `[ ] , { } . =` as structure. Any value containing them (e.g. Tetragon `exportAllowList = {"event_set":["PROCESS_KPROBE"]}`) fails at APPLY with `error parsing index: strconv.Atoi`. **`terraform plan` does NOT exercise the `--set` parser, so plan is GREEN and only apply fails.** Use a `values = [ <<-EOT ...yaml... EOT ]` heredoc (passed as a `--values` file, YAML-parsed) for any value with special chars; JSON survives in a YAML block scalar (`key: |-`). Verify with `helm template <chart> -f <values>` (install helm to /tmp if needed) — JSON-validity alone is insufficient. Discovered 2026-06-03 — see Tetragon export config in `helm-security.tf`.
+- **Changing any `new-infra/wazuh/rules/*.xml` forces a Wazuh EC2 REPLACEMENT**: the rules-hash (`md5` of the fileset) is embedded in `wazuh-ec2.tf` `user_data`, so a rule edit = `user_data` change = instance replace (~15-min reprovision + telemetry gap). The 200 GiB data EBS volume persists (only the attachment re-creates) and OpenSearch S3 snapshots back it up. Agents briefly hit "Duplicate agent name" but `<purge>yes</purge>` re-enrolls them within minutes. Pure Tetragon/Helm/manifest changes (no rule XML) do NOT trigger this — prefer source-side (Tetragon) fixes over Wazuh-rule edits when reducing noise.
 - **External Secrets webhook**: Must be running before manifests with ExternalSecret resources. Set `webhook.failurePolicy=Ignore` to prevent blocking if it's not yet ready.
 - **Cost ceiling**: ~$565/month baseline. Any change adding >$10/month needs explicit justification.
 - **KMS drift prevention**: `kms_key_administrators` is pinned to `GitHubActionsDeployRole` ARN. Without this, local vs CI applies flip-flop the KMS key policy on every plan.
@@ -264,9 +268,9 @@ aws eks update-kubeconfig --region eu-central-1 --name bc-uatms-prd-eks --kubeco
 export KUBECONFIG=/tmp/kubeconfig-prd
 
 # Apply manifests (substituting account ID)
-kubectl kustomize new-infra/k8s/zeek | sed "s/\${AWS_ACCOUNT_ID}/845517756853/g" | kubectl apply -f -
-kubectl kustomize new-infra/k8s/suricata | sed "s/\${AWS_ACCOUNT_ID}/845517756853/g" | kubectl apply -f -
-kubectl kustomize new-infra/k8s/wazuh-agent | sed "s/\${AWS_ACCOUNT_ID}/845517756853/g" | kubectl apply -f -
+kubectl kustomize new-infra/k8s/zeek | sed "s/\${AWS_ACCOUNT_ID}/997916278486/g" | kubectl apply -f -
+kubectl kustomize new-infra/k8s/suricata | sed "s/\${AWS_ACCOUNT_ID}/997916278486/g" | kubectl apply -f -
+kubectl kustomize new-infra/k8s/wazuh-agent | sed "s/\${AWS_ACCOUNT_ID}/997916278486/g" | kubectl apply -f -
 ```
 
 ---
@@ -391,6 +395,26 @@ Summary of open gaps:
 | Phase J | Fix pending CI | J.5 revealed 2 CNP gaps: ebs-csi IMDS + cilium-health port 4240. Fixes in system-netpols, pending next CI run |
 | Phase K | Deferred | Host firewall — do NOT start on bc-prd until D+G+H complete |
 
+### Tetragon → Wazuh Telemetry (LIVE, 2026-06-03)
+
+**The Tetragon runtime-detection pipeline is now wired into Wazuh and confirmed flowing end-to-end** (PRs #22, #23, #24 merged). Previously Tetragon ran but only wrote to `stdout` and its `TracingPolicy` was never applied by CI.
+
+What's live now:
+- **Tetragon JSON file export** → node `/var/log/tetragon/tetragon.json` (configured via a `values=[heredoc]` block on `helm_release.tetragon` in `helm-security.tf`). The wazuh-agent tails it via its existing `/host/var/log` mount.
+- **`exportAllowList`** scopes export to `PROCESS_KPROBE` + sensitive-binary `PROCESS_EXEC` (drops the exec/exit firehose).
+- **Two TracingPolicies** (both applied by CI now): `sigkill-malicious-tools` (hardened to `matchBinaries`+`Postfix`: nc/ncat/nmap/masscan/socat) and `privileges-raise` (observability: setuid/setgid-to-root, capset-raise, unprivileged userns).
+- **Wazuh rules `bc-tetragon.xml`** SIDs **100700–100708** (loaded on the manager). Verified firing: agents Active, alerts.json ingesting Tetragon events.
+- **Pipeline**: `terraform-deploy.yml` now has a `Deploy Tetragon TracingPolicies (bc-prd)` step (`kubectl kustomize new-infra/k8s/tetragon | kubectl apply`) after the tracingpolicies CRD wait — previously `k8s/tetragon` was orphaned and never applied.
+
+**NEXT STEPS / open items (2026-06-03):**
+- **`terraform-destroy.yml` + `terraform-state-recovery.yml` still hardcode the OLD account `252159218834`** — they will fail if run. Migrate both to `997916278486` (small `pipeline-engineer` PR). `terraform-deploy.yml` + `terraform-plan.yml` are already migrated.
+- **Wazuh agent re-enrollment durability**: a rule-XML change forces a Wazuh EC2 replacement (rules-hash in `user_data`), which resets `client.keys` and briefly breaks agent enrollment ("Duplicate agent name"). `<purge>yes</purge>` in `phase3-install-wazuh.sh` self-heals it within minutes (agents re-enroll with new IDs). Consider adding an explicit `<force>` block for a cleaner guarantee — would re-trigger a manager replace.
+- **Minor pod health**: `suricata` 1/4 Pending, `zeek` 1/4 pod `1/2 Error` (likely the nomad-tainted node) — worth a look.
+- **GitHub Actions Node 20 deprecation (2026-06-16)**: `checkout@v4`, `configure-aws-credentials@v4`, `setup-terraform@v3` etc. forced to Node 24 — bump action versions in the workflows.
+- **privileges-raise blind spot**: runtime exclusions are path-based (`/usr/sbin/runc` on AL2023). **Re-verify the runc path after any EKS AMI upgrade** or the kprobe flood returns.
+- **Splunk SOAR state mismatch**: this doc + GAP-005 say `splunksoar.tf` is commented out / not provisioned, but a running EC2 named `splunk-soar-ec2` (t3.xlarge) was observed in the account. Confirm whether it's TF-managed (uncommented) or an out-of-band instance, and reconcile the docs.
+- **Node count**: doc says 2× `t3.medium`; live cluster has ~4 nodes (workload pool scaled + the `dedicated=nomad` node). Reconcile if the node group config changed.
+
 ### NOMAD Oasis + Local Keycloak (2026-05-11/12)
 
 **Full cold-start hardening landed.** Pipeline runs from empty AWS state → green end-to-end with zero manual steps. See `SESSION_2026-05-11_KEYCLOAK_MIGRATION.md` for the full chronicle of ~22 commits and their root causes.
@@ -449,7 +473,7 @@ These all surfaced today and have fixes committed. Removing them will re-break c
 ## Configuration & Policies
 
 - **Network Policies**: Use `CiliumNetworkPolicy` CRDs (in `new-infra/k8s/<tool>/cilium-netpol.yaml`)
-- **Enforcement**: Use `TracingPolicy` CRDs for Tetragon SIGKILL rules (`new-infra/k8s/tetragon/tracing-policy.yaml`)
+- **Enforcement/observability**: Tetragon `TracingPolicy` CRDs in `new-infra/k8s/tetragon/` — `tracing-policy.yaml` (`sigkill-malicious-tools`, SIGKILL on nc/ncat/nmap/masscan/socat via `matchBinaries`+`Postfix`) and `privileges-raise.yaml` (observability: setuid/setgid-to-root, capset, userns). Both applied by CI. Runtime-binary noise filtered via `matchBinaries NotIn` — must include the AL2023 runc path `/usr/sbin/runc` (not just `/usr/bin/runc`).
 - **Runtime Rules**: Update `falco_rules.local.yaml` via Helm values (`new-infra/environments/bc-prd/eu-central-1/falco-rules.yaml`)
 - **Falco driver**: `modern_ebpf` (not legacy eBPF or kernel module)
 - **Tetragon SIGKILL policy**: blocks execution of `nc`, `nmap` on cluster nodes
@@ -458,7 +482,7 @@ These all surfaced today and have fixes committed. Removing them will re-break c
 
 | Resource | ID/Name |
 |----------|---------|
-| AWS Account | `845517756853` |
+| AWS Account | `997916278486` |
 | Region | `eu-central-1` |
 | TF State Bucket | `bc-uatms-terraform-state` |
 | Wazuh Snapshots + Scripts | `bc-uatms-wazuh-snapshots` |
@@ -466,7 +490,7 @@ These all surfaced today and have fixes committed. Removing them will re-break c
 | CloudTrail Logs | `bc-cloudtrail-logs` |
 | GuardDuty Logs | `bc-guardduty-logs` |
 | Config Logs | `bc-config-logs` |
-| CI Role | `arn:aws:iam::845517756853:role/GitHubActionsDeployRole` |
+| CI Role | `arn:aws:iam::997916278486:role/GitHubActionsDeployRole` |
 | KMS pin (EKS) | Same CI role ARN in `kms_key_administrators` |
 
 ## Secrets Manager Layout
