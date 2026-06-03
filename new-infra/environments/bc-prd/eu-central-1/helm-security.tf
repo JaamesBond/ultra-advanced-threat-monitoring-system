@@ -331,39 +331,50 @@ resource "helm_release" "tetragon" {
   #   coredns, kubelet, containerd-shim, pause, aws-k8s-agent) do not match
   #   the sensitive-binary regex, so they are dropped by the allowList
   #   before denyList is even evaluated.
+  #
   # ---------------------------------------------------------------------------
-  set {
-    name  = "exportDirectory"
-    value = "/var/log/tetragon"
-  }
-  set {
-    name  = "tetragon.exportFilename"
-    value = "tetragon.json"
-  }
-  set {
-    name  = "tetragon.exportFilePerm"
-    value = "640"
-  }
-  set {
-    name  = "tetragon.exportFileMaxSizeMB"
-    value = "10"
-  }
-  set {
-    name  = "tetragon.exportFileMaxBackups"
-    value = "5"
-  }
-  # Allow-list: OR of two FieldFilter JSON objects (newline-separated).
-  # Only PROCESS_KPROBE events (all) and PROCESS_EXEC events for the specific
-  # sensitive binaries named in bc-tetragon.xml rules 100702/100703/100704
-  # are written to disk. Everything else is dropped at source.
-  set {
-    name  = "tetragon.exportAllowList"
-    value = "{\"event_set\":[\"PROCESS_KPROBE\"]}\n{\"event_set\":[\"PROCESS_EXEC\"],\"binary_regex\":[\"(?:/bin/|/usr/bin/|/sbin/|/usr/sbin/)(?:sh|bash|dash|zsh|fish|python[23]?|perl|ruby|node|lua|su|sudo|nsenter|unshare|chroot|setuid|newuidmap|newgidmap|curl|wget|ncat|socat|ss|netstat|dig|nslookup|host)\"]}"
-  }
-  set {
-    name  = "tetragon.exportDenyList"
-    value = "{\"health_check\":true}"
-  }
+  # Why values = [ heredoc ] instead of set {} for the export keys:
+  #
+  # Terraform's helm_release set {} block routes values through Helm's --set
+  # parser, which tokenises on [ ] , { } = . as structure characters. The JSON
+  # strings in exportAllowList and exportDenyList are dense with those chars
+  # (braces, brackets, commas, colons), so --set misparses them — it tries to
+  # interpret "[\"PROCESS_EXEC\"]" as a list index and fails with:
+  #   "error parsing index: strconv.Atoi: parsing \"PROCESS_EXEC\": invalid syntax"
+  # terraform plan does NOT exercise the --set parser (plan only validates TF
+  # HCL), so the failure only surfaces at apply time (CI run 26879732371).
+  #
+  # values = [ <<-EOT ... EOT ] passes the content as a --values file (raw
+  # YAML), which Helm reads with its YAML parser — no --set tokenisation.
+  # Arbitrary JSON strings are safe in YAML block scalars. The scalar scalars
+  # (exportDirectory, exportFilename, etc.) are included here too to keep all
+  # export config in one place and avoid set-vs-values precedence confusion.
+  #
+  # Chart key structure (tetragon 1.6.1, templates/tetragon_configmap.yaml):
+  #   .Values.exportDirectory           → top-level (not under tetragon.)
+  #   .Values.tetragon.exportFilename   → renders: <exportDirectory>/<exportFilename>
+  #   .Values.tetragon.exportFilePerm   → passed through | quote in template
+  #   .Values.tetragon.exportFileMaxSizeMB / exportFileMaxBackups → | quote
+  #   .Values.tetragon.exportAllowList  → rendered as: export-allowlist: |-
+  #                                          {{ . | trim | nindent 4 }}
+  #   .Values.tetragon.exportDenyList   → same pattern
+  # ---------------------------------------------------------------------------
+  values = [
+    <<-EOT
+    exportDirectory: /var/log/tetragon
+
+    tetragon:
+      exportFilename: tetragon.json
+      exportFilePerm: "640"
+      exportFileMaxSizeMB: 10
+      exportFileMaxBackups: 5
+      exportAllowList: |-
+        {"event_set":["PROCESS_KPROBE"]}
+        {"event_set":["PROCESS_EXEC"],"binary_regex":["(?:/bin/|/usr/bin/|/sbin/|/usr/sbin/)(?:sh|bash|dash|zsh|fish|python[23]?|perl|ruby|node|lua|su|sudo|nsenter|unshare|chroot|setuid|newuidmap|newgidmap|curl|wget|ncat|socat|ss|netstat|dig|nslookup|host)"]}
+      exportDenyList: |-
+        {"health_check":true}
+    EOT
+  ]
 }
 
 resource "helm_release" "external_secrets" {
