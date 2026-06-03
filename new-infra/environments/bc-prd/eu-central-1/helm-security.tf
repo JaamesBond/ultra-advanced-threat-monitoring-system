@@ -255,6 +255,115 @@ resource "helm_release" "tetragon" {
   cleanup_on_fail = true
 
   depends_on = [module.eks]
+
+  # ---------------------------------------------------------------------------
+  # Tetragon JSON file export — wired into the Wazuh SIEM pipeline.
+  #
+  # The chart writes events to:
+  #   <exportDirectory>/<tetragon.exportFilename>
+  # The chart automatically creates a hostPath volume (type=DirectoryOrCreate)
+  # at exportDirectory — no extra volume resources are needed. We point
+  # exportDirectory at /var/log/tetragon so the file lands under the node-wide
+  # /var/log tree that the wazuh-agent DaemonSet already mounts at
+  # /host/var/log. The agent reads /host/var/log/tetragon/tetragon.json via
+  # the localfile stanza added to configmap.yaml.
+  #
+  # exportFilePerm: "640" — readable by root + wazuh group. The wazuh-agent
+  # container runs as root (privileged), so "600" would also work, but "640"
+  # is defensive in case the agent image changes.
+  #
+  # Rotation: 10 MB per file, 5 backups retained (50 MB total cap per node).
+  # With the allow-list below the active write rate drops to near-zero under
+  # normal cluster operation (only suspicious exec and kprobe hits reach the
+  # file), so 5 × 10 MB is ample headroom and rotation should be infrequent.
+  # Wazuh logcollector tails the live file so rotation (rename + new file) is
+  # handled by inotify.
+  #
+  # ---------------------------------------------------------------------------
+  # Export filter design — source-side noise suppression
+  # ---------------------------------------------------------------------------
+  #
+  # exportAllowList (Tetragon FieldFilter semantics):
+  #   Multiple newline-separated JSON objects are OR'd. An event passes if it
+  #   matches at least one allow-list entry AND is not denied by denyList.
+  #   The allowList is evaluated BEFORE the denyList.
+  #
+  #   Line 1 — ALL kprobe events (any namespace, any binary):
+  #     Keeps every PROCESS_KPROBE event so that Wazuh rules 100700 (SIGKILL)
+  #     and 100701 (non-SIGKILL kprobe) are always fed. The sigkill-malicious-
+  #     tools TracingPolicy fires kprobe hooks on sys_execve for nc/nmap in
+  #     any namespace including kube-system and the host; dropping these by
+  #     namespace would blind rule 100700. The event-type filter alone is the
+  #     right gate — no namespace or binary restriction here.
+  #
+  #   Line 2 — PROCESS_EXEC for sensitive binaries only:
+  #     binary_regex selects exactly the binaries referenced by rules 100702,
+  #     100703, and 100704. Every other exec event (routine kubelet, containerd,
+  #     pause, coredns, cilium-agent, etc.) is silently dropped at source —
+  #     never written to disk, never forwarded to the Wazuh manager EC2.
+  #
+  #     Binary coverage cross-check (mirrors bc-tetragon.xml exactly):
+  #       Rule 100702 — shells/interpreters:
+  #         sh, bash, dash, zsh, fish, python, python2, python3, perl, ruby,
+  #         node, lua
+  #       Rule 100703 — priv-esc tools:
+  #         su, sudo, nsenter, unshare, chroot, setuid, newuidmap, newgidmap
+  #       Rule 100704 — network recon tools:
+  #         curl, wget, ncat, socat, ss, netstat, dig, nslookup, host
+  #       (nc and nmap are NOT listed here: they are SIGKILL'd at kprobe level
+  #       by the TracingPolicy and surface via PROCESS_KPROBE / rule 100700,
+  #       not PROCESS_EXEC / rule 100704 — they are already covered by line 1.)
+  #
+  #   PROCESS_EXIT events: intentionally excluded from the allowList.
+  #     No current Wazuh rule queries process_exit fields. Including
+  #     PROCESS_EXIT unconditionally would add ~1 exit event per matched exec,
+  #     doubling volume with zero detection value. Add a third allowList line
+  #     here if an exit-based rule is ever written.
+  #
+  # exportDenyList:
+  #   health_check=true is kept to drop kubelet liveness-probe exec events
+  #   that Tetragon tags at the API level. The previous change had removed the
+  #   default kube-system/"" namespace deny entries to avoid losing kprobe hits
+  #   from those namespaces — that removal is now safe to leave in place because
+  #   the allowList is the primary gate. kube-system exec noise that would have
+  #   leaked through the removed namespace deny is now suppressed by the
+  #   binary_regex on line 2: routine kube-system binaries (cilium-agent,
+  #   coredns, kubelet, containerd-shim, pause, aws-k8s-agent) do not match
+  #   the sensitive-binary regex, so they are dropped by the allowList
+  #   before denyList is even evaluated.
+  # ---------------------------------------------------------------------------
+  set {
+    name  = "exportDirectory"
+    value = "/var/log/tetragon"
+  }
+  set {
+    name  = "tetragon.exportFilename"
+    value = "tetragon.json"
+  }
+  set {
+    name  = "tetragon.exportFilePerm"
+    value = "640"
+  }
+  set {
+    name  = "tetragon.exportFileMaxSizeMB"
+    value = "10"
+  }
+  set {
+    name  = "tetragon.exportFileMaxBackups"
+    value = "5"
+  }
+  # Allow-list: OR of two FieldFilter JSON objects (newline-separated).
+  # Only PROCESS_KPROBE events (all) and PROCESS_EXEC events for the specific
+  # sensitive binaries named in bc-tetragon.xml rules 100702/100703/100704
+  # are written to disk. Everything else is dropped at source.
+  set {
+    name  = "tetragon.exportAllowList"
+    value = "{\"event_set\":[\"PROCESS_KPROBE\"]}\n{\"event_set\":[\"PROCESS_EXEC\"],\"binary_regex\":[\"(?:/bin/|/usr/bin/|/sbin/|/usr/sbin/)(?:sh|bash|dash|zsh|fish|python[23]?|perl|ruby|node|lua|su|sudo|nsenter|unshare|chroot|setuid|newuidmap|newgidmap|curl|wget|ncat|socat|ss|netstat|dig|nslookup|host)\"]}"
+  }
+  set {
+    name  = "tetragon.exportDenyList"
+    value = "{\"health_check\":true}"
+  }
 }
 
 resource "helm_release" "external_secrets" {

@@ -1,0 +1,462 @@
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: "privileges-raise"
+  annotations:
+    description: "Observability: detects processes raising privileges (setuid/setgid-to-root, capset raise, unprivileged user-ns creation)"
+spec:
+  # ---------------------------------------------------------------------------
+  # OBSERVABILITY policy — action Post only; NO enforcement / NO Sigkill.
+  #
+  # Ported from the Tetragon 1.6.1 upstream policy:
+  #   examples/policylibrary/privileges/privileges-raise.yaml
+  #   (tag refs/tags/v1.6.1, retrieved 2026-06-03)
+  #
+  # kprobe call names are NOT syscall wrappers (__x64_sys_* / __ia32_sys_*).
+  # Tetragon resolves the architecture-neutral __sys_* inner function on x86-64
+  # kernels. All calls below are confirmed against the upstream policy for
+  # the Tetragon 1.6.1 release and are marked syscall: false accordingly.
+  #
+  # Runtime-noise mitigation (runc/containerd-shim):
+  #   runc and containerd-shim call __sys_setuid(0), __sys_setgid(0), and
+  #   security_capset on EVERY container start. Without filtering these
+  #   processes, the policy would fire continuously during normal cluster
+  #   operation and flood Wazuh with low-signal events.
+  #
+  #   Chosen approach — matchBinaries NotIn at the selector level:
+  #     Each setuid/setgid/capset selector element includes a matchBinaries
+  #     NotIn clause listing the known container-runtime executables. In
+  #     Tetragon 1.6.1 the selector object supports both matchBinaries and
+  #     matchArgs/matchCapabilities as sibling properties within the same
+  #     selector item; ALL conditions in a single item are ANDed. So:
+  #       matchBinaries NotIn [runc, containerd-shim*] AND matchArgs Equal 0
+  #     means: fire only when a NON-runtime binary calls setuid(0).
+  #
+  #   Residual noise / blind spots:
+  #     1. Any runc/containerd-shim binary NOT on the exclusion list (e.g.,
+  #        a vendor fork at an unusual path) will still generate events.
+  #        The Wazuh rules (100706-100708) add a second filter layer on the
+  #        process binary path, so even if the TracingPolicy fires, the rule
+  #        will suppress the runtime noise before it creates an alert.
+  #     2. An attacker who copies runc to another path and uses it as a shell
+  #        wrapper would not be excluded — this is a feature, not a gap.
+  #     3. `create_user_ns` (unprivileged userns): filtered by matchCapabilities
+  #        (fires only when caller lacks CAP_SYS_ADMIN). runc/container runtime
+  #        operations that create user namespaces DO hold CAP_SYS_ADMIN, so
+  #        they are naturally suppressed without a matchBinaries exclusion.
+  #
+  #   Paths excluded (EKS Amazon Linux 2023 + containerd runtime defaults):
+  #     /usr/bin/runc          — OCI runtime used by containerd
+  #     /usr/local/sbin/runc   — alternate install prefix on some EKS AMIs
+  #     /usr/bin/containerd-shim-runc-v2  — containerd shim (most common)
+  #     /usr/local/bin/containerd-shim-runc-v2  — alternate install prefix
+  #
+  # rateLimit "1m" on every Post action (mirrors upstream) prevents event
+  # storms from a loop calling setuid repeatedly.
+  #
+  # Export path:
+  #   All events are PROCESS_KPROBE with policy_name="privileges-raise".
+  #   The exportAllowList in helm-security.tf passes ALL PROCESS_KPROBE events
+  #   unconditionally ("{\"event_set\":[\"PROCESS_KPROBE\"]}"), so no
+  #   helm-security.tf change is needed.
+  #
+  # Wazuh rules:
+  #   100705 — setuid-to-root (non-runtime binary calls __sys_set*uid* with 0)
+  #   100706 — setgid-to-root (non-runtime binary calls __sys_set*gid* with 0)
+  #   100707 — capset raise (security_capset with non-zero effective/permitted)
+  #   100708 — unprivileged user-ns creation (create_user_ns without SYS_ADMIN)
+  # ---------------------------------------------------------------------------
+
+  kprobes:
+
+  # --------------------------------------------------------------------------
+  # 1. security_capset — capabilities raise
+  #
+  # Fires when effective, inherited, or permitted caps are NON-ZERO.
+  # Upstream uses three separate selector items (OR logic between items),
+  # one per cap_* arg index, with rate limiting on each.
+  #
+  # Args (kernel function security_capset(new, old, effective, inheritable, permitted)):
+  #   index 0: new cred  — nop (not needed)
+  #   index 1: old cred  — cred type
+  #   index 2: effective capabilities  — cap_effective
+  #   index 3: inheritable capabilities — cap_inheritable
+  #   index 4: permitted capabilities   — cap_permitted
+  #
+  # matchBinaries NotIn suppresses runc/containerd-shim on every container
+  # start. rateLimit "1m" bounds storm traffic if a loop raises caps.
+  # --------------------------------------------------------------------------
+  - call: "security_capset"
+    syscall: false
+    message: "Process changed its capabilities using capset system call"
+    args:
+    - index: 0
+      type: "nop"
+    - index: 1
+      type: "cred"
+    - index: 2
+      type: "cap_effective"
+    - index: 3
+      type: "cap_inheritable"
+    - index: 4
+      type: "cap_permitted"
+    selectors:
+    - matchBinaries:
+      - operator: "NotIn"
+        values:
+        - "/usr/bin/runc"
+        - "/usr/local/sbin/runc"
+        - "/usr/bin/containerd-shim-runc-v2"
+        - "/usr/local/bin/containerd-shim-runc-v2"
+      matchArgs:
+      - index: 2
+        operator: "NotEqual"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"
+    - matchBinaries:
+      - operator: "NotIn"
+        values:
+        - "/usr/bin/runc"
+        - "/usr/local/sbin/runc"
+        - "/usr/bin/containerd-shim-runc-v2"
+        - "/usr/local/bin/containerd-shim-runc-v2"
+      matchArgs:
+      - index: 3
+        operator: "NotEqual"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"
+    - matchBinaries:
+      - operator: "NotIn"
+        values:
+        - "/usr/bin/runc"
+        - "/usr/local/sbin/runc"
+        - "/usr/bin/containerd-shim-runc-v2"
+        - "/usr/local/bin/containerd-shim-runc-v2"
+      matchArgs:
+      - index: 4
+        operator: "NotEqual"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"
+
+  # --------------------------------------------------------------------------
+  # 2. create_user_ns — unprivileged user namespace creation
+  #
+  # Fires when a process without CAP_SYS_ADMIN creates a user namespace.
+  # Container runtimes that create user namespaces legitimately hold
+  # CAP_SYS_ADMIN (type: Effective), so the matchCapabilities clause
+  # naturally suppresses runtime noise without a matchBinaries exclusion.
+  #
+  # index 0: nop — no meaningful arg; the capability check is sufficient.
+  # --------------------------------------------------------------------------
+  - call: "create_user_ns"
+    syscall: false
+    message: "Unprivileged process created a user namespace"
+    args:
+    - index: 0
+      type: "nop"
+    selectors:
+    - matchCapabilities:
+      - type: Effective
+        operator: NotIn
+        values:
+        - "CAP_SYS_ADMIN"
+
+  # --------------------------------------------------------------------------
+  # 3. __sys_setuid — setuid to root (uid 0)
+  #
+  # index 0: int — target UID. Fires only on Equal "0".
+  # matchBinaries NotIn excludes runc/containerd-shim startup.
+  # --------------------------------------------------------------------------
+  - call: "__sys_setuid"
+    syscall: false
+    message: "Process set UID to root"
+    args:
+    - index: 0
+      type: "int"
+    selectors:
+    - matchBinaries:
+      - operator: "NotIn"
+        values:
+        - "/usr/bin/runc"
+        - "/usr/local/sbin/runc"
+        - "/usr/bin/containerd-shim-runc-v2"
+        - "/usr/local/bin/containerd-shim-runc-v2"
+      matchArgs:
+      - index: 0
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"
+
+  # --------------------------------------------------------------------------
+  # 4. __sys_setgid — setgid to root (gid 0)
+  # --------------------------------------------------------------------------
+  - call: "__sys_setgid"
+    syscall: false
+    message: "Process set GID to root"
+    args:
+    - index: 0
+      type: "int"
+    selectors:
+    - matchBinaries:
+      - operator: "NotIn"
+        values:
+        - "/usr/bin/runc"
+        - "/usr/local/sbin/runc"
+        - "/usr/bin/containerd-shim-runc-v2"
+        - "/usr/local/bin/containerd-shim-runc-v2"
+      matchArgs:
+      - index: 0
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"
+
+  # --------------------------------------------------------------------------
+  # 5. __sys_setreuid — set real+effective UID; either to root
+  #
+  # Two separate selector items so either argument == 0 triggers the event
+  # (upstream pattern: two items = OR).
+  # index 0: real uid, index 1: effective uid.
+  # --------------------------------------------------------------------------
+  - call: "__sys_setreuid"
+    syscall: false
+    message: "Process set real/effective UID to root"
+    args:
+    - index: 0
+      type: "int"
+    - index: 1
+      type: "int"
+    selectors:
+    - matchBinaries:
+      - operator: "NotIn"
+        values:
+        - "/usr/bin/runc"
+        - "/usr/local/sbin/runc"
+        - "/usr/bin/containerd-shim-runc-v2"
+        - "/usr/local/bin/containerd-shim-runc-v2"
+      matchArgs:
+      - index: 0
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"
+    - matchBinaries:
+      - operator: "NotIn"
+        values:
+        - "/usr/bin/runc"
+        - "/usr/local/sbin/runc"
+        - "/usr/bin/containerd-shim-runc-v2"
+        - "/usr/local/bin/containerd-shim-runc-v2"
+      matchArgs:
+      - index: 1
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"
+
+  # --------------------------------------------------------------------------
+  # 6. __sys_setregid — set real+effective GID; either to root
+  # --------------------------------------------------------------------------
+  - call: "__sys_setregid"
+    syscall: false
+    message: "Process set real/effective GID to root"
+    args:
+    - index: 0
+      type: "int"
+    - index: 1
+      type: "int"
+    selectors:
+    - matchBinaries:
+      - operator: "NotIn"
+        values:
+        - "/usr/bin/runc"
+        - "/usr/local/sbin/runc"
+        - "/usr/bin/containerd-shim-runc-v2"
+        - "/usr/local/bin/containerd-shim-runc-v2"
+      matchArgs:
+      - index: 0
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"
+    - matchBinaries:
+      - operator: "NotIn"
+        values:
+        - "/usr/bin/runc"
+        - "/usr/local/sbin/runc"
+        - "/usr/bin/containerd-shim-runc-v2"
+        - "/usr/local/bin/containerd-shim-runc-v2"
+      matchArgs:
+      - index: 1
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"
+
+  # --------------------------------------------------------------------------
+  # 7. __sys_setresuid — set real/effective/saved UID
+  #
+  # Upstream narrows to index 1 (effective) and index 2 (saved) to reduce
+  # noise; index 0 (real) is excluded intentionally.
+  # index 0: real, index 1: effective, index 2: saved-set-uid.
+  # --------------------------------------------------------------------------
+  - call: "__sys_setresuid"
+    syscall: false
+    message: "Process set effective/saved UID to root"
+    args:
+    - index: 0
+      type: "int"
+    - index: 1
+      type: "int"
+    - index: 2
+      type: "int"
+    selectors:
+    - matchBinaries:
+      - operator: "NotIn"
+        values:
+        - "/usr/bin/runc"
+        - "/usr/local/sbin/runc"
+        - "/usr/bin/containerd-shim-runc-v2"
+        - "/usr/local/bin/containerd-shim-runc-v2"
+      matchArgs:
+      - index: 1  # effective UID — highest signal
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"
+    - matchBinaries:
+      - operator: "NotIn"
+        values:
+        - "/usr/bin/runc"
+        - "/usr/local/sbin/runc"
+        - "/usr/bin/containerd-shim-runc-v2"
+        - "/usr/local/bin/containerd-shim-runc-v2"
+      matchArgs:
+      - index: 2  # saved-set-UID
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"
+
+  # --------------------------------------------------------------------------
+  # 8. __sys_setresgid — set real/effective/saved GID
+  # --------------------------------------------------------------------------
+  - call: "__sys_setresgid"
+    syscall: false
+    message: "Process set effective/saved GID to root"
+    args:
+    - index: 0
+      type: "int"
+    - index: 1
+      type: "int"
+    - index: 2
+      type: "int"
+    selectors:
+    - matchBinaries:
+      - operator: "NotIn"
+        values:
+        - "/usr/bin/runc"
+        - "/usr/local/sbin/runc"
+        - "/usr/bin/containerd-shim-runc-v2"
+        - "/usr/local/bin/containerd-shim-runc-v2"
+      matchArgs:
+      - index: 1  # effective GID
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"
+    - matchBinaries:
+      - operator: "NotIn"
+        values:
+        - "/usr/bin/runc"
+        - "/usr/local/sbin/runc"
+        - "/usr/bin/containerd-shim-runc-v2"
+        - "/usr/local/bin/containerd-shim-runc-v2"
+      matchArgs:
+      - index: 2  # saved-set-GID
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"
+
+  # --------------------------------------------------------------------------
+  # 9. __sys_setfsuid — set filesystem UID to root
+  # --------------------------------------------------------------------------
+  - call: "__sys_setfsuid"
+    syscall: false
+    message: "Process set filesystem UID to root"
+    args:
+    - index: 0
+      type: "int"
+    selectors:
+    - matchBinaries:
+      - operator: "NotIn"
+        values:
+        - "/usr/bin/runc"
+        - "/usr/local/sbin/runc"
+        - "/usr/bin/containerd-shim-runc-v2"
+        - "/usr/local/bin/containerd-shim-runc-v2"
+      matchArgs:
+      - index: 0
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"
+
+  # --------------------------------------------------------------------------
+  # 10. __sys_setfsgid — set filesystem GID to root
+  # --------------------------------------------------------------------------
+  - call: "__sys_setfsgid"
+    syscall: false
+    message: "Process set filesystem GID to root"
+    args:
+    - index: 0
+      type: "int"
+    selectors:
+    - matchBinaries:
+      - operator: "NotIn"
+        values:
+        - "/usr/bin/runc"
+        - "/usr/local/sbin/runc"
+        - "/usr/bin/containerd-shim-runc-v2"
+        - "/usr/local/bin/containerd-shim-runc-v2"
+      matchArgs:
+      - index: 0
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"

@@ -949,6 +949,17 @@ jobs:
           kubectl rollout restart daemonset/wazuh-agent -n wazuh
           kubectl rollout status daemonset/wazuh-agent -n wazuh --timeout=180s || true
 
+      # Apply Tetragon TracingPolicy manifests. The TracingPolicy CRD is
+      # installed by the Tetragon Helm release in Stage 2b and its existence
+      # is already gated by the "Wait for CRDs to propagate" step above.
+      # Applying a TracingPolicy only requires the CRD to be established —
+      # Tetragon agent pods do not need to be Ready; the kernel eBPF programs
+      # load asynchronously after the policy object is committed to etcd.
+      # No ${AWS_ACCOUNT_ID} substitution needed — tetragon manifests contain
+      # no account-scoped references.
+      - name: Deploy Tetragon TracingPolicies (bc-prd)
+        run: kubectl kustomize new-infra/k8s/tetragon | kubectl apply -f -
+
       # Apply NOMAD Oasis K8s manifests (namespace, ExternalSecrets, CNPs).
       # The Helm release (applied in Stage 2 Terraform above) creates the
       # NOMAD Deployments/Services; these manifests add:

@@ -3,3 +3,4 @@ kind: Kustomization
 
 resources:
   - tracing-policy.yaml
+  - privileges-raise.yaml

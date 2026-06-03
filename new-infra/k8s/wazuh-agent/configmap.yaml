@@ -72,6 +72,16 @@ data:
         <label key="source">falco</label>
       </localfile>
 
+      <!-- Tetragon eBPF runtime events (process_exec, process_kprobe, etc.)
+           Written by the Tetragon DaemonSet to /var/log/tetragon/tetragon.json
+           on the node (exportDirectory=/var/log/tetragon in helm-security.tf).
+           Reaches this container via the existing /host/var/log hostPath mount. -->
+      <localfile>
+        <log_format>json</log_format>
+        <location>/host/var/log/tetragon/tetragon.json</location>
+        <label key="source">tetragon</label>
+      </localfile>
+
       <!-- Host syslog -->
       <localfile>
         <log_format>syslog</log_format>

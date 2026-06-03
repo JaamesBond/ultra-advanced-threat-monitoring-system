@@ -3,20 +3,71 @@ kind: TracingPolicy
 metadata:
   name: "sigkill-malicious-tools"
 spec:
+  # ---------------------------------------------------------------------------
+  # SIGKILL enforcement — genuinely-malicious recon/exploitation binaries.
+  #
+  # Hook: sys_execve kprobe (syscall: true).
+  #   Tetragon intercepts at execve entry, evaluates selectors, and issues
+  #   SIGKILL before the new image gains control. The killed process generates
+  #   a PROCESS_KPROBE event with action="SIGKILL", which passes the
+  #   exportAllowList {"event_set":["PROCESS_KPROBE"]} and fires Wazuh rule
+  #   100700 (level 14 critical).
+  #
+  # Selector mechanism — matchBinaries with Postfix:
+  #   matchBinaries reads the kernel-resolved binary path from the process
+  #   descriptor (the struct linux_binprm binary path), NOT argv[0]. This is
+  #   more reliable than matchArgs index-0 Equal because:
+  #     a) It is immune to argv[0] spoofing (execve allows argv[0] != filename).
+  #     b) Postfix "/nc" catches /bin/nc, /usr/bin/nc, /usr/local/bin/nc,
+  #        /tmp/nc, /home/user/nc — any install prefix or staged copy that
+  #        retains the original basename.
+  #   matchBinaries + Postfix is confirmed in the Tetragon 1.6.1 CRD schema
+  #   (cilium.io_tracingpolicies.yaml enum: In/NotIn/Prefix/NotPrefix/Postfix/
+  #   NotPostfix).
+  #
+  # Residual bypass (known limitation, by design):
+  #   A binary copied AND renamed (e.g. `cp /usr/bin/nc /tmp/x && /tmp/x`)
+  #   cannot be caught by path or basename matching — the kernel-resolved path
+  #   is /tmp/x, which matches no Postfix entry. Hash/content-based detection
+  #   is out of scope for this TracingPolicy; Falco rules cover the detection-
+  #   only layer for suspicious execution patterns.
+  #
+  # Tool selection rationale:
+  #   IN scope (SIGKILL) — attack-only binaries with no legitimate container use:
+  #     nc, ncat   — netcat variants; used for reverse shells, port forwarding
+  #     nmap       — network scanner; no legitimate use inside a production pod
+  #     masscan    — high-speed port scanner; attack tooling only
+  #     socat      — Swiss-army relay; reverse shells, tunnels, port pivoting
+  #   OUT of scope (detection-only via Wazuh rule 100704 + PROCESS_EXEC):
+  #     curl, wget, ss, netstat, dig, nslookup, host — have legitimate uses in
+  #     init containers, health probes, and operator tooling. Killing them would
+  #     break normal cluster operation. Wazuh rule 100704 (level 12) alerts on
+  #     their execution; Splunk SOAR handles response.
+  #
+  # Wazuh / export-path compatibility:
+  #   matchBinaries is a selector — it changes which events the action fires on,
+  #   NOT the event type. Every SIGKILL action on sys_execve still produces a
+  #   PROCESS_KPROBE event with process_kprobe.action="SIGKILL". The export
+  #   allowList line {"event_set":["PROCESS_KPROBE"]} and Wazuh rule 100700
+  #   field <field name="process_kprobe.action">SIGKILL</field> are unaffected.
+  # ---------------------------------------------------------------------------
   kprobes:
   - call: "sys_execve"
     syscall: true
     args:
     - index: 0
-      type: "string" # filename
+      type: "string" # filename (kept for field population in the exported event)
     selectors:
-    - matchArgs:
-      - index: 0
-        operator: "Equal"
+    - matchBinaries:
+      - operator: "Postfix"
         values:
-        - "/usr/bin/nc"
-        - "/usr/bin/nmap"
-        - "/bin/nc"
-        - "/bin/nmap"
+        # netcat variants — reverse shells, port forwarding, listener setup
+        - "/nc"
+        - "/ncat"
+        # network scanners — no legitimate production pod use
+        - "/nmap"
+        - "/masscan"
+        # socat — bidirectional relay; reverse shells, tunnel pivoting
+        - "/socat"
       matchActions:
       - action: Sigkill
