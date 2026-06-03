@@ -98,7 +98,7 @@ resource "aws_iam_instance_profile" "github_runner" {
 
 resource "aws_security_group" "misp_ec2" {
   name        = "misp-ec2-sg"
-  description = "MISP instance - HTTPS from bc-ctrl and bc-prd"
+  description = "MISP instance - HTTPS from bc-ctrl only"
   vpc_id      = module.vpc.vpc_id
 
   ingress {
