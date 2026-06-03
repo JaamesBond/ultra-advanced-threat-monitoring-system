@@ -89,15 +89,16 @@ resource "aws_iam_instance_profile" "github_runner" {
 ###############################################################
 # MISP — Malware Information Sharing Platform
 #
-# Co-located MySQL (localhost-only). Queried by Wazuh Manager
-# in bc-ctrl via HTTPS on port 443.
-# Not reachable from bc-prd — MISP API calls go
-# Wazuh-manager → misp.bc-ctrl.internal, staying within ctrl VPC.
+# Co-located MySQL (localhost-only). Queried by:
+#   - Wazuh Manager in bc-ctrl via HTTPS (port 443)
+#   - Suricata misp-rule-sync sidecar in bc-prd via HTTPS (port 443)
+#   - Zeek misp-intel-sync sidecar in bc-prd via HTTPS (port 443)
+# Reachable from bc-prd via VPC peering.
 ###############################################################
 
 resource "aws_security_group" "misp_ec2" {
   name        = "misp-ec2-sg"
-  description = "MISP instance - HTTPS from bc-ctrl only"
+  description = "MISP instance - HTTPS from bc-ctrl and bc-prd"
   vpc_id      = module.vpc.vpc_id
 
   ingress {
@@ -106,6 +107,14 @@ resource "aws_security_group" "misp_ec2" {
     to_port     = 443
     protocol    = "tcp"
     cidr_blocks = [local.vpc_cidr]
+  }
+
+  ingress {
+    description = "MISP HTTPS from bc-prd (Suricata/Zeek MISP sync sidecars)"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [local.prd_vpc_cidr]
   }
 
   ingress {
@@ -159,10 +168,13 @@ resource "aws_iam_role_policy" "misp_ec2_inline" {
         Effect = "Allow"
         Action = [
           "secretsmanager:GetSecretValue",
-          "secretsmanager:DescribeSecret"
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:PutSecretValue"
         ]
         Resource = [
-          "arn:aws:secretsmanager:eu-central-1:${data.aws_caller_identity.current.account_id}:secret:bc/misp*"
+          "arn:aws:secretsmanager:eu-central-1:${data.aws_caller_identity.current.account_id}:secret:bc/misp*",
+          "arn:aws:secretsmanager:eu-central-1:${data.aws_caller_identity.current.account_id}:secret:bc/suricata/misp*",
+          "arn:aws:secretsmanager:eu-central-1:${data.aws_caller_identity.current.account_id}:secret:bc/zeek/misp*"
         ]
       },
       {
