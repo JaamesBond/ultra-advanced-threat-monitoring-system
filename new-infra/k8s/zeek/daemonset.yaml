@@ -170,36 +170,21 @@ spec:
                   -H "Accept: application/json" -H "Content-Type: application/json" \
                   -d '{"returnFormat":"json","type":"ip-dst","to_ids":1,"published":1}' \
                   "${MISP_URL}/attributes/restSearch" \
-                | python3 -c "
-import sys,json
-for a in json.load(sys.stdin).get('response',{}).get('Attribute',[]):
-    v=a.get('value','')
-    if v: print(f'{v}\tIntel::ADDR\tMISP\tmisp-ip-dst')
-" >> "$TMP"
+                | python3 -c "import sys,json; [print(f\"{a.get('value')}\tIntel::ADDR\tMISP\tmisp-ip-dst\") for a in json.load(sys.stdin).get('response',{}).get('Attribute',[]) if a.get('value')]" >> "$TMP"
 
                 # domain → Intel::DOMAIN
                 curl -sfk -H "Authorization: ${MISP_API_KEY}" \
                   -H "Accept: application/json" -H "Content-Type: application/json" \
                   -d '{"returnFormat":"json","type":"domain","to_ids":1,"published":1}' \
                   "${MISP_URL}/attributes/restSearch" \
-                | python3 -c "
-import sys,json
-for a in json.load(sys.stdin).get('response',{}).get('Attribute',[]):
-    v=a.get('value','')
-    if v: print(f'{v}\tIntel::DOMAIN\tMISP\tmisp-domain')
-" >> "$TMP"
+                | python3 -c "import sys,json; [print(f\"{a.get('value')}\tIntel::DOMAIN\tMISP\tmisp-domain\") for a in json.load(sys.stdin).get('response',{}).get('Attribute',[]) if a.get('value')]" >> "$TMP"
 
                 # md5 → Intel::FILE_HASH
                 curl -sfk -H "Authorization: ${MISP_API_KEY}" \
                   -H "Accept: application/json" -H "Content-Type: application/json" \
                   -d '{"returnFormat":"json","type":"md5","to_ids":1,"published":1}' \
                   "${MISP_URL}/attributes/restSearch" \
-                | python3 -c "
-import sys,json
-for a in json.load(sys.stdin).get('response',{}).get('Attribute',[]):
-    v=a.get('value','')
-    if v: print(f'{v}\tIntel::FILE_HASH\tMISP\tmisp-md5')
-" >> "$TMP"
+                | python3 -c "import sys,json; [print(f\"{a.get('value')}\tIntel::FILE_HASH\tMISP\tmisp-md5\") for a in json.load(sys.stdin).get('response',{}).get('Attribute',[]) if a.get('value')]" >> "$TMP"
 
                 mv "$TMP" "$INTEL_FILE"
                 echo "[$(date -Iseconds)] Intel updated: $(wc -l < $INTEL_FILE) entries"
