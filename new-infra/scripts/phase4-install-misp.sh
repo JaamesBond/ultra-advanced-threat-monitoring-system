@@ -486,14 +486,7 @@ if [[ "${TABLE_COUNT}" -lt 10 ]]; then
 
   log "Seeding MISP admin user: ${MISP_ADMIN_EMAIL}"
   ADMIN_SALT="$(python3 -c "import secrets, string; print(secrets.token_hex(16))")"
-  ADMIN_HASH="$(python3 -c "
-import hashlib
-salt = '${ADMIN_SALT}'
-pw   = '${MISP_ADMIN_PASSPHRASE}'
-inner = hashlib.sha1(pw.encode()).hexdigest()
-outer = hashlib.sha1((salt + inner).encode()).hexdigest()
-print(outer)
-")"
+  ADMIN_HASH="$(php -r "echo password_hash('${MISP_ADMIN_PASSPHRASE}', PASSWORD_DEFAULT);")"
 
   AUTHKEY_START="${MISP_API_KEY:0:4}"
   AUTHKEY_END="${MISP_API_KEY: -4}"
