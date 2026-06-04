@@ -5,18 +5,12 @@
 #
 # Idempotent: safe to re-run — all destructive steps are guarded.
 #
-# WHY PHP 7.4 FROM SOURCE:
-#   AL2023 ships PHP 8.x. MISP 2.4.x uses CakePHP 2.x which loads
-#   Model/Attribute.php into the global namespace. PHP 8.0+ introduced
-#   a built-in `Attribute` class — this causes a fatal "Cannot declare
-#   class Attribute, because the name is already in use" on every request.
-#   PHP 7.4 has no such conflict. Remi/SCL repos don't support AL2023,
-#   so we compile PHP 7.4.33 (last 7.4 release) from source.
+# Upgraded to MISP 2.5 and PHP 8.2 natively from AL2023.
 #
 # Secrets Manager secret: bc/misp
 # Keys expected:
 #   MYSQL_ROOT_PASSWORD, MYSQL_PASSWORD, MYSQL_USER,
-#   MISP_ADMIN_EMAIL, MISP_ADMIN_PASSPHRASE, SECURITY_SALT
+#   MISP_ADMIN_EMAIL, MISP_ADMIN_PASSPHRASE, SECURITY_SALT, MISP_API_KEY
 #
 # Platform: Amazon Linux 2023
 # Target:   bc-ctrl EC2 (tag Name=misp-ctrl)
@@ -35,15 +29,11 @@ MYSQL_DATA="${DATA_MNT}/mysql"
 REDIS_DATA="${DATA_MNT}/redis"
 MISP_FILES="${DATA_MNT}/misp-files"
 MISP_DIR="/var/www/MISP"
-MISP_BRANCH="2.4"
+MISP_BRANCH="2.5"
 MYSQL_VERSION="8.0"
 
-PHP74_VERSION="7.4.33"
-PHP74_PREFIX="/usr/local/php74"
-PHP74_BIN="${PHP74_PREFIX}/bin/php"
-PHP74_FPM_BIN="${PHP74_PREFIX}/sbin/php-fpm"
-PHP74_CONF="/etc/php74"
-PHP74_SOCK="/run/php74-fpm/www.sock"
+PHP_BIN="php"
+PHP_SOCK="/run/php-fpm/www.sock"
 
 SCRIPT_NAME="$(basename "$0")"
 
@@ -72,9 +62,9 @@ log "Region: ${REGION}"
 echo ""
 
 # ---------------------------------------------------------------------------
-# STEP 1 — Build dependencies + base packages (no PHP from dnf)
+# STEP 1 — Build dependencies + base packages
 # ---------------------------------------------------------------------------
-log "=== STEP 1: Installing build dependencies and base packages ==="
+log "=== STEP 1: Installing dependencies and PHP 8.2 ==="
 
 dnf install -y \
   tar jq unzip git openssl httpd mod_ssl \
@@ -84,7 +74,14 @@ dnf install -y \
   bzip2-devel libzip-devel oniguruma-devel \
   re2c libsodium-devel gd-devel libpng-devel libjpeg-devel \
   >/dev/null 2>&1 \
-  || fail "Build dependency installation failed"
+  || fail "Dependency installation failed"
+
+# Install PHP 8.2 (Amazon Linux 2023 native)
+dnf install -y php8.2 php8.2-cli php8.2-fpm php8.2-devel \
+  php8.2-mysqlnd php8.2-mbstring php8.2-xml php8.2-bcmath \
+  php8.2-gd php8.2-intl php8.2-opcache php8.2-pecl-redis6 php8.2-pecl-apcu \
+  >/dev/null 2>&1 \
+  || fail "PHP 8.2 installation failed"
 
 # AWS CLI v2 (idempotent)
 if ! command -v aws >/dev/null 2>&1; then
@@ -95,135 +92,13 @@ if ! command -v aws >/dev/null 2>&1; then
   rm -rf /tmp/awscliv2.zip /tmp/awscliv2-extract
 fi
 
-log "Base packages ready."
+log "Packages ready."
 echo ""
 
 # ---------------------------------------------------------------------------
-# STEP 2 — Build PHP 7.4.33 from source
-#
-# AL2023 only ships PHP 8.x. PHP 8.0+ has a built-in `Attribute` class
-# that fatally conflicts with MISP's Model/Attribute.php in CakePHP 2.x.
-# We also patch ext/openssl/openssl.c to add the RSA_SSLV23_PADDING
-# constant removed in OpenSSL 3.x (shipped with AL2023).
+# STEP 2 — Mount 60Gi EBS data volume
 # ---------------------------------------------------------------------------
-log "=== STEP 2: Building PHP ${PHP74_VERSION} from source (~15 min) ==="
-
-if [[ -x "${PHP74_BIN}" ]]; then
-  log "PHP 7.4 already built at ${PHP74_BIN} — skipping compile."
-else
-  PHP74_SRC="/usr/local/src/php-${PHP74_VERSION}"
-
-  if [[ ! -d "${PHP74_SRC}" ]]; then
-    log "Downloading PHP ${PHP74_VERSION} source..."
-    curl -fsSL "https://www.php.net/distributions/php-${PHP74_VERSION}.tar.gz" \
-      -o "/tmp/php-${PHP74_VERSION}.tar.gz" \
-      || fail "PHP source download failed"
-    tar xzf "/tmp/php-${PHP74_VERSION}.tar.gz" -C /usr/local/src/
-    rm -f "/tmp/php-${PHP74_VERSION}.tar.gz"
-  fi
-
-  cd "${PHP74_SRC}"
-
-  # Patch: RSA_SSLV23_PADDING was removed in OpenSSL 3.x (AL2023 ships 3.x)
-  if ! grep -q "RSA_SSLV23_PADDING 2" ext/openssl/openssl.c; then
-    log "Applying OpenSSL 3.x compat patch (RSA_SSLV23_PADDING)..."
-    sed -i '/#include "php_openssl.h"/a #ifndef RSA_SSLV23_PADDING\n#define RSA_SSLV23_PADDING 2\n#endif' \
-      ext/openssl/openssl.c
-  fi
-
-  log "Configuring PHP ${PHP74_VERSION}..."
-  ./configure \
-    --prefix="${PHP74_PREFIX}" \
-    --with-config-file-path="${PHP74_CONF}" \
-    --with-config-file-scan-dir="${PHP74_CONF}/php.d" \
-    --enable-fpm \
-    --with-fpm-user=apache \
-    --with-fpm-group=apache \
-    --enable-mbstring \
-    --with-openssl \
-    --with-curl \
-    --enable-mysqlnd \
-    --with-mysqli=mysqlnd \
-    --with-pdo-mysql=mysqlnd \
-    --enable-json \
-    --with-zlib \
-    --enable-xml \
-    --enable-dom \
-    --enable-simplexml \
-    --enable-gd \
-    --enable-bcmath \
-    --enable-sockets \
-    --with-sodium \
-    >/dev/null 2>&1 \
-    || fail "PHP configure failed"
-
-  log "Compiling PHP ${PHP74_VERSION} (this takes ~15 minutes)..."
-  make -j"$(nproc)" >/dev/null 2>&1 \
-    || fail "PHP build failed"
-
-  make install >/dev/null 2>&1 \
-    || fail "PHP install failed"
-
-  log "PHP ${PHP74_VERSION} installed at ${PHP74_PREFIX}."
-fi
-
-# ---------------------------------------------------------------------------
-# STEP 3 — Configure PHP 7.4 FPM
-# ---------------------------------------------------------------------------
-log "=== STEP 3: Configuring PHP 7.4 FPM ==="
-
-mkdir -p "${PHP74_CONF}/php.d"
-
-# php.ini
-if [[ ! -f "${PHP74_CONF}/php.ini" ]]; then
-  cp "/usr/local/src/php-${PHP74_VERSION}/php.ini-production" "${PHP74_CONF}/php.ini"
-fi
-
-# php-fpm.conf
-mkdir -p "${PHP74_CONF}/fpm.d"
-if [[ ! -f "${PHP74_CONF}/php-fpm.conf" ]]; then
-  cp "${PHP74_PREFIX}/etc/php-fpm.conf.default" "${PHP74_CONF}/php-fpm.conf"
-  sed -i "s|^include=.*|include=${PHP74_CONF}/fpm.d/*.conf|" "${PHP74_CONF}/php-fpm.conf"
-fi
-
-# www pool
-if [[ ! -f "${PHP74_CONF}/fpm.d/www.conf" ]]; then
-  cp "${PHP74_PREFIX}/etc/php-fpm.d/www.conf.default" "${PHP74_CONF}/fpm.d/www.conf"
-fi
-
-sed -i "s|^listen = .*|listen = ${PHP74_SOCK}|"        "${PHP74_CONF}/fpm.d/www.conf"
-sed -i 's|;listen.owner = .*|listen.owner = apache|'   "${PHP74_CONF}/fpm.d/www.conf"
-sed -i 's|;listen.group = .*|listen.group = apache|'   "${PHP74_CONF}/fpm.d/www.conf"
-sed -i 's|;listen.mode = .*|listen.mode = 0660|'       "${PHP74_CONF}/fpm.d/www.conf"
-
-# systemd unit
-cat > /etc/systemd/system/php74-fpm.service <<'UNIT'
-[Unit]
-Description=PHP 7.4 FastCGI Process Manager
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/php74/sbin/php-fpm --nodaemonize --fpm-config /etc/php74/php-fpm.conf
-RuntimeDirectory=php74-fpm
-RuntimeDirectoryMode=0755
-ExecReload=/bin/kill -USR2 $MAINPID
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-
-systemctl daemon-reload
-systemctl enable --now php74-fpm \
-  || fail "Failed to start php74-fpm"
-log "PHP 7.4 FPM running, socket: ${PHP74_SOCK}"
-echo ""
-
-# ---------------------------------------------------------------------------
-# STEP 4 — Mount 60Gi EBS data volume
-# ---------------------------------------------------------------------------
-log "=== STEP 4: Mounting data volume ${DATA_DEV} → ${DATA_MNT} ==="
+log "=== STEP 2: Mounting data volume ${DATA_DEV} → ${DATA_MNT} ==="
 
 if ! blkid "${DATA_DEV}" >/dev/null 2>&1; then
   log "Formatting ${DATA_DEV} as XFS..."
@@ -248,9 +123,9 @@ log "Data volume ready."
 echo ""
 
 # ---------------------------------------------------------------------------
-# STEP 5 — Fetch secrets from Secrets Manager
+# STEP 3 — Fetch secrets from Secrets Manager
 # ---------------------------------------------------------------------------
-log "=== STEP 5: Fetching secrets from ${MISP_SECRET} ==="
+log "=== STEP 3: Fetching secrets from ${MISP_SECRET} ==="
 
 SECRET_JSON="$(aws secretsmanager get-secret-value \
   --region "${REGION}" \
@@ -277,9 +152,9 @@ log "Secrets fetched."
 echo ""
 
 # ---------------------------------------------------------------------------
-# STEP 6 — Install MySQL 8.0
+# STEP 4 — Install MySQL 8.0
 # ---------------------------------------------------------------------------
-log "=== STEP 6: Installing MySQL ${MYSQL_VERSION} ==="
+log "=== STEP 4: Installing MySQL ${MYSQL_VERSION} ==="
 
 if ! rpm -q "mysql80-community-release" >/dev/null 2>&1; then
   MYSQL_REPO_RPM="mysql80-community-release-el9-5.noarch.rpm"
@@ -327,7 +202,6 @@ MYSQL_TEMP_PASS="$(grep 'temporary password' /var/log/mysqld.log 2>/dev/null \
   | tail -1 | awk '{print $NF}' || true)"
 
 if [[ -n "${MYSQL_TEMP_PASS}" ]]; then
-  # Reset temp password first (policy requires a "valid" intermediate password)
   mysql -u root -p"${MYSQL_TEMP_PASS}" --connect-expired-password \
     -e "ALTER USER 'root'@'localhost' IDENTIFIED BY 'TempBoot1!'; FLUSH PRIVILEGES;" \
     2>/dev/null || true
@@ -356,9 +230,9 @@ log "MySQL database and user ready."
 echo ""
 
 # ---------------------------------------------------------------------------
-# STEP 7 — Install Redis
+# STEP 5 — Install Redis
 # ---------------------------------------------------------------------------
-log "=== STEP 7: Installing Redis ==="
+log "=== STEP 5: Installing Redis ==="
 
 REDIS_PKG="redis7"
 dnf list --available redis7 >/dev/null 2>&1 || REDIS_PKG="redis6"
@@ -381,9 +255,9 @@ log "Redis started."
 echo ""
 
 # ---------------------------------------------------------------------------
-# STEP 8 — Clone MISP and install Composer + PHP deps
+# STEP 6 — Clone MISP and install Composer + PHP deps
 # ---------------------------------------------------------------------------
-log "=== STEP 8: Cloning MISP and installing PHP dependencies ==="
+log "=== STEP 6: Cloning MISP and installing PHP dependencies ==="
 
 if [[ ! -d "${MISP_DIR}/.git" ]]; then
   git clone --depth 1 --branch "${MISP_BRANCH}" \
@@ -391,45 +265,27 @@ if [[ ! -d "${MISP_DIR}/.git" ]]; then
     || fail "MISP git clone failed"
 else
   log "MISP already cloned — pulling latest..."
+  git -C "${MISP_DIR}" fetch origin
+  git -C "${MISP_DIR}" checkout "${MISP_BRANCH}"
   git -C "${MISP_DIR}" pull --ff-only origin "${MISP_BRANCH}" 2>/dev/null || true
 fi
 
 log "Initialising MISP git submodules..."
 git -C "${MISP_DIR}" submodule update --init --recursive 2>&1 | tail -3 || true
 
-# Install Composer using PHP 7.4
+# Install Composer
 if [[ ! -f /usr/local/bin/composer ]]; then
   log "Installing Composer..."
-  HOME=/root "${PHP74_BIN}" -r "copy('https://getcomposer.org/installer', '/tmp/composer-setup.php');"
-  HOME=/root "${PHP74_BIN}" /tmp/composer-setup.php \
+  HOME=/root "${PHP_BIN}" -r "copy('https://getcomposer.org/installer', '/tmp/composer-setup.php');"
+  HOME=/root "${PHP_BIN}" /tmp/composer-setup.php \
     --install-dir=/usr/local/bin --filename=composer --quiet
   rm -f /tmp/composer-setup.php
 fi
 
-# Patch composer.json to be PHP 7.4 compatible:
-#   - Relax PHP version constraint (original: >=7.4.0,<8.0.0)
-#   - Keep browscap-php at 5.1.0 (6.x requires PHP 8.1+)
-#   - Keep monolog at 1.25.3 (2.x required by browscap 6.x)
-log "Patching composer.json for PHP 7.4 compatibility..."
-python3 - <<'PYEOF'
-import json, sys
-path = '/var/www/MISP/app/composer.json'
-try:
-    c = json.load(open(path))
-except Exception as e:
-    print(f"Could not read composer.json: {e}")
-    sys.exit(0)
-c['require']['php']                    = '>=7.4.0'
-c['require']['browscap/browscap-php'] = '5.1.0'
-c['require']['monolog/monolog']        = '1.25.3'
-json.dump(c, open(path, 'w'), indent=4)
-print("composer.json patched")
-PYEOF
-
-log "Running composer install (PHP 7.4)..."
+log "Running composer install (PHP 8.2)..."
 cd "${MISP_DIR}/app"
 HOME=/root COMPOSER_ALLOW_SUPERUSER=1 \
-  "${PHP74_BIN}" /usr/local/bin/composer install \
+  "${PHP_BIN}" /usr/local/bin/composer install \
   --no-dev --no-interaction \
   --ignore-platform-req=ext-pcntl \
   --quiet \
@@ -444,9 +300,9 @@ pip3 install pymisp pyzmq redis requests cryptography bcrypt \
 echo ""
 
 # ---------------------------------------------------------------------------
-# STEP 9 — Apache HTTPS vhost with PHP 7.4 FPM handler
+# STEP 7 — Apache HTTPS vhost
 # ---------------------------------------------------------------------------
-log "=== STEP 9: Configuring Apache HTTPS vhost ==="
+log "=== STEP 7: Configuring Apache HTTPS vhost ==="
 
 SSL_DIR="/etc/ssl/misp"
 mkdir -p "${SSL_DIR}"
@@ -464,9 +320,11 @@ if [[ ! -f "${SSL_DIR}/misp.key" ]]; then
   chmod 644 "${SSL_DIR}/misp.crt"
 fi
 
-# Disable system PHP-FPM (uses PHP 8.x — conflicts with MISP)
-systemctl stop php-fpm  2>/dev/null || true
-systemctl disable php-fpm 2>/dev/null || true
+# Ensure php-fpm runs as apache
+sed -i 's|^user = .*|user = apache|' /etc/php-fpm.d/www.conf 2>/dev/null || true
+sed -i 's|^group = .*|group = apache|' /etc/php-fpm.d/www.conf 2>/dev/null || true
+sed -i 's|^listen.owner = .*|listen.owner = apache|' /etc/php-fpm.d/www.conf 2>/dev/null || true
+sed -i 's|^listen.group = .*|listen.group = apache|' /etc/php-fpm.d/www.conf 2>/dev/null || true
 
 # Disable default SSL listener to avoid port 443 conflict
 sed -i 's/^Listen 443 https/#Listen 443 https/' /etc/httpd/conf.d/ssl.conf 2>/dev/null || true
@@ -485,9 +343,8 @@ Listen 443 https
     SSLCipherSuite        HIGH:!ADH:!EXP:!MD5:!RC4:!3DES:!CAMELLIA:@STRENGTH
     SSLHonorCipherOrder   on
 
-    # Route .php files to PHP 7.4 FPM (not the system PHP 8.x FPM)
     <FilesMatch \\.php\$>
-        SetHandler "proxy:unix:${PHP74_SOCK}|fcgi://localhost"
+        SetHandler "proxy:unix:${PHP_SOCK}|fcgi://localhost"
     </FilesMatch>
 
     <Directory ${MISP_DIR}/app/webroot>
@@ -521,13 +378,13 @@ log "Apache vhost written."
 echo ""
 
 # ---------------------------------------------------------------------------
-# STEP 10 — Configure MISP (database.php and config.php)
+# STEP 8 — Configure MISP (database.php and config.php)
 # ---------------------------------------------------------------------------
-log "=== STEP 10: Configuring MISP ==="
+log "=== STEP 8: Configuring MISP ==="
 
 MISP_CONFIG_DIR="${MISP_DIR}/app/Config"
 
-# Force-write database.php with 127.0.0.1 (not localhost — avoids Unix socket lookup)
+# Force-write database.php with 127.0.0.1
 cat > "${MISP_CONFIG_DIR}/database.php" <<PHP
 <?php
 class DATABASE_CONFIG {
@@ -574,9 +431,9 @@ log "MISP config files written."
 echo ""
 
 # ---------------------------------------------------------------------------
-# STEP 11 — File storage symlink and ownership
+# STEP 9 — File storage symlink and ownership
 # ---------------------------------------------------------------------------
-log "=== STEP 11: MISP file storage setup ==="
+log "=== STEP 9: MISP file storage setup ==="
 
 if [[ -d "${MISP_DIR}/app/files" && ! -L "${MISP_DIR}/app/files" ]]; then
   rsync -a "${MISP_DIR}/app/files/" "${MISP_FILES}/" 2>/dev/null || true
@@ -600,21 +457,22 @@ fi
 echo ""
 
 # ---------------------------------------------------------------------------
-# STEP 12 — Enable services
+# STEP 10 — Enable services
 # ---------------------------------------------------------------------------
-log "=== STEP 12: Starting services ==="
+log "=== STEP 10: Starting services ==="
 systemctl enable --now httpd     || fail "Failed to enable httpd"
 systemctl enable --now mysqld    2>/dev/null || true
 systemctl enable --now "${REDIS_SVC}" 2>/dev/null || true
-systemctl restart php74-fpm      || fail "Failed to restart php74-fpm"
+systemctl enable --now php-fpm   || fail "Failed to enable php-fpm"
+systemctl restart php-fpm        || fail "Failed to restart php-fpm"
 systemctl restart httpd          || fail "Failed to restart httpd"
 log "All services running."
 echo ""
 
 # ---------------------------------------------------------------------------
-# STEP 13 — MISP database schema + admin user (first boot only)
+# STEP 11 — MISP database schema + admin user (first boot only)
 # ---------------------------------------------------------------------------
-log "=== STEP 13: MISP database schema initialisation ==="
+log "=== STEP 11: MISP database schema initialisation ==="
 
 TABLE_COUNT="$(mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -D misp \
   -se "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='misp';" \
@@ -626,7 +484,6 @@ if [[ "${TABLE_COUNT}" -lt 10 ]]; then
     < "${MISP_DIR}/INSTALL/MYSQL.sql" 2>/dev/null \
     || log "WARNING: MYSQL.sql import had errors — check manually"
 
-  # Seed admin user (MISP hashes: SHA1(salt + SHA1(password)))
   log "Seeding MISP admin user: ${MISP_ADMIN_EMAIL}"
   ADMIN_SALT="$(python3 -c "import secrets, string; print(secrets.token_hex(16))")"
   ADMIN_HASH="$(python3 -c "
@@ -662,8 +519,6 @@ VALUES
 SQL
   log "Admin user seeded with pre-defined API key."
 
-  # Push the same API key to the Suricata and Zeek Secrets Manager secrets
-  # so their misp-rule-sync/misp-intel-sync sidecars work immediately
   log "Pushing MISP API key to bc/suricata/misp and bc/zeek/misp..."
   API_SECRET_VALUE="{\"MISP_API_KEY\": \"${MISP_API_KEY}\"}"
   aws secretsmanager put-secret-value \
@@ -678,16 +533,18 @@ SQL
     --secret-string "${API_SECRET_VALUE}" \
     2>/dev/null \
     || log "WARNING: Could not update bc/zeek/misp — update manually"
-  log "Secrets Manager updated — Suricata and Zeek pods will pick up the key on next ExternalSecret refresh (1h) or pod restart."
+  log "Secrets Manager updated."
 else
-  log "MISP DB already has ${TABLE_COUNT} tables — skipping schema init."
+  log "MISP DB already has ${TABLE_COUNT} tables — running DB updates instead..."
+  # Run DB updates (for version upgrades e.g. 2.4 to 2.5)
+  sudo -u apache bash -c "${MISP_DIR}/app/Console/cake Admin runUpdates" || log "WARNING: Database migrations failed"
 fi
 echo ""
 
 # ---------------------------------------------------------------------------
-# STEP 14 — Verify MISP responds
+# STEP 12 — Verify MISP responds
 # ---------------------------------------------------------------------------
-log "=== STEP 14: Verifying MISP endpoint ==="
+log "=== STEP 12: Verifying MISP endpoint ==="
 
 MISP_OK=false
 for i in $(seq 1 24); do
@@ -719,15 +576,10 @@ echo "  Services:"
 echo "    httpd      — $(systemctl is-active httpd        2>/dev/null || echo unknown)"
 echo "    mysqld     — $(systemctl is-active mysqld       2>/dev/null || echo unknown)"
 echo "    redis      — $(systemctl is-active "${REDIS_SVC}" 2>/dev/null || echo unknown)"
-echo "    php74-fpm  — $(systemctl is-active php74-fpm   2>/dev/null || echo unknown)"
+echo "    php-fpm    — $(systemctl is-active php-fpm      2>/dev/null || echo unknown)"
 echo ""
-echo "  PHP version: $("${PHP74_BIN}" --version 2>/dev/null | head -1)"
+echo "  PHP version: $("${PHP_BIN}" --version 2>/dev/null | head -1)"
 echo "  MISP URL:    ${MISP_BASEURL}"
 echo "  Admin email: ${MISP_ADMIN_EMAIL}"
 echo ""
-echo "  Post-install:"
-echo "    1. Log in at ${MISP_BASEURL}/users/login"
-echo "    2. Administration → Auth Keys → create a new API key"
-echo "    3. Update bc/suricata/misp and bc/zeek/misp in Secrets Manager"
-echo "       with the new API key, then restart Suricata and Zeek pods"
 echo "=============================================================="
