@@ -17,6 +17,15 @@ spec:
               protocol: ANY
       toEntities:
         - all
+    # Allow HTTPS and HTTP to internet for apk add in sidecar
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP
     # Allow MISP intel sync sidecar to reach MISP EC2
     # in bc-ctrl private subnets over VPC peering
     - toCIDRSet:

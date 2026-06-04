@@ -294,7 +294,7 @@ spec:
             - -c
             - |
               set -e
-              apk add --no-cache curl jq >/dev/null
+              apk add --no-cache curl jq socat >/dev/null
 
               echo "MISP rule sync sidecar started (interval: 1h)"
               RULES_FILE=/var/lib/suricata/rules/misp.rules
@@ -307,7 +307,7 @@ spec:
                 if [ -S "$SOCKET" ]; then
                   # suricatasc protocol: send JSON command, read response
                   echo '{"command":"reload-rules"}' | \
-                    nc -U "$SOCKET" 2>/dev/null | grep -q '"return":"OK"' && \
+                    socat - UNIX-CONNECT:"$SOCKET" 2>/dev/null | grep -q '"return":"OK"' && \
                     echo "Suricata rules reloaded" || \
                     echo "reload-rules command failed (non-fatal)"
                 else
