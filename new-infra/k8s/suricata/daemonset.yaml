@@ -324,7 +324,7 @@ spec:
                   -H "Authorization: ${MISP_API_KEY}" \
                   -H "Accept: application/json" \
                   -H "Content-Type: application/json" \
-                  -d '{"returnFormat":"values","type":"ip-dst","to_ids":1,"published":1}' \
+                  -d '{"returnFormat":"json","type":"ip-dst","to_ids":1,"published":1}' \
                   "${MISP_URL}/attributes/restSearch" \
                 | jq -r '.response.Attribute[]?.value // empty' \
                 | sort -u \
@@ -338,7 +338,7 @@ spec:
                   -H "Authorization: ${MISP_API_KEY}" \
                   -H "Accept: application/json" \
                   -H "Content-Type: application/json" \
-                  -d '{"returnFormat":"values","type":"domain","to_ids":1,"published":1}' \
+                  -d '{"returnFormat":"json","type":"domain","to_ids":1,"published":1}' \
                   "${MISP_URL}/attributes/restSearch" \
                 | jq -r '.response.Attribute[]?.value // empty' \
                 | sort -u \
@@ -354,7 +354,7 @@ spec:
                     -H "Authorization: ${MISP_API_KEY}" \
                     -H "Accept: application/json" \
                     -H "Content-Type: application/json" \
-                    -d "{\"returnFormat\":\"values\",\"type\":\"${htype}\",\"to_ids\":1,\"published\":1}" \
+                    -d "{\"returnFormat\":\"json\",\"type\":\"${htype}\",\"to_ids\":1,\"published\":1}" \
                     "${MISP_URL}/attributes/restSearch" \
                   | jq -r '.response.Attribute[]?.value // empty' \
                   | sort -u \
