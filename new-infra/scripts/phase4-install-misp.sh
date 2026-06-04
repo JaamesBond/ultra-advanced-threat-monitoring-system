@@ -448,6 +448,30 @@ find "${MISP_DIR}" -type d -exec chmod 0750 {} \; 2>/dev/null || true
 chmod +x "${MISP_DIR}/app/Console/cake" 2>/dev/null || true
 
 if command -v semanage >/dev/null 2>&1; then
+  semanage fcontext -a -t httpd_sys_rw_content_t '/var/www/MISP/app/tmp(/.*)?'
+  restorecon -Rv /var/www/MISP/app/tmp >/dev/null
+
+  log "Configuring MISP background workers (systemd)..."
+  cat <<'EOF' > /etc/systemd/system/misp-workers.service
+[Unit]
+Description=MISP background workers
+After=mysqld.service redis7.service
+
+[Service]
+Type=forking
+User=apache
+Group=apache
+ExecStart=/var/www/MISP/app/Console/worker/start.sh
+ExecStop=/var/www/MISP/app/Console/worker/start.sh stop
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload
+  systemctl enable --now misp-workers
+
+  log "Setting up Apache..."
   semanage fcontext -a -t httpd_sys_rw_content_t "${MISP_DIR}/app/tmp(/.*)?"    2>/dev/null || true
   semanage fcontext -a -t httpd_sys_rw_content_t "${MISP_DIR}/app/files(/.*)?"  2>/dev/null || true
   semanage fcontext -a -t httpd_sys_rw_content_t "${MISP_FILES}(/.*)?"          2>/dev/null || true
