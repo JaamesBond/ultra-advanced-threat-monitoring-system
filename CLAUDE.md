@@ -227,6 +227,10 @@ These are not yet wired to any SIEM pipeline — they document intended detectio
 
    Wrong selector → CNP selects zero pods → under `policyEnforcementMode=default` the destination receives no policy AND any egress allow-rule on a *source* CNP that points at the same wrong label matches no destination, so traffic is dropped at egress with `Policy denied`. Verify selectors before merging: `kubectl get pod -n nomad-oasis <real-pod-name> -o jsonpath='{.metadata.labels}'` and match exactly. Discovered 2026-05-10 — Hubble drop `nomad-oasis-app:* (ID:2742) <> elasticsearch-master:9200 Policy denied DROPPED` was the canonical symptom.
 
+- **MISP 2.5 Upgrade & Workers**: MISP 2.5 requires CakePHP 4, native PHP 8.2 (Amazon Linux 2023 packages), `php-pecl-redis6`, and native `password_hash()` (Python's bcrypt is unavailable on AL2023). Enable `misp-workers.service` via systemd for persistent background workers. Syncing admin credentials via `phase4-install-misp.sh` must execute *outside* of the `TABLE_COUNT` DB init check to persist across EBS warm restarts.
+- **Keycloak Pod Security Standards (PSS)**: The `nomad-oasis` namespace enforces `restricted` PSS. Pre-install Helm Jobs (like `keycloak-db-init`) must include a strict `securityContext` (`runAsNonRoot: true`, `seccompProfile: RuntimeDefault`, `allowPrivilegeEscalation: false`, `capabilities: drop: ["ALL"]`) or pods will silently fail to schedule.
+- **Cilium Network Policy DNS Issue (ENI Mode)**: Do NOT use `k8s:eks.amazonaws.com/component: coredns` as the `toEndpoints` selector for `kube-dns` in Cilium egress policies. It fails to match correctly, causing all egress DNS (UDP 53) to drop and resulting in `i/o timeout` for all pods (Keycloak, Temporal). ALWAYS use the standard label `k8s:k8s-app: kube-dns` across all policies (`nomad-keycloak-netpol`, `nomad-temporal-netpol`, etc.). Discovered 2026-06-04.
+
 ---
 
 ## Build & Deploy

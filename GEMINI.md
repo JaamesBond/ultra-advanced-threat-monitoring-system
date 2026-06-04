@@ -73,6 +73,17 @@ The security stack (Cilium/Falco/Tetragon) is resource-heavy.
 - **FQDN Gap**: `toFQDNs` is broken in ENI mode. Use `toEntities: world` + `toCIDRSet` as a workaround.
 - **NetPols**: `policyEnforcementMode=always` requires explicit CNPs for EVERYTHING (CoreDNS, STS, etc.).
 
+### 6. MISP 2.5 Upgrade & Workers
+- **AL2023 Native**: MISP 2.5 requires CakePHP 4, native PHP 8.2 (Amazon Linux 2023), `php-pecl-redis6`, and native `password_hash()`.
+- **Systemd Workers**: Enable `misp-workers.service` via systemd for persistent background workers.
+- **Admin Credential Sync**: Syncing admin credentials via `phase4-install-misp.sh` must execute *outside* of the `TABLE_COUNT` DB init check to persist across EBS warm restarts.
+
+### 7. Keycloak & Pod Security Standards (PSS)
+- **Job SecurityContext**: The `nomad-oasis` namespace enforces `restricted` PSS. Pre-install Helm Jobs (like `keycloak-db-init`) must include a strict `securityContext` (`runAsNonRoot: true`, `seccompProfile: RuntimeDefault`, `allowPrivilegeEscalation: false`, `capabilities: drop: ["ALL"]`) or they fail to schedule.
+
+### 8. Cilium Network Policy DNS Resolution (ENI Mode)
+- **CoreDNS MatchLabel**: Do NOT use `k8s:eks.amazonaws.com/component: coredns` as the `toEndpoints` selector for `kube-dns` in Cilium egress policies. It causes all egress DNS (UDP 53) to drop and pods (e.g., Keycloak, Temporal) will crash with `i/o timeout`. ALWAYS use the standard label `k8s:k8s-app: kube-dns`.
+
 ## 🧪 Testing & Verification
 - **Victim Scripts**: `new-infra/scripts/victim-install-*.sh` for simulation.
 - **Hubble**: Use `cilium status` and `hubble observe` to verify flows.
