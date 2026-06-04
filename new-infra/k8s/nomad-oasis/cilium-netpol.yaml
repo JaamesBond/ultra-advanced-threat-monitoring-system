@@ -60,7 +60,7 @@ spec:
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
-            k8s:eks.amazonaws.com/component: coredns
+            k8s:k8s-app: kube-dns
       toPorts:
         - ports:
             - port: "53"
@@ -183,7 +183,7 @@ spec:
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
-            k8s:eks.amazonaws.com/component: coredns
+            k8s:k8s-app: kube-dns
       toPorts:
         - ports:
             - port: "53"
@@ -312,7 +312,7 @@ spec:
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
-            k8s:eks.amazonaws.com/component: coredns
+            k8s:k8s-app: kube-dns
       toPorts:
         - ports:
             - port: "53"
@@ -381,7 +381,7 @@ spec:
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
-            k8s:eks.amazonaws.com/component: coredns
+            k8s:k8s-app: kube-dns
       toPorts:
         - ports:
             - port: "53"
@@ -443,7 +443,7 @@ spec:
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
-            k8s:eks.amazonaws.com/component: coredns
+            k8s:k8s-app: kube-dns
       toPorts:
         - ports:
             - port: "53"
@@ -509,7 +509,7 @@ spec:
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
-            k8s:eks.amazonaws.com/component: coredns
+            k8s:k8s-app: kube-dns
       toPorts:
         - ports:
             - port: "53"
@@ -589,7 +589,7 @@ spec:
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
-            k8s:eks.amazonaws.com/component: coredns
+            k8s:k8s-app: kube-dns
       toPorts:
         - ports:
             - port: "53"
@@ -706,7 +706,7 @@ spec:
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
-            k8s:eks.amazonaws.com/component: coredns
+            k8s:k8s-app: kube-dns
       toPorts:
         - ports:
             - port: "53"
