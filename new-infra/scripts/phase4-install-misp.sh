@@ -446,6 +446,7 @@ chown -R apache:apache "${MISP_DIR}" "${MISP_FILES}" 2>/dev/null || true
 find "${MISP_DIR}" -type f -exec chmod 0640 {} \; 2>/dev/null || true
 find "${MISP_DIR}" -type d -exec chmod 0750 {} \; 2>/dev/null || true
 chmod +x "${MISP_DIR}/app/Console/cake" 2>/dev/null || true
+chmod +x "${MISP_DIR}/app/Console/worker/start.sh" 2>/dev/null || true
 
 if command -v semanage >/dev/null 2>&1; then
   semanage fcontext -a -t httpd_sys_rw_content_t '/var/www/MISP/app/tmp(/.*)?'
