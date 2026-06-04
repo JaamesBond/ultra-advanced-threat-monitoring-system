@@ -103,6 +103,15 @@ spec:
       hostPID: false
       dnsPolicy: ClusterFirstWithHostNet
 
+      # Hard-code MISP private IP so the sidecar can reach MISP over VPC
+      # peering even when VPC-private DNS (misp.bc-ctrl.internal) is broken.
+      # Trade-off: if the MISP EC2 (misp-ctrl) is rebuilt with a new private
+      # IP this entry must be updated and the DaemonSet rolled.
+      hostAliases:
+        - ip: "10.0.10.245"
+          hostnames:
+            - "misp.bc-ctrl.internal"
+
       securityContext:
         runAsUser: 0
         runAsGroup: 0
@@ -293,8 +302,17 @@ spec:
             - sh
             - -c
             - |
-              set -e
-              apk add --no-cache curl jq socat >/dev/null
+              # No set -e: failures are handled explicitly so a transient
+              # DNS/egress outage never kills the container.
+
+              # Install required tools, retrying indefinitely until the
+              # Alpine CDN is reachable.  Once installed, packages persist
+              # for the lifetime of this container — apk runs only once.
+              until apk add --no-cache curl jq socat >/dev/null 2>&1; do
+                echo "[$(date -Iseconds)] apk add failed (DNS/egress outage?), retrying in 60s..."
+                sleep 60
+              done
+              echo "[$(date -Iseconds)] apk add: curl jq socat ready"
 
               echo "MISP rule sync sidecar started (interval: 1h)"
               RULES_FILE=/var/lib/suricata/rules/misp.rules
