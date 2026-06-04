@@ -56,9 +56,18 @@ spec:
           operator: Equal
           value: nomad
           effect: NoSchedule
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: psql-init
           image: postgres:15-alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           env:
             - name: PGHOST
               value: "nomad-oasis-postgresql"
