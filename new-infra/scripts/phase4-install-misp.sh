@@ -77,11 +77,9 @@ dnf install -y \
   || fail "Dependency installation failed"
 
 # Install PHP 8.2 (Amazon Linux 2023 native)
-dnf install -y php8.2 php8.2-cli php8.2-fpm php8.2-devel \
-  php8.2-mysqlnd php8.2-mbstring php8.2-xml php8.2-bcmath \
-  php8.2-gd php8.2-intl php8.2-opcache php8.2-pecl-redis6 php8.2-pecl-apcu \
-  >/dev/null 2>&1 \
-  || fail "PHP 8.2 installation failed"
+dnf install -y php8.2 php8.2-cli php8.2-fpm php8.2-mysqlnd php8.2-mbstring \
+  php8.2-xml php8.2-bcmath php8.2-intl php8.2-gd php8.2-zip \
+  php8.2-curl php8.2-opcache php8.2-pecl-redis6 >/dev/null 2>&1 || fail "PHP 8.2 install failed"
 
 # AWS CLI v2 (idempotent)
 if ! command -v aws >/dev/null 2>&1; then
