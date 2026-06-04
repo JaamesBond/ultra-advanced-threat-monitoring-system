@@ -494,6 +494,7 @@ Listen 443 https
         Options -Indexes +FollowSymLinks
         AllowOverride All
         Require all granted
+        DirectoryIndex index.php index.html
     </Directory>
 
     <Directory ${MISP_DIR}/app>
@@ -637,19 +638,27 @@ outer = hashlib.sha1((salt + inner).encode()).hexdigest()
 print(outer)
 ")"
 
+  AUTHKEY_START="${MISP_API_KEY:0:4}"
+  AUTHKEY_END="${MISP_API_KEY: -4}"
+  AUTHKEY_UUID="$(python3 -c "import uuid; print(str(uuid.uuid4()))")"
+
   mysql -u root -p"${MYSQL_ROOT_PASSWORD}" misp 2>/dev/null <<SQL || true
 INSERT IGNORE INTO organisations (id, name, uuid, date_created, date_modified, type, local)
   VALUES (1, 'BigChemistry', '$(python3 -c "import uuid; print(str(uuid.uuid4()))")', NOW(), NOW(), 'ADMIN', 1);
 
-INSERT IGNORE INTO users
-  (id, org_id, email, password, password_salt, authkey,
-   role_id, change_pw, termsaccepted, newsread,
-   date_created, date_modified)
-VALUES
-  (1, 1, '${MISP_ADMIN_EMAIL}', '${ADMIN_HASH}', '${ADMIN_SALT}',
-   '${MISP_API_KEY}',
-   1, 0, 1, 1,
-   UNIX_TIMESTAMP(), UNIX_TIMESTAMP());
+UPDATE users SET 
+  email='${MISP_ADMIN_EMAIL}', 
+  password='${ADMIN_HASH}', 
+  password_salt='${ADMIN_SALT}', 
+  authkey='${MISP_API_KEY}', 
+  change_pw=0, 
+  termsaccepted=1 
+WHERE id=1;
+
+INSERT INTO auth_keys 
+  (uuid, authkey, authkey_start, authkey_end, created, expiration, read_only, user_id, comment, allowed_ips, unique_ips) 
+VALUES 
+  ('${AUTHKEY_UUID}', '${MISP_API_KEY}', '${AUTHKEY_START}', '${AUTHKEY_END}', UNIX_TIMESTAMP(), 0, 0, 1, 'Auto-provisioned API Key', '[]', '[]');
 SQL
   log "Admin user seeded with pre-defined API key."
 
