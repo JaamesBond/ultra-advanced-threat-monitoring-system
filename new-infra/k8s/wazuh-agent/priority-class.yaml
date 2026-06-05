@@ -2,10 +2,13 @@
 # PriorityClass: bc-security-node-critical
 #
 # Assigned to security DaemonSets (wazuh-agent, suricata) that
-# MUST run on every node for XDR coverage.  Value is set just
-# below system-node-critical (2000001000) so Kubernetes system
-# components still take absolute precedence, but security
-# telemetry beats every application workload.
+# MUST run on every node for XDR coverage.  Value is set to the
+# MAXIMUM allowed user-defined priority (1000000000) — Kubernetes
+# forbids user PriorityClasses above 1e9 and reserves higher values
+# for system-* classes (system-cluster-critical=2e9,
+# system-node-critical=2000001000), so those still take absolute
+# precedence, while security telemetry beats every application
+# workload (which default to priority 0).
 #
 # Consequence: when a node is at the VPC-CNI pod-count cap (17
 # on t3.medium) the scheduler will preempt the lowest-priority
@@ -22,13 +25,13 @@ apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
   name: bc-security-node-critical
-value: 1999999000
+value: 1000000000
 globalDefault: false
 description: >
   High-priority class for bc-prd XDR security DaemonSets
-  (wazuh-agent, suricata).  Value is just below
-  system-node-critical (2000001000) so Kubernetes system
-  components always win, but security telemetry preempts all
-  application workloads.  Assign only to security DaemonSets
-  that must achieve full node coverage.
+  (wazuh-agent, suricata).  Value is the maximum allowed
+  user-defined priority (1000000000); system-* classes
+  (>= 2e9) still outrank it, but security telemetry preempts
+  all application workloads.  Assign only to security
+  DaemonSets that must achieve full node coverage.
 preemptionPolicy: PreemptLowerPriority
