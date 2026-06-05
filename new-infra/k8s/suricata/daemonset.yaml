@@ -128,27 +128,92 @@ spec:
             - sh
             - -c
             - |
-              set -e
+              # Do NOT use set -e here — a failed ET Open download must NOT
+              # block Suricata from starting.  All failures are logged and
+              # handled explicitly below.
               mkdir -p /var/lib/suricata/rules /var/lib/suricata/update
-              suricata-update update-sources
-              suricata-update enable-source et/open
-              suricata-update \
-                --data-dir /var/lib/suricata \
-                --suricata-conf /etc/suricata/suricata.yaml \
-                --output /var/lib/suricata/rules \
-                --no-test \
-                --force
-              # Stub files — Suricata will error on startup if any
-              # rule-file listed in suricata.yaml is missing.
-              # misp.rules is populated by the misp-rule-sync sidecar.
-              # bc-custom.rules and bc-k8s.rules are managed manually.
-              for f in misp.rules bc-custom.rules bc-k8s.rules; do
-                [ -f /var/lib/suricata/rules/$f ] || \
-                  touch /var/lib/suricata/rules/$f && \
-                  echo "Created stub: $f"
+
+              # Best-effort ET Open rule download.
+              # On DNS-down windows this will fail; that is expected and
+              # non-fatal.  The rule-refresher sidecar retries every 6h and
+              # will backfill ET Open rules once connectivity recovers.
+              RULES_OK=false
+              if suricata-update update-sources 2>&1 && \
+                 suricata-update enable-source et/open 2>&1 && \
+                 suricata-update \
+                   --data-dir /var/lib/suricata \
+                   --suricata-conf /etc/suricata/suricata.yaml \
+                   --output /var/lib/suricata/rules \
+                   --no-test \
+                   --force 2>&1; then
+                RULES_OK=true
+                echo "[rule-updater] ET Open rules downloaded successfully."
+              else
+                echo "[rule-updater] WARNING: suricata-update failed (DNS/egress outage?)." \
+                     "Suricata will start with built-in + MISP rules only." \
+                     "ET Open rules will be backfilled by the rule-refresher sidecar on the next 6h cycle."
+              fi
+
+              # Always ensure every rule-file listed in suricata.yaml exists,
+              # whether or not the download succeeded.  A missing file causes
+              # 'suricata -c' to abort even before packet capture begins.
+              # These stubs are valid empty Suricata rule files (zero rules).
+              # ET Open files are only created as stubs when the download
+              # failed (RULES_OK=false); if the download succeeded they
+              # already exist as real rule files.
+              # misp.rules and bc-* files are always managed externally and
+              # never written by suricata-update, so they always need stubs
+              # if absent.
+              for f in \
+                suricata.rules \
+                emerging-attack_response.rules \
+                emerging-chat.rules \
+                emerging-coinminer.rules \
+                emerging-current_events.rules \
+                emerging-dns.rules \
+                emerging-dos.rules \
+                emerging-exploit.rules \
+                emerging-ftp.rules \
+                emerging-hunting.rules \
+                emerging-imap.rules \
+                emerging-info.rules \
+                emerging-malware.rules \
+                emerging-misc.rules \
+                emerging-mobile_malware.rules \
+                emerging-netbios.rules \
+                emerging-p2p.rules \
+                emerging-phishing.rules \
+                emerging-policy.rules \
+                emerging-pop3.rules \
+                emerging-rpc.rules \
+                emerging-scada.rules \
+                emerging-scan.rules \
+                emerging-shellcode.rules \
+                emerging-smtp.rules \
+                emerging-snmp.rules \
+                emerging-sql.rules \
+                emerging-telnet.rules \
+                emerging-tftp.rules \
+                emerging-trojan.rules \
+                emerging-user_agents.rules \
+                emerging-voip.rules \
+                emerging-web_client.rules \
+                emerging-web_server.rules \
+                emerging-web_specific_apps.rules \
+                emerging-worm.rules \
+                misp.rules \
+                bc-custom.rules \
+                bc-k8s.rules; do
+                if [ ! -f "/var/lib/suricata/rules/$f" ]; then
+                  touch "/var/lib/suricata/rules/$f"
+                  echo "[rule-updater] Created empty placeholder: $f"
+                fi
               done
-              echo "Rules loaded:"
+
+              echo "[rule-updater] Rule directory contents:"
               ls -la /var/lib/suricata/rules/
+              echo "[rule-updater] Init complete (RULES_OK=${RULES_OK}). Proceeding to start Suricata."
+              exit 0
           volumeMounts:
             - name: rules
               mountPath: /var/lib/suricata
