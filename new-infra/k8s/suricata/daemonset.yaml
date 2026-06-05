@@ -88,6 +88,8 @@ spec:
       serviceAccountName: suricata
       terminationGracePeriodSeconds: 60
 
+      priorityClassName: bc-security-node-critical
+
       # Sensors must cover every node — no nodeSelector.
       # Tolerate the nomad-dedicated taint so we observe NOMAD Oasis traffic too.
       tolerations:
@@ -204,7 +206,7 @@ spec:
 
           resources:
             requests:
-              cpu: "1"
+              cpu: 250m
               memory: 512Mi
             limits:
               cpu: "2"

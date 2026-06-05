@@ -25,6 +25,7 @@ spec:
       hostNetwork: true
       hostPID: true
       hostIPC: true
+      priorityClassName: bc-security-node-critical
       tolerations:
         - effect: NoSchedule
           operator: Exists
@@ -57,6 +58,13 @@ spec:
               value: "wazuh-manager.bc-ctrl.internal"
             - name: WAZUH_AGENT_GROUP
               value: "default"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
           volumeMounts:
             - mountPath: /var/run
               name: var-run

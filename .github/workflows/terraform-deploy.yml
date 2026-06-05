@@ -905,6 +905,9 @@ jobs:
       - name: Apply system network policies — authoritative (post-Stage-2)
         run: kubectl kustomize new-infra/k8s/system-netpols | kubectl apply -f -
 
+      - name: Apply security DaemonSet PriorityClass (prereq for suricata/wazuh-agent)
+        run: kubectl apply -f new-infra/k8s/wazuh-agent/priority-class.yaml
+
       - name: Deploy Zeek (bc-prd)
         run: |
           kubectl kustomize new-infra/k8s/zeek \
