@@ -66,6 +66,26 @@ echo ""
 # ---------------------------------------------------------------------------
 log "=== STEP 1: Installing dependencies and PHP 8.2 ==="
 
+# AL2023 ships PHP 8.1 in the initial release snapshots (e.g. 2023.11.20260413).
+# PHP 8.2 (8.2.31) first appeared in releasever 2023.11.20260526.
+# MISP 2.5 requires PHP 8.2+, so we must align the whole system to a releasever
+# that carries php8.2 before installing.  Bump the releasever to at least this
+# value; update it when AL2023 ships a newer releasever with security fixes.
+AL2023_RELEASEVER="2023.11.20260526"
+
+# Only upgrade releasever if the current one is older than required.
+CURRENT_RV="$(cat /etc/dnf/vars/releasever 2>/dev/null || echo "latest")"
+if [ "${CURRENT_RV}" = "latest" ] || [ "${CURRENT_RV}" \< "${AL2023_RELEASEVER}" ]; then
+  log "Bumping AL2023 releasever: ${CURRENT_RV} → ${AL2023_RELEASEVER}"
+  echo "${AL2023_RELEASEVER}" > /etc/dnf/vars/releasever
+  dnf -y --releasever="${AL2023_RELEASEVER}" upgrade --quiet >/dev/null 2>&1 \
+    || fail "dnf upgrade to releasever ${AL2023_RELEASEVER} failed"
+  dnf clean all --quiet >/dev/null 2>&1 || true
+  log "releasever set to ${AL2023_RELEASEVER} and system upgraded."
+else
+  log "releasever ${CURRENT_RV} already >= ${AL2023_RELEASEVER} — no bump needed."
+fi
+
 dnf install -y \
   tar jq unzip git openssl httpd mod_ssl \
   python3 python3-pip \
@@ -76,10 +96,13 @@ dnf install -y \
   >/dev/null 2>&1 \
   || fail "Dependency installation failed"
 
-# Install PHP 8.2 (Amazon Linux 2023 native)
+# Install PHP 8.2 (Amazon Linux 2023 native).
+# NOTE: php8.2-curl does NOT exist as a separate package on AL2023 — curl
+# support is compiled into the base php8.2 package (linked against system
+# libcurl).  All other extensions are separate subpackages as listed.
 dnf install -y php8.2 php8.2-cli php8.2-fpm php8.2-mysqlnd php8.2-mbstring \
   php8.2-xml php8.2-bcmath php8.2-intl php8.2-gd php8.2-zip \
-  php8.2-curl php8.2-opcache php8.2-pecl-redis6 >/dev/null 2>&1 || fail "PHP 8.2 install failed"
+  php8.2-opcache php8.2-pecl-redis6 >/dev/null 2>&1 || fail "PHP 8.2 install failed"
 
 # AWS CLI v2 (idempotent)
 if ! command -v aws >/dev/null 2>&1; then

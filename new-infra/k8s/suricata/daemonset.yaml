@@ -105,15 +105,6 @@ spec:
       hostPID: false
       dnsPolicy: ClusterFirstWithHostNet
 
-      # Hard-code MISP private IP so the sidecar can reach MISP over VPC
-      # peering even when VPC-private DNS (misp.bc-ctrl.internal) is broken.
-      # Trade-off: if the MISP EC2 (misp-ctrl) is rebuilt with a new private
-      # IP this entry must be updated and the DaemonSet rolled.
-      hostAliases:
-        - ip: "10.0.10.245"
-          hostnames:
-            - "misp.bc-ctrl.internal"
-
       securityContext:
         runAsUser: 0
         runAsGroup: 0
