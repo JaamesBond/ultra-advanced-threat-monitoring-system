@@ -106,12 +106,11 @@ spec:
               memory: 30Mi
           volumeMounts:
             - name: config-volume
-              mountPath: /etc/Corefile
-              subPath: Corefile
+              mountPath: /etc/coredns
       volumes:
         - name: config-volume
           configMap:
             name: node-local-dns
             items:
               - key: Corefile
-                path: Corefile
+                path: Corefile.base
