@@ -298,6 +298,10 @@ resource "aws_instance" "misp" {
     # Download and run install script
     aws s3 cp s3://${aws_s3_object.misp_install_script.bucket}/${aws_s3_object.misp_install_script.key} \
       /tmp/phase4-install-misp.sh --region eu-central-1
+    # Normalize line endings: a CRLF-tainted upload (e.g. a Windows local
+    # terraform apply) would otherwise fail at the script's `set -o pipefail`
+    # with "invalid option name". This makes the bootstrap CRLF-immune.
+    sed -i 's/\r$//' /tmp/phase4-install-misp.sh
     chmod +x /tmp/phase4-install-misp.sh
     bash /tmp/phase4-install-misp.sh
   EOF

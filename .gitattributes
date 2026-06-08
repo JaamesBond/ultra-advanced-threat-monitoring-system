@@ -1,0 +1,11 @@
+# Shell scripts MUST use LF — they run on Linux EC2/containers. A CRLF checkout
+# (e.g. on Windows) breaks `set -o pipefail` at boot. Pin them to LF regardless
+# of platform / core.autocrlf.
+*.sh text eol=lf
+
+# Other text files: normalize to LF in the repo, let Git handle the working copy.
+*.tf   text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.json text eol=lf
+*.xml  text eol=lf

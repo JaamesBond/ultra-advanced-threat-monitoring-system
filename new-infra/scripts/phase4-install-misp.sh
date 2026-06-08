@@ -537,24 +537,32 @@ if [[ "${TABLE_COUNT}" -lt 10 ]]; then
   AUTHKEY_START="${MISP_API_KEY:0:4}"
   AUTHKEY_END="${MISP_API_KEY: -4}"
   AUTHKEY_UUID="$(python3 -c "import uuid; print(str(uuid.uuid4()))")"
+  # MISP 2.5 stores auth_keys.authkey as a bcrypt hash (BlowfishConstantPasswordHasher,
+  # i.e. password_hash($raw, PASSWORD_BCRYPT) — no pepper, no cost override).
+  # authkey_start / authkey_end are the raw first/last 4 chars used as a lookup index;
+  # MISP then calls password_verify($presented_raw_key, $stored_hash) to authenticate.
+  # Sidecars present the raw key to MISP — they must receive and store the raw value.
+  AUTHKEY_HASH="$(php -r "echo password_hash('${MISP_API_KEY}', PASSWORD_BCRYPT);")"
 
   mysql -u root -p"${MYSQL_ROOT_PASSWORD}" misp 2>/dev/null <<SQL || true
 INSERT IGNORE INTO organisations (id, name, uuid, date_created, date_modified, type, local)
   VALUES (1, 'BigChemistry', '$(python3 -c "import uuid; print(str(uuid.uuid4()))")', NOW(), NOW(), 'ADMIN', 1);
 
-UPDATE users SET 
-  email='${MISP_ADMIN_EMAIL}', 
-  password='${ADMIN_HASH}', 
-  password_salt='${ADMIN_SALT}', 
-  authkey='${MISP_API_KEY}', 
-  change_pw=0, 
-  termsaccepted=1 
+UPDATE users SET
+  email='${MISP_ADMIN_EMAIL}',
+  password='${ADMIN_HASH}',
+  password_salt='${ADMIN_SALT}',
+  authkey='${MISP_API_KEY}',
+  change_pw=0,
+  termsaccepted=1
 WHERE id=1;
+-- users.authkey is the legacy single-key column; MISP 2.5 authenticates exclusively
+-- via the auth_keys table above. The raw value here is harmless (unused in 2.5 auth path).
 
-INSERT INTO auth_keys 
-  (uuid, authkey, authkey_start, authkey_end, created, expiration, read_only, user_id, comment, allowed_ips, unique_ips) 
-VALUES 
-  ('${AUTHKEY_UUID}', '${MISP_API_KEY}', '${AUTHKEY_START}', '${AUTHKEY_END}', UNIX_TIMESTAMP(), 0, 0, 1, 'Auto-provisioned API Key', '[]', '[]');
+INSERT INTO auth_keys
+  (uuid, authkey, authkey_start, authkey_end, created, expiration, read_only, user_id, comment, allowed_ips, unique_ips)
+VALUES
+  ('${AUTHKEY_UUID}', '${AUTHKEY_HASH}', '${AUTHKEY_START}', '${AUTHKEY_END}', UNIX_TIMESTAMP(), 0, 0, 1, 'Auto-provisioned API Key', '[]', '[]');
 SQL
   log "Admin user seeded with pre-defined API key."
 
