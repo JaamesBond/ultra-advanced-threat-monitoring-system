@@ -1,0 +1,58 @@
+<!--
+  bc-zeek.xml — Custom Wazuh rules for Zeek network-security telemetry.
+
+  Rule ID range: 100700-100799 (reserved for bc Zeek sensor)
+  Telemetry source: Zeek on bc-prd EKS nodes (JSON logs via LogAscii::use_json)
+                    shipped by the wazuh-agent DaemonSet. Decoded as JSON.
+
+  CONTEXT (verified 2026-06-02): Zeek is flowing in volume — ~705k events/day
+  reach the manager (conn 419k, dns 107k, http 181k) and decode fine (conn = 17
+  fields, well under the JSON limit). But they generated ZERO alerts because
+  conn/dns/http are INFORMATIONAL by design — they belong in archives, not as
+  alerts. The high-value Zeek alerts come from the Notice and Intel frameworks:
+
+    - intel.log: MISP IOC matches (the misp-intel-sync sidecar feeds Zeek's Intel
+      framework). intel.log was NOT shipped before 2026-06-02 — the wazuh-agent
+      localfile for it was added in the same change as these rules. This is the
+      MISP -> Zeek -> Wazuh detection payoff.
+    - notice.log: Zeek's curated "noteworthy" events.
+
+  >>> VALIDATION STATUS <<<
+    Unlike Falco/Suricata, there is NO live Notice/Intel data to validate against
+    yet (0 notices/intel hits at write time — IOC matches are rare). Field paths
+    below follow Zeek's DOCUMENTED JSON schema (intel.log: seen.indicator,
+    seen.indicator_type, seen.where, matched, sources; notice.log: note, msg, sub,
+    src, dst). CONFIRM the paths against a real event when the first hit lands.
+
+  These are DETECT + FORWARD rules; response is owned by Splunk SOAR.
+-->
+<group name="bc-zeek,nsm,">
+
+  <!-- ============================================================
+       100700 — Zeek Intel framework hit (MISP IOC seen on the wire)
+       MITRE: T1071 (Application Layer Protocol) — IOC context refined by SOAR
+       Level 13. A known-bad indicator from MISP was observed in live traffic.
+  ============================================================ -->
+  <rule id="100700" level="13">
+    <decoded_as>json</decoded_as>
+    <field name="seen.indicator" type="pcre2">.+</field>
+    <description>Zeek Intel hit — MISP IOC $(seen.indicator) ($(seen.indicator_type)) seen at $(seen.where)</description>
+    <mitre>
+      <id>T1071</id>
+    </mitre>
+    <group>zeek,intel,misp,ioc_match,</group>
+  </rule>
+
+  <!-- ============================================================
+       100701 — Zeek Notice (noteworthy network event)
+       Level 8: medium — Zeek's Notice framework (scan detection, SSL/cert
+       anomalies, protocol violations, etc.). SOAR triages by $(note).
+  ============================================================ -->
+  <rule id="100701" level="8">
+    <decoded_as>json</decoded_as>
+    <field name="note" type="pcre2">.+</field>
+    <description>Zeek Notice — $(note): $(msg)</description>
+    <group>zeek,notice,</group>
+  </rule>
+
+</group>
