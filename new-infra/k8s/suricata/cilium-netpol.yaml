@@ -10,13 +10,26 @@ spec:
   ingress: []
   egress:
     # Allow DNS — toEntities:all covers both kube-dns (cluster) and
-    # VPC DNS at 169.254.169.253 (used by hostNetwork pods)
+    # VPC DNS at 169.254.169.253 (used by hostNetwork pods).
+    # The explicit host/remote-node rule below is additive: it documents
+    # the NodeLocal DNSCache dependency (cache binds 172.20.0.10 as
+    # hostNetwork=true; queries hit reserved:host / reserved:remote-node).
+    # toEntities:all already covers host, so this does not change enforcement.
     - toPorts:
         - ports:
             - port: "53"
               protocol: ANY
       toEntities:
         - all
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
     # Allow HTTPS and HTTP to internet for ET Open rule refreshes
     # Phase J will tighten this to toFQDNs: rules.emergingthreats.net only
     - toEntities:

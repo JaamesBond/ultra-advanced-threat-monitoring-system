@@ -1,0 +1,30 @@
+# kube-dns-upstream — a second ClusterIP Service for CoreDNS pods.
+#
+# NodeLocal DNSCache binds 172.20.0.10 locally on each node, so the cache
+# itself cannot forward cluster.local misses to 172.20.0.10 without looping.
+# The -upstreamsvc flag in the DaemonSet args points the cache at THIS service
+# instead, routing cluster.local forwards to the actual CoreDNS pods via a
+# distinct ClusterIP (auto-assigned) that is NOT hijacked by the cache.
+#
+# Selector: k8s-app=kube-dns — matches the EKS-managed CoreDNS Deployment
+# pods in kube-system (same selector as the existing kube-dns Service).
+apiVersion: v1
+kind: Service
+metadata:
+  name: kube-dns-upstream
+  namespace: kube-system
+  labels:
+    k8s-app: kube-dns
+    kubernetes.io/name: "KubeDNSUpstream"
+spec:
+  selector:
+    k8s-app: kube-dns
+  ports:
+    - name: dns
+      port: 53
+      protocol: UDP
+      targetPort: 53
+    - name: dns-tcp
+      port: 53
+      protocol: TCP
+      targetPort: 53

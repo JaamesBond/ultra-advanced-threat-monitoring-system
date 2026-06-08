@@ -1,0 +1,117 @@
+# NodeLocal DNSCache — ServiceAccount + DaemonSet
+#
+# Cilium-specific flags:
+#   -setupiptables=false   Cilium owns the datapath; do NOT install iptables
+#                          rules to intercept 169.254.20.10 / 172.20.0.10.
+#                          Installing them would conflict with Cilium's BPF hooks.
+#   -skipteardown=true     Do not tear down the dummy interface or iptables rules
+#                          on pod termination (Cilium's BPF map handles routing).
+#
+# bind-ClusterIP variant (-localip includes 172.20.0.10):
+#   Pods' /etc/resolv.conf points at 172.20.0.10 (kube-dns ClusterIP). The cache
+#   binds that IP locally so queries resolve to the per-node cache without any
+#   kubelet change or /etc/resolv.conf patching.
+#
+# -upstreamsvc kube-dns-upstream:
+#   cluster.local misses are forwarded to the kube-dns-upstream Service ClusterIP
+#   (NOT 172.20.0.10 which the cache is bound to), avoiding a forwarding loop.
+#
+# hostNetwork: true + dnsPolicy: Default:
+#   Required so the cache can bind link-local addresses and use the node's
+#   resolv.conf for upstream (VPC resolver path).
+#
+# NET_ADMIN capability:
+#   Required to create/configure the dummy network interface used to bind
+#   the link-local IP 169.254.20.10. No other elevated privileges are needed.
+#
+# tolerations: [{operator: Exists}]:
+#   Must run on every node including the nomad-tainted node
+#   (dedicated=nomad:NoSchedule) and any future tainted node groups.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: node-local-dns
+  namespace: kube-system
+  labels:
+    k8s-app: node-local-dns
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-local-dns
+  namespace: kube-system
+  labels:
+    k8s-app: node-local-dns
+spec:
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 1
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      k8s-app: node-local-dns
+  template:
+    metadata:
+      labels:
+        k8s-app: node-local-dns
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9253"
+    spec:
+      serviceAccountName: node-local-dns
+      priorityClassName: system-node-critical
+      hostNetwork: true
+      dnsPolicy: Default
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: node-cache
+          image: registry.k8s.io/dns/k8s-dns-node-cache:1.23.1
+          args:
+            - -localip
+            - 169.254.20.10,172.20.0.10
+            - -conf
+            - /etc/Corefile
+            - -upstreamsvc
+            - kube-dns-upstream
+            - -setupiptables=false
+            - -skipteardown=true
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+          ports:
+            - containerPort: 53
+              name: dns
+              protocol: UDP
+            - containerPort: 53
+              name: dns-tcp
+              protocol: TCP
+            - containerPort: 9253
+              name: metrics
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              host: 169.254.20.10
+              path: /health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 25m
+              memory: 30Mi
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/Corefile
+              subPath: Corefile
+      volumes:
+        - name: config-volume
+          configMap:
+            name: node-local-dns
+            items:
+              - key: Corefile
+                path: Corefile

@@ -192,6 +192,16 @@ nomad:
         operator: Equal
         value: nomad
         effect: NoSchedule
+    # ndots:2 reduces DNS query amplification: with the default ndots:5, every
+    # short name (e.g. "nomad-oasis-postgresql") generates 5 queries by appending
+    # each search domain before trying the bare name. ndots:2 means names with
+    # fewer than 2 dots are expanded; names with 2+ dots are tried bare first,
+    # cutting SRV/TXT lookup chains from 5 attempts to 1-2 on average.
+    # This is the source-side complement to NodeLocal DNSCache's force_tcp fix.
+    dnsConfig:
+      options:
+        - name: ndots
+          value: "2"
     resources:
       requests:
         memory: "64Mi"
@@ -217,6 +227,11 @@ nomad:
         operator: Equal
         value: nomad
         effect: NoSchedule
+    # ndots:2 — see proxy.dnsConfig comment above.
+    dnsConfig:
+      options:
+        - name: ndots
+          value: "2"
     resources:
       requests:
         memory: "256Mi"   # was 512Mi
@@ -244,6 +259,11 @@ nomad:
         operator: Equal
         value: nomad
         effect: NoSchedule
+    # ndots:2 — see proxy.dnsConfig comment above.
+    dnsConfig:
+      options:
+        - name: ndots
+          value: "2"
     resources:
       requests:
         memory: "512Mi"   # was 1Gi
@@ -451,6 +471,12 @@ temporal:
         operator: Equal
         value: nomad
         effect: NoSchedule
+    # ndots:2 — Temporal is the primary source of gRPC SRV/TXT DNS amplification.
+    # See nomad.proxy.dnsConfig comment for full rationale.
+    dnsConfig:
+      options:
+        - name: ndots
+          value: "2"
     config:
       publicClient:
         hostPort: "nomad-oasis-temporal-frontend:7233"

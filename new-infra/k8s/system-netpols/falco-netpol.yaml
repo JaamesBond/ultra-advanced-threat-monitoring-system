@@ -27,10 +27,16 @@ spec:
         - ports:
             - port: "443"
               protocol: TCP
+    # DNS — cluster/remote-node covers CoreDNS pod IPs directly.
+    # host added for NodeLocal DNSCache: cache binds 172.20.0.10 as
+    # hostNetwork=true; pod DNS queries to that IP hit the host identity.
     - toEntities:
         - cluster
         - remote-node
+        - host
       toPorts:
         - ports:
             - port: "53"
-              protocol: ANY
+              protocol: UDP
+            - port: "53"
+              protocol: TCP

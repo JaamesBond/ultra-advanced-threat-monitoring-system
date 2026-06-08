@@ -56,7 +56,7 @@ spec:
             k8s:io.kubernetes.pod.namespace: kube-system
             k8s:app.kubernetes.io/name: cilium
   egress:
-    # DNS resolution via kube-dns
+    # DNS resolution via kube-dns (direct to CoreDNS pods — pre-NodeLocal DNSCache path)
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
@@ -68,6 +68,19 @@ spec:
           rules:
             dns:
               - matchPattern: "*"
+    # NodeLocal DNSCache path — cache binds 172.20.0.10 as hostNetwork=true.
+    # Cilium sees DNS queries to that IP as going to reserved:host (local node)
+    # or reserved:remote-node (other nodes). Without this rule DNS breaks after
+    # the cache is deployed because the toEndpoints rule above no longer matches.
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
     # NOMAD app → MongoDB (Bitnami chart: name=mongodb, component=mongodb)
     - toEndpoints:
         - matchLabels:
@@ -179,7 +192,7 @@ spec:
             k8s:io.kubernetes.pod.namespace: kube-system
             k8s:app.kubernetes.io/name: cilium
   egress:
-    # DNS
+    # DNS (direct to CoreDNS pods — pre-NodeLocal DNSCache path)
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
@@ -191,6 +204,16 @@ spec:
           rules:
             dns:
               - matchPattern: "*"
+    # NodeLocal DNSCache path — see nomad-app-netpol DNS comment.
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
     # NOMAD worker → MongoDB
     - toEndpoints:
         - matchLabels:
@@ -308,7 +331,7 @@ spec:
             k8s:io.kubernetes.pod.namespace: kube-system
             k8s:app.kubernetes.io/name: cilium
   egress:
-    # DNS
+    # DNS (direct to CoreDNS pods — pre-NodeLocal DNSCache path)
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
@@ -320,6 +343,16 @@ spec:
           rules:
             dns:
               - matchPattern: "*"
+    # NodeLocal DNSCache path — see nomad-app-netpol DNS comment.
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
     # proxy → app backend
     - toEndpoints:
         - matchLabels:
@@ -377,7 +410,7 @@ spec:
             k8s:io.kubernetes.pod.namespace: kube-system
             k8s:app.kubernetes.io/name: cilium
   egress:
-    # DNS
+    # DNS (direct to CoreDNS pods — pre-NodeLocal DNSCache path)
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
@@ -389,6 +422,16 @@ spec:
           rules:
             dns:
               - matchPattern: "*"
+    # NodeLocal DNSCache path — see nomad-app-netpol DNS comment.
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
     # STS VPC endpoint (for image pull auth and any IRSA calls)
     - toCIDRSet:
         - cidr: 10.30.10.209/32
@@ -439,7 +482,7 @@ spec:
             k8s:io.kubernetes.pod.namespace: kube-system
             k8s:app.kubernetes.io/name: cilium
   egress:
-    # DNS
+    # DNS (direct to CoreDNS pods — pre-NodeLocal DNSCache path)
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
@@ -451,6 +494,16 @@ spec:
           rules:
             dns:
               - matchPattern: "*"
+    # NodeLocal DNSCache path — see nomad-app-netpol DNS comment.
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
     # Peer discovery (Elasticsearch transport between replicas if scaled)
     - toEndpoints:
         - matchLabels:
@@ -505,7 +558,7 @@ spec:
             k8s:io.kubernetes.pod.namespace: kube-system
             k8s:app.kubernetes.io/name: cilium
   egress:
-    # DNS
+    # DNS (direct to CoreDNS pods — pre-NodeLocal DNSCache path)
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
@@ -517,6 +570,16 @@ spec:
           rules:
             dns:
               - matchPattern: "*"
+    # NodeLocal DNSCache path — see nomad-app-netpol DNS comment.
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
     # STS VPC endpoint
     - toCIDRSet:
         - cidr: 10.30.10.209/32
@@ -585,7 +648,7 @@ spec:
             k8s:io.kubernetes.pod.namespace: kube-system
             k8s:app.kubernetes.io/name: cilium
   egress:
-    # DNS
+    # DNS (direct to CoreDNS pods — pre-NodeLocal DNSCache path)
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
@@ -597,6 +660,20 @@ spec:
           rules:
             dns:
               - matchPattern: "*"
+    # NodeLocal DNSCache path — see nomad-app-netpol DNS comment.
+    # This is especially critical for Temporal: its gRPC SRV/TXT queries
+    # are the primary contributor to the DNS query storm. Ensuring Temporal
+    # hits the per-node cache (which force_tcp's to CoreDNS) eliminates the
+    # UDP packet flood that saturated the per-ENI ~1024 pps VPC resolver limit.
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
     # Temporal → PostgreSQL for persistence (frontend, history, matching, worker, schema-init)
     - toEndpoints:
         - matchLabels:
@@ -702,7 +779,7 @@ spec:
             k8s:io.kubernetes.pod.namespace: kube-system
             k8s:app.kubernetes.io/name: cilium
   egress:
-    # DNS
+    # DNS (direct to CoreDNS pods — pre-NodeLocal DNSCache path)
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
@@ -714,6 +791,16 @@ spec:
           rules:
             dns:
               - matchPattern: "*"
+    # NodeLocal DNSCache path — see nomad-app-netpol DNS comment.
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
     # Keycloak → PostgreSQL (keycloak DB created by init Job)
     - toEndpoints:
         - matchLabels:

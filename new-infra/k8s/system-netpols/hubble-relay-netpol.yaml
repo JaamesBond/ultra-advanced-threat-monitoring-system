@@ -28,6 +28,8 @@ spec:
     # toEntities:cluster alone does not match the post-DNAT identity; add toCIDRSet covering
     # the entire bc-prd VPC so DNAT'd CoreDNS pod IPs are always reachable. Same bug class as
     # external-secrets STS fix — see CLAUDE.md "Cilium ENI Mode" section.
+    # host added for NodeLocal DNSCache: cache binds 172.20.0.10 as hostNetwork=true;
+    # DNS queries to that IP hit the host identity on the local node.
     - toCIDRSet:
         - cidr: 10.30.0.0/16
       toPorts:
@@ -37,7 +39,10 @@ spec:
     - toEntities:
         - cluster
         - remote-node
+        - host
       toPorts:
         - ports:
             - port: "53"
-              protocol: ANY
+              protocol: UDP
+            - port: "53"
+              protocol: TCP

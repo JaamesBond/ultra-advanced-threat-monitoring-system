@@ -524,6 +524,34 @@ jobs:
       - name: Apply system network policies (post-Stage-2b)
         run: kubectl kustomize new-infra/k8s/system-netpols | kubectl apply -f -
 
+      # Deploy NodeLocal DNSCache immediately after system-netpols so the
+      # host/remote-node DNS allow rules (added to every CNP in this commit)
+      # are in place before the cache DaemonSet starts binding 172.20.0.10.
+      # Ordering rationale:
+      #   - Must run AFTER "Apply system network policies (post-Stage-2b)" so
+      #     the updated CNPs (coredns-netpol fromEntities:host ingress + every
+      #     namespace's toEntities:host/remote-node DNS egress) are applied
+      #     before the cache pods start, avoiding a window where pods lose DNS.
+      #   - Must run BEFORE Stage 2c (NOMAD ExternalSecrets) and Stage 2d
+      #     (NOMAD Helm) so the cache is serving before Temporal/NOMAD start
+      #     their gRPC SRV/TXT DNS storm.
+      # No -target= list change needed: this is kustomize-applied (not a TF resource).
+      # __PILLAR__UPSTREAM__SERVERS__ is substituted by sed (→ /etc/resolv.conf).
+      # __PILLAR__CLUSTER__DNS__ is NOT substituted by sed — it is kept as a
+      # literal token in the ConfigMap and replaced at runtime by the node-cache
+      # binary (1.23.x), which reads the kube-dns-upstream Service's ClusterIP
+      # from the Kubernetes-injected env var KUBE_DNS_UPSTREAM_SERVICE_HOST
+      # (derived from -upstreamsvc kube-dns-upstream in the DaemonSet args).
+      # Substituting it with 172.20.0.10 here would cause a DNS self-loop:
+      # the cache binds 172.20.0.10 locally, so forwarding cluster.local to
+      # 172.20.0.10 would forward back to itself and crash the pod (loop plugin).
+      - name: Deploy NodeLocal DNSCache (bc-prd)
+        run: |
+          kubectl kustomize new-infra/k8s/node-local-dns \
+            | sed -e "s#__PILLAR__UPSTREAM__SERVERS__#/etc/resolv.conf#g" \
+            | kubectl apply -f -
+          kubectl -n kube-system rollout status daemonset/node-local-dns --timeout=180s || true
+
       # Apply the shared ClusterSecretStore before any ExternalSecret consumer.
       # The store "aws-secrets-manager" is cluster-scoped and used by NOMAD,
       # suricata, and zeek. It was previously co-located in the suricata

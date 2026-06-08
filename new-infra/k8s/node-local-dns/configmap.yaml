@@ -1,0 +1,92 @@
+# NodeLocal DNSCache — Corefile ConfigMap
+#
+# Token substitution:
+#   __PILLAR__CLUSTER__DNS__     — NOT replaced by CI sed. Kept as a literal
+#                                  token. The node-cache binary (1.23.x)
+#                                  substitutes it at runtime using the
+#                                  kube-dns-upstream Service's ClusterIP,
+#                                  which it reads from the Kubernetes-injected
+#                                  env var KUBE_DNS_UPSTREAM_SERVICE_HOST
+#                                  (set by -upstreamsvc kube-dns-upstream in
+#                                  the DaemonSet args). This avoids a DNS
+#                                  self-loop: the cache binds 172.20.0.10
+#                                  locally, so cluster.local forwards MUST go
+#                                  to the kube-dns-upstream ClusterIP (a
+#                                  separate, auto-assigned IP that is NOT
+#                                  172.20.0.10) rather than back to itself.
+#   __PILLAR__UPSTREAM__SERVERS__ → /etc/resolv.conf  (substituted by CI sed)
+#
+# Design decisions:
+#   - Both 169.254.20.10 AND 172.20.0.10 are bound on every zone.
+#     The 172.20.0.10 "bind-ClusterIP variant" means kubelets need NO
+#     change — pods continue to use 172.20.0.10 as their nameserver and
+#     their queries hit the local cache, not the CoreDNS pods across the
+#     network. 169.254.20.10 is also bound so the DaemonSet itself can
+#     use it as a loopback health endpoint.
+#   - force_tcp on ALL zones (including the catch-all .:53) is the core
+#     fix: TCP coalesces concurrent queries, collapsing the per-ENI ~1024
+#     pps UDP storm that exhausted the AWS VPC Resolver limit.
+#   - cluster.local / in-addr.arpa / ip6.arpa forward to
+#     __PILLAR__CLUSTER__DNS__ (= kube-dns-upstream ClusterIP at runtime,
+#     NOT 172.20.0.10 which the cache itself binds — forwarding to
+#     172.20.0.10 would cause a self-loop and crash the pod via the loop
+#     plugin).
+#   - .:53 catch-all forwards to __PILLAR__UPSTREAM__SERVERS__ (= the
+#     node's /etc/resolv.conf, pointing at the VPC resolver 169.254.169.253).
+#   - prometheus :9253 on all zones for scraping.
+#   - health on 169.254.20.10:8080 for the DaemonSet livenessProbe.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: node-local-dns
+  namespace: kube-system
+data:
+  Corefile: |
+    cluster.local:53 {
+        errors
+        cache {
+            success 9984 30
+            denial 9984 5
+        }
+        reload
+        loop
+        bind 169.254.20.10 172.20.0.10
+        forward . __PILLAR__CLUSTER__DNS__ {
+            force_tcp
+        }
+        prometheus :9253
+        health 169.254.20.10:8080
+        }
+    in-addr.arpa:53 {
+        errors
+        cache 30
+        reload
+        loop
+        bind 169.254.20.10 172.20.0.10
+        forward . __PILLAR__CLUSTER__DNS__ {
+            force_tcp
+        }
+        prometheus :9253
+        }
+    ip6.arpa:53 {
+        errors
+        cache 30
+        reload
+        loop
+        bind 169.254.20.10 172.20.0.10
+        forward . __PILLAR__CLUSTER__DNS__ {
+            force_tcp
+        }
+        prometheus :9253
+        }
+    .:53 {
+        errors
+        cache 30
+        reload
+        loop
+        bind 169.254.20.10 172.20.0.10
+        forward . __PILLAR__UPSTREAM__SERVERS__ {
+            force_tcp
+        }
+        prometheus :9253
+        }

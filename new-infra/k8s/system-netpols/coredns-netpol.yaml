@@ -14,6 +14,21 @@ spec:
         - ports:
             - port: "53"
               protocol: ANY
+    # NodeLocal DNSCache forwards cluster.local misses from the host network
+    # stack (identity reserved:host) to CoreDNS pods. Without this rule Cilium
+    # drops cache→CoreDNS TCP 53 with "Policy denied" because the cache runs
+    # as hostNetwork=true and is seen as the host identity at the endpoint.
+    # fromEntities:all above already covers host, but this explicit rule
+    # documents the NodeLocal DNSCache dependency and survives any future
+    # tightening of the all entity.
+    - fromEntities:
+        - host
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
   egress:
     # Upstream DNS forwarding — VPC resolver at 169.254.169.253 is reachable via host
     - toEntities:
