@@ -48,7 +48,7 @@ spec:
         app.kubernetes.io/component: nomad-oasis
         app.kubernetes.io/name: keycloak-db-init
     spec:
-      restartPolicy: OnFailure
+      restartPolicy: Never
       nodeSelector:
         role: nomad
       tolerations:

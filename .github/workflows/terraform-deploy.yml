@@ -671,6 +671,47 @@ jobs:
 
           echo "=== Keycloak DB init complete ==="
 
+      # Step A (diagnostics): capture psql logs on Job failure.
+      #
+      # Runs ONLY when Step A fails. Because restartPolicy=Never is set on
+      # the Job, each backoff attempt creates a new pod that is retained in
+      # Failed state — so logs survive until ttlSecondsAfterFinished fires.
+      # This step is best-effort: every command is || true so it cannot
+      # itself block the run or convert a failure into a success.
+      - name: Capture Keycloak DB init logs on failure (Step A diagnostics)
+        if: failure()
+        continue-on-error: true
+        run: |
+          set +e
+          echo "=== DIAGNOSTIC: keycloak-db-init Job failure dump ==="
+
+          echo "--- Job description ---"
+          kubectl -n nomad-oasis describe job keycloak-db-init || true
+
+          echo "--- Pod logs (current + previous containers, tail 200) ---"
+          kubectl -n nomad-oasis logs \
+            -l job-name=keycloak-db-init \
+            --all-containers \
+            --tail=200 \
+            --prefix || true
+
+          echo "--- Previous-container logs per pod (catches OOMKilled / crash) ---"
+          for pod in $(kubectl -n nomad-oasis get pods \
+                         -l job-name=keycloak-db-init \
+                         -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+            echo "  -- previous logs for pod/$pod --"
+            kubectl -n nomad-oasis logs "$pod" --previous || true
+          done
+
+          echo "--- Pod descriptions ---"
+          kubectl -n nomad-oasis describe pods -l job-name=keycloak-db-init || true
+
+          echo "--- Recent namespace events (last 40) ---"
+          kubectl -n nomad-oasis get events \
+            --sort-by=.lastTimestamp 2>/dev/null | tail -40 || true
+
+          echo "=== END DIAGNOSTIC ==="
+
       # Step B: Apply NOMAD proxy nginx ConfigMap overlay and restart proxy
       #
       # The Helm chart generates nomad-oasis-configmap-proxy without an /auth/
