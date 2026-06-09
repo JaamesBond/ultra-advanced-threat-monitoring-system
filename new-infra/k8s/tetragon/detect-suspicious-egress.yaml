@@ -1,0 +1,49 @@
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: "detect-suspicious-egress"
+spec:
+  # ---------------------------------------------------------------------------
+  # C2 / exfiltration DETECTION (purple-team F-08, 2026-06-10).
+  #
+  # Why: Suricata/Zeek are blind to pod-to-pod and pod egress in this Cilium
+  # ENI + WireGuard mesh (traffic is encrypted before it reaches the host NIC
+  # they sniff). The ONLY in-kernel vantage point that sees the real connection
+  # is an eBPF kprobe BEFORE encryption. This policy hooks tcp_connect and
+  # surfaces outbound connections that look like command-and-control:
+  #     destination is NOT in any private/cluster range  AND
+  #     destination port is NOT a normal web/DNS port (443/80/53).
+  # Legitimate app egress is overwhelmingly HTTPS(443)/HTTP(80)/DNS(53), so this
+  # is a low-noise signal for beaconing to an attacker host on an odd port.
+  #
+  # Safety: ALERT-ONLY. There is NO matchAction/Sigkill — this policy cannot
+  # block, drop, or kill anything, so it cannot affect the running application.
+  # It only emits a PROCESS_KPROBE event (in the Tetragon exportAllowList) which
+  # flows to the node tetragon.json -> wazuh-agent -> Wazuh manager.
+  #
+  # Prevention (egress allow-list via CiliumNetworkPolicy) is tracked separately
+  # as the F-08 prevention control; detection here is the immediate, safe win.
+  # ---------------------------------------------------------------------------
+  kprobes:
+  - call: "tcp_connect"
+    syscall: false
+    args:
+    - index: 0
+      type: "sock"
+    selectors:
+    - matchArgs:
+      - index: 0
+        operator: "NotDAddr"
+        values:
+        - "10.0.0.0/8"       # VPC / pods / cluster
+        - "172.16.0.0/12"    # ClusterIP range + RFC1918
+        - "192.168.0.0/16"   # RFC1918
+        - "127.0.0.0/8"      # loopback
+        - "169.254.0.0/16"   # link-local / IMDS
+        - "100.64.0.0/10"    # CGNAT (EKS/AWS internal)
+      - index: 0
+        operator: "NotDPort"
+        values:
+        - "443"              # HTTPS — normal app/web egress
+        - "80"               # HTTP
+        - "53"               # DNS

@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - tracing-policy.yaml
   - privileges-raise.yaml
+  - detect-suspicious-egress.yaml
