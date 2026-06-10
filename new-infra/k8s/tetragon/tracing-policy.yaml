@@ -13,24 +13,28 @@ spec:
   #   exportAllowList {"event_set":["PROCESS_KPROBE"]} and fires Wazuh rule
   #   100700 (level 14 critical).
   #
-  # Selector mechanism — matchBinaries with Postfix:
-  #   matchBinaries reads the kernel-resolved binary path from the process
-  #   descriptor (the struct linux_binprm binary path), NOT argv[0]. This is
-  #   more reliable than matchArgs index-0 Equal because:
-  #     a) It is immune to argv[0] spoofing (execve allows argv[0] != filename).
-  #     b) Postfix "/nc" catches /bin/nc, /usr/bin/nc, /usr/local/bin/nc,
-  #        /tmp/nc, /home/user/nc — any install prefix or staged copy that
-  #        retains the original basename.
-  #   matchBinaries + Postfix is confirmed in the Tetragon 1.6.1 CRD schema
-  #   (cilium.io_tracingpolicies.yaml enum: In/NotIn/Prefix/NotPrefix/Postfix/
-  #   NotPostfix).
+  # Selector mechanism — matchArgs index 0 (the execve FILENAME), Postfix:
+  #   FIXED 2026-06-10 (purple-team F-01). The previous version used
+  #   `matchBinaries` here. That was INERT: on a sys_execve *syscall-entry*
+  #   kprobe the new binprm is not yet resolved, so matchBinaries evaluates the
+  #   CALLER's binary (the shell, e.g. /bin/sh) — never the about-to-exec target.
+  #   Empirically `nmap` launched from a shell ran to completion (exit 0) and was
+  #   never killed. The kprobe already captures arg index 0 = the execve
+  #   `filename` (the first argument to execve(2), i.e. the pathname being
+  #   executed). Matching THAT with matchArgs Postfix fires SIGKILL on the caller
+  #   before the new image gains control, so the target never runs.
+  #
+  #   Note: execve's `filename` argument is NOT argv[0]. argv[0] is spoofable
+  #   (execve allows argv[0] != filename); the `filename` pathname is the real
+  #   resolved target, so matchArgs index 0 is not argv[0]-spoofable.
+  #   Postfix "/nc" catches /bin/nc, /usr/bin/nc, /usr/local/bin/nc, /tmp/nc —
+  #   any install prefix or staged copy retaining the original basename.
   #
   # Residual bypass (known limitation, by design):
   #   A binary copied AND renamed (e.g. `cp /usr/bin/nc /tmp/x && /tmp/x`)
-  #   cannot be caught by path or basename matching — the kernel-resolved path
-  #   is /tmp/x, which matches no Postfix entry. Hash/content-based detection
-  #   is out of scope for this TracingPolicy; Falco rules cover the detection-
-  #   only layer for suspicious execution patterns.
+  #   cannot be caught by path/basename matching — the filename is /tmp/x, which
+  #   matches no Postfix entry. Hash/content-based detection is out of scope for
+  #   this TracingPolicy; Falco rules cover the detection-only layer.
   #
   # Tool selection rationale:
   #   IN scope (SIGKILL) — attack-only binaries with no legitimate container use:
@@ -43,23 +47,17 @@ spec:
   #     init containers, health probes, and operator tooling. Killing them would
   #     break normal cluster operation. Wazuh rule 100704 (level 12) alerts on
   #     their execution; Splunk SOAR handles response.
-  #
-  # Wazuh / export-path compatibility:
-  #   matchBinaries is a selector — it changes which events the action fires on,
-  #   NOT the event type. Every SIGKILL action on sys_execve still produces a
-  #   PROCESS_KPROBE event with process_kprobe.action="SIGKILL". The export
-  #   allowList line {"event_set":["PROCESS_KPROBE"]} and Wazuh rule 100700
-  #   field <field name="process_kprobe.action">SIGKILL</field> are unaffected.
   # ---------------------------------------------------------------------------
   kprobes:
   - call: "sys_execve"
     syscall: true
     args:
     - index: 0
-      type: "string" # filename (kept for field population in the exported event)
+      type: "string" # execve filename = the pathname being executed
     selectors:
-    - matchBinaries:
-      - operator: "Postfix"
+    - matchArgs:
+      - index: 0
+        operator: "Postfix"
         values:
         # netcat variants — reverse shells, port forwarding, listener setup
         - "/nc"

@@ -239,4 +239,26 @@
     <group>tetragon,runtime_security,privilege_escalation,userns,container_escape,</group>
   </rule>
 
+  <!-- ============================================================
+       100710 — suspicious external egress (possible C2 / exfiltration)
+       Source: Tetragon TracingPolicy "detect-suspicious-egress"
+              (new-infra/k8s/tetragon/detect-suspicious-egress.yaml)
+       Fires on a tcp_connect to a NON-private IP on a NON-standard port
+       (not 443/80/53) — a low-noise beaconing/exfil signal. The network
+       IDS (Suricata/Zeek) is blind to this in the Cilium ENI + WireGuard
+       mesh; this eBPF kprobe sees it pre-encryption. Purple-team F-08,
+       2026-06-10. Added live to the manager + here for persistence.
+       MITRE: T1071 (App Layer Protocol / C2), T1041 (Exfil over C2).
+  ============================================================ -->
+  <rule id="100710" level="12">
+    <decoded_as>json</decoded_as>
+    <field name="process_kprobe.policy_name">detect-suspicious-egress</field>
+    <description>Tetragon: suspicious external egress (possible C2/exfil) - binary=$(process_kprobe.process.binary) pod=$(process_kprobe.process.pod.namespace)/$(process_kprobe.process.pod.name) node=$(node_name)</description>
+    <mitre>
+      <id>T1071</id>
+      <id>T1041</id>
+    </mitre>
+    <group>tetragon,runtime_security,c2,exfiltration,</group>
+  </rule>
+
 </group>

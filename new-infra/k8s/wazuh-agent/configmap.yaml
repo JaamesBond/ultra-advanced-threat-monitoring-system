@@ -82,6 +82,22 @@ data:
         <label key="source">tetragon</label>
       </localfile>
 
+      <!-- CoreDNS query log (F-05: DNS exfil / tunneling visibility).
+           CoreDNS `log` plugin writes every query to the pod stdout, which
+           containerd records under /var/log/pods/.../coredns/*.log in CRI
+           text format. Read the REAL pod-log path, NOT
+           /host/var/log/containers/coredns-*.log — those are symlinks to the
+           host-absolute /var/log/pods path that do not resolve inside this
+           container's mount namespace. The glob only matches on nodes
+           currently running a coredns pod (harmless no-op elsewhere; the
+           DaemonSet follows the pod if it reschedules).
+           Rules: bc-coredns-dns.xml (100720-100722). -->
+      <localfile>
+        <log_format>syslog</log_format>
+        <location>/host/var/log/pods/kube-system_coredns-*/coredns/*.log</location>
+        <label key="source">coredns</label>
+      </localfile>
+
       <!-- Host syslog -->
       <localfile>
         <log_format>syslog</log_format>

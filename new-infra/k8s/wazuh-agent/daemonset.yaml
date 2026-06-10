@@ -36,6 +36,10 @@ spec:
             - /bin/bash
             - -c
             - |
+              export WAZUH_AGENT_NAME="eks-prd-${NODE_NAME%%.*}"
+              # Force enrollment with the human-readable name to generate client.keys
+              rm -f /var/ossec/etc/client.keys
+              /var/ossec/bin/agent-auth -m wazuh-manager.bc-ctrl.internal -A $WAZUH_AGENT_NAME || true
               # Start agentd in foreground mode (no daemonize) so wait works
               /var/ossec/bin/wazuh-agentd -f &
               AGENTD_PID=$!
@@ -52,6 +56,10 @@ spec:
           securityContext:
             privileged: true
           env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
             - name: WAZUH_MANAGER
               value: "wazuh-manager.bc-ctrl.internal"
             - name: WAZUH_ENROLLMENT_SERVER

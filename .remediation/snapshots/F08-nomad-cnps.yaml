@@ -1,0 +1,777 @@
+Warning: short name "cnp" could also match lower priority resource clusternetworkpolicies.networking.k8s.aws
+apiVersion: v1
+items:
+- apiVersion: cilium.io/v2
+  kind: CiliumNetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"cilium.io/v2","kind":"CiliumNetworkPolicy","metadata":{"annotations":{},"name":"nomad-app-netpol","namespace":"nomad-oasis"},"spec":{"egress":[{"toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s:k8s-app":"kube-dns"}}],"toPorts":[{"ports":[{"port":"53","protocol":"ANY"}],"rules":{"dns":[{"matchPattern":"*"}]}}]},{"toEntities":["host","remote-node"],"toPorts":[{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}]}]},{"toEndpoints":[{"matchLabels":{"app.kubernetes.io/component":"mongodb","app.kubernetes.io/instance":"nomad-oasis","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"27017","protocol":"TCP"}]}]},{"toEndpoints":[{"matchLabels":{"app":"elasticsearch-master","k8s:io.kubernetes.pod.namespace":"nomad-oasis","release":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"9200","protocol":"TCP"},{"port":"9300","protocol":"TCP"}]}]},{"toEndpoints":[{"matchLabels":{"app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"postgresql","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"5432","protocol":"TCP"}]}]},{"toEndpoints":[{"matchLabels":{"app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"temporal","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"7233","protocol":"TCP"}]}]},{"toEndpoints":[{"matchLabels":{"app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"nomad","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"5672","protocol":"TCP"},{"port":"8000","protocol":"TCP"}]}]},{"toEndpoints":[{"matchLabels":{"app.kubernetes.io/name":"keycloak","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"8080","protocol":"TCP"}]}]},{"toCIDRSet":[{"cidr":"10.30.10.209/32"},{"cidr":"10.30.11.123/32"}],"toPorts":[{"ports":[{"port":"443","protocol":"TCP"}]}]},{"toEntities":["world"],"toPorts":[{"ports":[{"port":"443","protocol":"TCP"}]}]}],"endpointSelector":{"matchLabels":{"app.kubernetes.io/component":"app","app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"nomad"}},"ingress":[{"fromEndpoints":[{"matchLabels":{"app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"nomad","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"8000","protocol":"TCP"}]}]},{"fromEndpoints":[{"matchLabels":{"k8s:app.kubernetes.io/name":"cilium","k8s:io.kubernetes.pod.namespace":"kube-system"}}]}]}}
+    creationTimestamp: "2026-06-08T11:44:29Z"
+    generation: 2
+    name: nomad-app-netpol
+    namespace: nomad-oasis
+    resourceVersion: "58736"
+    uid: c10b934f-44c2-4676-96fe-f3ee60582181
+  spec:
+    egress:
+    - toEndpoints:
+      - matchLabels:
+          k8s:io.kubernetes.pod.namespace: kube-system
+          k8s:k8s-app: kube-dns
+      toPorts:
+      - ports:
+        - port: "53"
+          protocol: ANY
+        rules:
+          dns:
+          - matchPattern: '*'
+    - toEntities:
+      - host
+      - remote-node
+      toPorts:
+      - ports:
+        - port: "53"
+          protocol: UDP
+        - port: "53"
+          protocol: TCP
+    - toEndpoints:
+      - matchLabels:
+          app.kubernetes.io/component: mongodb
+          app.kubernetes.io/instance: nomad-oasis
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "27017"
+          protocol: TCP
+    - toEndpoints:
+      - matchLabels:
+          app: elasticsearch-master
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+          release: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "9200"
+          protocol: TCP
+        - port: "9300"
+          protocol: TCP
+    - toEndpoints:
+      - matchLabels:
+          app.kubernetes.io/instance: nomad-oasis
+          app.kubernetes.io/name: postgresql
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "5432"
+          protocol: TCP
+    - toEndpoints:
+      - matchLabels:
+          app.kubernetes.io/instance: nomad-oasis
+          app.kubernetes.io/name: temporal
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "7233"
+          protocol: TCP
+    - toEndpoints:
+      - matchLabels:
+          app.kubernetes.io/instance: nomad-oasis
+          app.kubernetes.io/name: nomad
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "5672"
+          protocol: TCP
+        - port: "8000"
+          protocol: TCP
+    - toEndpoints:
+      - matchLabels:
+          app.kubernetes.io/name: keycloak
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "8080"
+          protocol: TCP
+    - toCIDRSet:
+      - cidr: 10.30.10.209/32
+      - cidr: 10.30.11.123/32
+      toPorts:
+      - ports:
+        - port: "443"
+          protocol: TCP
+    - toEntities:
+      - world
+      toPorts:
+      - ports:
+        - port: "443"
+          protocol: TCP
+    endpointSelector:
+      matchLabels:
+        app.kubernetes.io/component: app
+        app.kubernetes.io/instance: nomad-oasis
+        app.kubernetes.io/name: nomad
+    ingress:
+    - fromEndpoints:
+      - matchLabels:
+          app.kubernetes.io/instance: nomad-oasis
+          app.kubernetes.io/name: nomad
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "8000"
+          protocol: TCP
+    - fromEndpoints:
+      - matchLabels:
+          k8s:app.kubernetes.io/name: cilium
+          k8s:io.kubernetes.pod.namespace: kube-system
+  status:
+    conditions:
+    - lastTransitionTime: "2026-06-08T11:44:29Z"
+      message: Policy validation succeeded
+      status: "True"
+      type: Valid
+- apiVersion: cilium.io/v2
+  kind: CiliumNetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"cilium.io/v2","kind":"CiliumNetworkPolicy","metadata":{"annotations":{},"name":"nomad-elasticsearch-netpol","namespace":"nomad-oasis"},"spec":{"egress":[{"toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s:k8s-app":"kube-dns"}}],"toPorts":[{"ports":[{"port":"53","protocol":"ANY"}],"rules":{"dns":[{"matchPattern":"*"}]}}]},{"toEntities":["host","remote-node"],"toPorts":[{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}]}]},{"toEndpoints":[{"matchLabels":{"app":"elasticsearch-master","k8s:io.kubernetes.pod.namespace":"nomad-oasis","release":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"9300","protocol":"TCP"}]}]},{"toCIDRSet":[{"cidr":"10.30.10.209/32"},{"cidr":"10.30.11.123/32"}],"toPorts":[{"ports":[{"port":"443","protocol":"TCP"}]}]},{"toEntities":["world"],"toPorts":[{"ports":[{"port":"443","protocol":"TCP"}]}]}],"endpointSelector":{"matchLabels":{"app":"elasticsearch-master","release":"nomad-oasis"}},"ingress":[{"fromEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"9200","protocol":"TCP"},{"port":"9300","protocol":"TCP"}]}]},{"fromEndpoints":[{"matchLabels":{"k8s:app.kubernetes.io/name":"cilium","k8s:io.kubernetes.pod.namespace":"kube-system"}}]}]}}
+    creationTimestamp: "2026-06-08T11:44:29Z"
+    generation: 2
+    name: nomad-elasticsearch-netpol
+    namespace: nomad-oasis
+    resourceVersion: "58737"
+    uid: 37617f9c-738a-44b9-a3d7-6ef0e8411f73
+  spec:
+    egress:
+    - toEndpoints:
+      - matchLabels:
+          k8s:io.kubernetes.pod.namespace: kube-system
+          k8s:k8s-app: kube-dns
+      toPorts:
+      - ports:
+        - port: "53"
+          protocol: ANY
+        rules:
+          dns:
+          - matchPattern: '*'
+    - toEntities:
+      - host
+      - remote-node
+      toPorts:
+      - ports:
+        - port: "53"
+          protocol: UDP
+        - port: "53"
+          protocol: TCP
+    - toEndpoints:
+      - matchLabels:
+          app: elasticsearch-master
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+          release: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "9300"
+          protocol: TCP
+    - toCIDRSet:
+      - cidr: 10.30.10.209/32
+      - cidr: 10.30.11.123/32
+      toPorts:
+      - ports:
+        - port: "443"
+          protocol: TCP
+    - toEntities:
+      - world
+      toPorts:
+      - ports:
+        - port: "443"
+          protocol: TCP
+    endpointSelector:
+      matchLabels:
+        app: elasticsearch-master
+        release: nomad-oasis
+    ingress:
+    - fromEndpoints:
+      - matchLabels:
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "9200"
+          protocol: TCP
+        - port: "9300"
+          protocol: TCP
+    - fromEndpoints:
+      - matchLabels:
+          k8s:app.kubernetes.io/name: cilium
+          k8s:io.kubernetes.pod.namespace: kube-system
+  status:
+    conditions:
+    - lastTransitionTime: "2026-06-08T11:44:29Z"
+      message: Policy validation succeeded
+      status: "True"
+      type: Valid
+- apiVersion: cilium.io/v2
+  kind: CiliumNetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"cilium.io/v2","kind":"CiliumNetworkPolicy","metadata":{"annotations":{},"name":"nomad-keycloak-netpol","namespace":"nomad-oasis"},"spec":{"egress":[{"toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s:k8s-app":"kube-dns"}}],"toPorts":[{"ports":[{"port":"53","protocol":"ANY"}],"rules":{"dns":[{"matchPattern":"*"}]}}]},{"toEntities":["host","remote-node"],"toPorts":[{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}]}]},{"toEndpoints":[{"matchLabels":{"app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"postgresql","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"5432","protocol":"TCP"}]}]},{"toCIDRSet":[{"cidr":"10.30.10.209/32"},{"cidr":"10.30.11.123/32"}],"toPorts":[{"ports":[{"port":"443","protocol":"TCP"}]}]},{"toEntities":["world"],"toPorts":[{"ports":[{"port":"443","protocol":"TCP"}]}]}],"endpointSelector":{"matchLabels":{"app.kubernetes.io/name":"keycloak"}},"ingress":[{"fromEndpoints":[{"matchLabels":{"app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"nomad","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"8080","protocol":"TCP"}]}]},{"fromEndpoints":[{"matchLabels":{"app.kubernetes.io/component":"proxy","app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"nomad","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"8080","protocol":"TCP"}]}]},{"fromEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"8080","protocol":"TCP"}]}]},{"fromEndpoints":[{"matchLabels":{"k8s:app.kubernetes.io/name":"cilium","k8s:io.kubernetes.pod.namespace":"kube-system"}}]}]}}
+    creationTimestamp: "2026-06-08T11:44:29Z"
+    generation: 2
+    name: nomad-keycloak-netpol
+    namespace: nomad-oasis
+    resourceVersion: "58740"
+    uid: 7d536120-bdee-4333-8f6a-ebb40d6379cc
+  spec:
+    egress:
+    - toEndpoints:
+      - matchLabels:
+          k8s:io.kubernetes.pod.namespace: kube-system
+          k8s:k8s-app: kube-dns
+      toPorts:
+      - ports:
+        - port: "53"
+          protocol: ANY
+        rules:
+          dns:
+          - matchPattern: '*'
+    - toEntities:
+      - host
+      - remote-node
+      toPorts:
+      - ports:
+        - port: "53"
+          protocol: UDP
+        - port: "53"
+          protocol: TCP
+    - toEndpoints:
+      - matchLabels:
+          app.kubernetes.io/instance: nomad-oasis
+          app.kubernetes.io/name: postgresql
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "5432"
+          protocol: TCP
+    - toCIDRSet:
+      - cidr: 10.30.10.209/32
+      - cidr: 10.30.11.123/32
+      toPorts:
+      - ports:
+        - port: "443"
+          protocol: TCP
+    - toEntities:
+      - world
+      toPorts:
+      - ports:
+        - port: "443"
+          protocol: TCP
+    endpointSelector:
+      matchLabels:
+        app.kubernetes.io/name: keycloak
+    ingress:
+    - fromEndpoints:
+      - matchLabels:
+          app.kubernetes.io/instance: nomad-oasis
+          app.kubernetes.io/name: nomad
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "8080"
+          protocol: TCP
+    - fromEndpoints:
+      - matchLabels:
+          app.kubernetes.io/component: proxy
+          app.kubernetes.io/instance: nomad-oasis
+          app.kubernetes.io/name: nomad
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "8080"
+          protocol: TCP
+    - fromEndpoints:
+      - matchLabels:
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "8080"
+          protocol: TCP
+    - fromEndpoints:
+      - matchLabels:
+          k8s:app.kubernetes.io/name: cilium
+          k8s:io.kubernetes.pod.namespace: kube-system
+  status:
+    conditions:
+    - lastTransitionTime: "2026-06-08T11:44:29Z"
+      message: Policy validation succeeded
+      status: "True"
+      type: Valid
+- apiVersion: cilium.io/v2
+  kind: CiliumNetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"cilium.io/v2","kind":"CiliumNetworkPolicy","metadata":{"annotations":{},"name":"nomad-mongodb-netpol","namespace":"nomad-oasis"},"spec":{"egress":[{"toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s:k8s-app":"kube-dns"}}],"toPorts":[{"ports":[{"port":"53","protocol":"ANY"}],"rules":{"dns":[{"matchPattern":"*"}]}}]},{"toEntities":["host","remote-node"],"toPorts":[{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}]}]},{"toCIDRSet":[{"cidr":"10.30.10.209/32"},{"cidr":"10.30.11.123/32"}],"toPorts":[{"ports":[{"port":"443","protocol":"TCP"}]}]},{"toEntities":["world"],"toPorts":[{"ports":[{"port":"443","protocol":"TCP"}]}]}],"endpointSelector":{"matchLabels":{"app.kubernetes.io/component":"mongodb","app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"nomad"}},"ingress":[{"fromEndpoints":[{"matchLabels":{"app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"nomad","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"27017","protocol":"TCP"}]}]},{"fromEndpoints":[{"matchLabels":{"k8s:app.kubernetes.io/name":"cilium","k8s:io.kubernetes.pod.namespace":"kube-system"}}]}]}}
+    creationTimestamp: "2026-06-08T11:44:29Z"
+    generation: 2
+    name: nomad-mongodb-netpol
+    namespace: nomad-oasis
+    resourceVersion: "58741"
+    uid: 52c40d9f-ea2b-4d9c-8fea-fe39b19cd45e
+  spec:
+    egress:
+    - toEndpoints:
+      - matchLabels:
+          k8s:io.kubernetes.pod.namespace: kube-system
+          k8s:k8s-app: kube-dns
+      toPorts:
+      - ports:
+        - port: "53"
+          protocol: ANY
+        rules:
+          dns:
+          - matchPattern: '*'
+    - toEntities:
+      - host
+      - remote-node
+      toPorts:
+      - ports:
+        - port: "53"
+          protocol: UDP
+        - port: "53"
+          protocol: TCP
+    - toCIDRSet:
+      - cidr: 10.30.10.209/32
+      - cidr: 10.30.11.123/32
+      toPorts:
+      - ports:
+        - port: "443"
+          protocol: TCP
+    - toEntities:
+      - world
+      toPorts:
+      - ports:
+        - port: "443"
+          protocol: TCP
+    endpointSelector:
+      matchLabels:
+        app.kubernetes.io/component: mongodb
+        app.kubernetes.io/instance: nomad-oasis
+        app.kubernetes.io/name: nomad
+    ingress:
+    - fromEndpoints:
+      - matchLabels:
+          app.kubernetes.io/instance: nomad-oasis
+          app.kubernetes.io/name: nomad
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "27017"
+          protocol: TCP
+    - fromEndpoints:
+      - matchLabels:
+          k8s:app.kubernetes.io/name: cilium
+          k8s:io.kubernetes.pod.namespace: kube-system
+  status:
+    conditions:
+    - lastTransitionTime: "2026-06-08T11:44:29Z"
+      message: Policy validation succeeded
+      status: "True"
+      type: Valid
+- apiVersion: cilium.io/v2
+  kind: CiliumNetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"cilium.io/v2","kind":"CiliumNetworkPolicy","metadata":{"annotations":{},"name":"nomad-postgresql-netpol","namespace":"nomad-oasis"},"spec":{"egress":[{"toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s:k8s-app":"kube-dns"}}],"toPorts":[{"ports":[{"port":"53","protocol":"ANY"}],"rules":{"dns":[{"matchPattern":"*"}]}}]},{"toEntities":["host","remote-node"],"toPorts":[{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}]}]},{"toCIDRSet":[{"cidr":"10.30.10.209/32"},{"cidr":"10.30.11.123/32"}],"toPorts":[{"ports":[{"port":"443","protocol":"TCP"}]}]},{"toEntities":["world"],"toPorts":[{"ports":[{"port":"443","protocol":"TCP"}]}]}],"endpointSelector":{"matchLabels":{"app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"postgresql"}},"ingress":[{"fromEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"5432","protocol":"TCP"}]}]},{"fromEndpoints":[{"matchLabels":{"k8s:app.kubernetes.io/name":"cilium","k8s:io.kubernetes.pod.namespace":"kube-system"}}]}]}}
+    creationTimestamp: "2026-06-08T11:44:29Z"
+    generation: 2
+    name: nomad-postgresql-netpol
+    namespace: nomad-oasis
+    resourceVersion: "58743"
+    uid: 1ec94964-7418-416c-a470-84a43a924e2c
+  spec:
+    egress:
+    - toEndpoints:
+      - matchLabels:
+          k8s:io.kubernetes.pod.namespace: kube-system
+          k8s:k8s-app: kube-dns
+      toPorts:
+      - ports:
+        - port: "53"
+          protocol: ANY
+        rules:
+          dns:
+          - matchPattern: '*'
+    - toEntities:
+      - host
+      - remote-node
+      toPorts:
+      - ports:
+        - port: "53"
+          protocol: UDP
+        - port: "53"
+          protocol: TCP
+    - toCIDRSet:
+      - cidr: 10.30.10.209/32
+      - cidr: 10.30.11.123/32
+      toPorts:
+      - ports:
+        - port: "443"
+          protocol: TCP
+    - toEntities:
+      - world
+      toPorts:
+      - ports:
+        - port: "443"
+          protocol: TCP
+    endpointSelector:
+      matchLabels:
+        app.kubernetes.io/instance: nomad-oasis
+        app.kubernetes.io/name: postgresql
+    ingress:
+    - fromEndpoints:
+      - matchLabels:
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "5432"
+          protocol: TCP
+    - fromEndpoints:
+      - matchLabels:
+          k8s:app.kubernetes.io/name: cilium
+          k8s:io.kubernetes.pod.namespace: kube-system
+  status:
+    conditions:
+    - lastTransitionTime: "2026-06-08T11:44:29Z"
+      message: Policy validation succeeded
+      status: "True"
+      type: Valid
+- apiVersion: cilium.io/v2
+  kind: CiliumNetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"cilium.io/v2","kind":"CiliumNetworkPolicy","metadata":{"annotations":{},"name":"nomad-proxy-netpol","namespace":"nomad-oasis"},"spec":{"egress":[{"toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s:k8s-app":"kube-dns"}}],"toPorts":[{"ports":[{"port":"53","protocol":"ANY"}],"rules":{"dns":[{"matchPattern":"*"}]}}]},{"toEntities":["host","remote-node"],"toPorts":[{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}]}]},{"toEndpoints":[{"matchLabels":{"app.kubernetes.io/component":"app","app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"nomad","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"8000","protocol":"TCP"}]}]},{"toEndpoints":[{"matchLabels":{"app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"keycloak","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"8080","protocol":"TCP"}]}]}],"endpointSelector":{"matchLabels":{"app.kubernetes.io/component":"proxy","app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"nomad"}},"ingress":[{"fromEntities":["world"],"toPorts":[{"ports":[{"port":"80","protocol":"TCP"}]}]},{"fromEndpoints":[{"matchLabels":{"app.kubernetes.io/name":"aws-load-balancer-controller","k8s:io.kubernetes.pod.namespace":"kube-system"}}],"toPorts":[{"ports":[{"port":"80","protocol":"TCP"}]}]},{"fromEndpoints":[{"matchLabels":{"k8s:app.kubernetes.io/name":"cilium","k8s:io.kubernetes.pod.namespace":"kube-system"}}]}]}}
+    creationTimestamp: "2026-06-08T11:44:29Z"
+    generation: 2
+    name: nomad-proxy-netpol
+    namespace: nomad-oasis
+    resourceVersion: "58744"
+    uid: eca11077-c873-41d0-a698-30a57cbe3245
+  spec:
+    egress:
+    - toEndpoints:
+      - matchLabels:
+          k8s:io.kubernetes.pod.namespace: kube-system
+          k8s:k8s-app: kube-dns
+      toPorts:
+      - ports:
+        - port: "53"
+          protocol: ANY
+        rules:
+          dns:
+          - matchPattern: '*'
+    - toEntities:
+      - host
+      - remote-node
+      toPorts:
+      - ports:
+        - port: "53"
+          protocol: UDP
+        - port: "53"
+          protocol: TCP
+    - toEndpoints:
+      - matchLabels:
+          app.kubernetes.io/component: app
+          app.kubernetes.io/instance: nomad-oasis
+          app.kubernetes.io/name: nomad
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "8000"
+          protocol: TCP
+    - toEndpoints:
+      - matchLabels:
+          app.kubernetes.io/instance: nomad-oasis
+          app.kubernetes.io/name: keycloak
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "8080"
+          protocol: TCP
+    endpointSelector:
+      matchLabels:
+        app.kubernetes.io/component: proxy
+        app.kubernetes.io/instance: nomad-oasis
+        app.kubernetes.io/name: nomad
+    ingress:
+    - fromEntities:
+      - world
+      toPorts:
+      - ports:
+        - port: "80"
+          protocol: TCP
+    - fromEndpoints:
+      - matchLabels:
+          app.kubernetes.io/name: aws-load-balancer-controller
+          k8s:io.kubernetes.pod.namespace: kube-system
+      toPorts:
+      - ports:
+        - port: "80"
+          protocol: TCP
+    - fromEndpoints:
+      - matchLabels:
+          k8s:app.kubernetes.io/name: cilium
+          k8s:io.kubernetes.pod.namespace: kube-system
+  status:
+    conditions:
+    - lastTransitionTime: "2026-06-08T11:44:29Z"
+      message: Policy validation succeeded
+      status: "True"
+      type: Valid
+- apiVersion: cilium.io/v2
+  kind: CiliumNetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"cilium.io/v2","kind":"CiliumNetworkPolicy","metadata":{"annotations":{},"name":"nomad-temporal-netpol","namespace":"nomad-oasis"},"spec":{"egress":[{"toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s:k8s-app":"kube-dns"}}],"toPorts":[{"ports":[{"port":"53","protocol":"ANY"}],"rules":{"dns":[{"matchPattern":"*"}]}}]},{"toEntities":["host","remote-node"],"toPorts":[{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}]}]},{"toEndpoints":[{"matchLabels":{"app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"postgresql","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"5432","protocol":"TCP"}]}]},{"toEndpoints":[{"matchLabels":{"app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"temporal","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"7233","protocol":"TCP"},{"port":"7234","protocol":"TCP"},{"port":"7235","protocol":"TCP"},{"port":"7239","protocol":"TCP"},{"port":"6933","protocol":"TCP"},{"port":"6934","protocol":"TCP"},{"port":"6935","protocol":"TCP"},{"port":"6939","protocol":"TCP"}]}]},{"toCIDRSet":[{"cidr":"10.30.10.209/32"},{"cidr":"10.30.11.123/32"}],"toPorts":[{"ports":[{"port":"443","protocol":"TCP"}]}]},{"toEntities":["world"],"toPorts":[{"ports":[{"port":"443","protocol":"TCP"}]}]}],"endpointSelector":{"matchLabels":{"app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"temporal"}},"ingress":[{"fromEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"7233","protocol":"TCP"},{"port":"7234","protocol":"TCP"},{"port":"7235","protocol":"TCP"},{"port":"7239","protocol":"TCP"},{"port":"6933","protocol":"TCP"},{"port":"6934","protocol":"TCP"},{"port":"6935","protocol":"TCP"},{"port":"6939","protocol":"TCP"},{"port":"9090","protocol":"TCP"}]}]},{"fromEndpoints":[{"matchLabels":{"k8s:app.kubernetes.io/name":"cilium","k8s:io.kubernetes.pod.namespace":"kube-system"}}]}]}}
+    creationTimestamp: "2026-06-08T11:44:30Z"
+    generation: 2
+    name: nomad-temporal-netpol
+    namespace: nomad-oasis
+    resourceVersion: "58745"
+    uid: 0c759bb9-ee2e-4c83-9b0e-ce81e118510c
+  spec:
+    egress:
+    - toEndpoints:
+      - matchLabels:
+          k8s:io.kubernetes.pod.namespace: kube-system
+          k8s:k8s-app: kube-dns
+      toPorts:
+      - ports:
+        - port: "53"
+          protocol: ANY
+        rules:
+          dns:
+          - matchPattern: '*'
+    - toEntities:
+      - host
+      - remote-node
+      toPorts:
+      - ports:
+        - port: "53"
+          protocol: UDP
+        - port: "53"
+          protocol: TCP
+    - toEndpoints:
+      - matchLabels:
+          app.kubernetes.io/instance: nomad-oasis
+          app.kubernetes.io/name: postgresql
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "5432"
+          protocol: TCP
+    - toEndpoints:
+      - matchLabels:
+          app.kubernetes.io/instance: nomad-oasis
+          app.kubernetes.io/name: temporal
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "7233"
+          protocol: TCP
+        - port: "7234"
+          protocol: TCP
+        - port: "7235"
+          protocol: TCP
+        - port: "7239"
+          protocol: TCP
+        - port: "6933"
+          protocol: TCP
+        - port: "6934"
+          protocol: TCP
+        - port: "6935"
+          protocol: TCP
+        - port: "6939"
+          protocol: TCP
+    - toCIDRSet:
+      - cidr: 10.30.10.209/32
+      - cidr: 10.30.11.123/32
+      toPorts:
+      - ports:
+        - port: "443"
+          protocol: TCP
+    - toEntities:
+      - world
+      toPorts:
+      - ports:
+        - port: "443"
+          protocol: TCP
+    endpointSelector:
+      matchLabels:
+        app.kubernetes.io/instance: nomad-oasis
+        app.kubernetes.io/name: temporal
+    ingress:
+    - fromEndpoints:
+      - matchLabels:
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "7233"
+          protocol: TCP
+        - port: "7234"
+          protocol: TCP
+        - port: "7235"
+          protocol: TCP
+        - port: "7239"
+          protocol: TCP
+        - port: "6933"
+          protocol: TCP
+        - port: "6934"
+          protocol: TCP
+        - port: "6935"
+          protocol: TCP
+        - port: "6939"
+          protocol: TCP
+        - port: "9090"
+          protocol: TCP
+    - fromEndpoints:
+      - matchLabels:
+          k8s:app.kubernetes.io/name: cilium
+          k8s:io.kubernetes.pod.namespace: kube-system
+  status:
+    conditions:
+    - lastTransitionTime: "2026-06-08T11:44:30Z"
+      message: Policy validation succeeded
+      status: "True"
+      type: Valid
+- apiVersion: cilium.io/v2
+  kind: CiliumNetworkPolicy
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"cilium.io/v2","kind":"CiliumNetworkPolicy","metadata":{"annotations":{},"name":"nomad-worker-netpol","namespace":"nomad-oasis"},"spec":{"egress":[{"toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"kube-system","k8s:k8s-app":"kube-dns"}}],"toPorts":[{"ports":[{"port":"53","protocol":"ANY"}],"rules":{"dns":[{"matchPattern":"*"}]}}]},{"toEntities":["host","remote-node"],"toPorts":[{"ports":[{"port":"53","protocol":"UDP"},{"port":"53","protocol":"TCP"}]}]},{"toEndpoints":[{"matchLabels":{"app.kubernetes.io/component":"mongodb","app.kubernetes.io/instance":"nomad-oasis","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"27017","protocol":"TCP"}]}]},{"toEndpoints":[{"matchLabels":{"app":"elasticsearch-master","k8s:io.kubernetes.pod.namespace":"nomad-oasis","release":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"9200","protocol":"TCP"},{"port":"9300","protocol":"TCP"}]}]},{"toEndpoints":[{"matchLabels":{"app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"postgresql","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"5432","protocol":"TCP"}]}]},{"toEndpoints":[{"matchLabels":{"app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"temporal","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"7233","protocol":"TCP"}]}]},{"toEndpoints":[{"matchLabels":{"app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"nomad","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"5672","protocol":"TCP"},{"port":"8000","protocol":"TCP"}]}]},{"toEndpoints":[{"matchLabels":{"app.kubernetes.io/name":"keycloak","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}],"toPorts":[{"ports":[{"port":"8080","protocol":"TCP"}]}]},{"toCIDRSet":[{"cidr":"10.30.10.209/32"},{"cidr":"10.30.11.123/32"}],"toPorts":[{"ports":[{"port":"443","protocol":"TCP"}]}]},{"toEntities":["world"],"toPorts":[{"ports":[{"port":"443","protocol":"TCP"}]}]}],"endpointSelector":{"matchLabels":{"app.kubernetes.io/component":"worker","app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"nomad"}},"ingress":[{"fromEndpoints":[{"matchLabels":{"app.kubernetes.io/instance":"nomad-oasis","app.kubernetes.io/name":"nomad","k8s:io.kubernetes.pod.namespace":"nomad-oasis"}}]},{"fromEndpoints":[{"matchLabels":{"k8s:app.kubernetes.io/name":"cilium","k8s:io.kubernetes.pod.namespace":"kube-system"}}]}]}}
+    creationTimestamp: "2026-06-08T11:44:30Z"
+    generation: 2
+    name: nomad-worker-netpol
+    namespace: nomad-oasis
+    resourceVersion: "58748"
+    uid: f948bbe4-52e7-4c74-8779-cc0f454f7edd
+  spec:
+    egress:
+    - toEndpoints:
+      - matchLabels:
+          k8s:io.kubernetes.pod.namespace: kube-system
+          k8s:k8s-app: kube-dns
+      toPorts:
+      - ports:
+        - port: "53"
+          protocol: ANY
+        rules:
+          dns:
+          - matchPattern: '*'
+    - toEntities:
+      - host
+      - remote-node
+      toPorts:
+      - ports:
+        - port: "53"
+          protocol: UDP
+        - port: "53"
+          protocol: TCP
+    - toEndpoints:
+      - matchLabels:
+          app.kubernetes.io/component: mongodb
+          app.kubernetes.io/instance: nomad-oasis
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "27017"
+          protocol: TCP
+    - toEndpoints:
+      - matchLabels:
+          app: elasticsearch-master
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+          release: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "9200"
+          protocol: TCP
+        - port: "9300"
+          protocol: TCP
+    - toEndpoints:
+      - matchLabels:
+          app.kubernetes.io/instance: nomad-oasis
+          app.kubernetes.io/name: postgresql
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "5432"
+          protocol: TCP
+    - toEndpoints:
+      - matchLabels:
+          app.kubernetes.io/instance: nomad-oasis
+          app.kubernetes.io/name: temporal
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "7233"
+          protocol: TCP
+    - toEndpoints:
+      - matchLabels:
+          app.kubernetes.io/instance: nomad-oasis
+          app.kubernetes.io/name: nomad
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "5672"
+          protocol: TCP
+        - port: "8000"
+          protocol: TCP
+    - toEndpoints:
+      - matchLabels:
+          app.kubernetes.io/name: keycloak
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+      toPorts:
+      - ports:
+        - port: "8080"
+          protocol: TCP
+    - toCIDRSet:
+      - cidr: 10.30.10.209/32
+      - cidr: 10.30.11.123/32
+      toPorts:
+      - ports:
+        - port: "443"
+          protocol: TCP
+    - toEntities:
+      - world
+      toPorts:
+      - ports:
+        - port: "443"
+          protocol: TCP
+    endpointSelector:
+      matchLabels:
+        app.kubernetes.io/component: worker
+        app.kubernetes.io/instance: nomad-oasis
+        app.kubernetes.io/name: nomad
+    ingress:
+    - fromEndpoints:
+      - matchLabels:
+          app.kubernetes.io/instance: nomad-oasis
+          app.kubernetes.io/name: nomad
+          k8s:io.kubernetes.pod.namespace: nomad-oasis
+    - fromEndpoints:
+      - matchLabels:
+          k8s:app.kubernetes.io/name: cilium
+          k8s:io.kubernetes.pod.namespace: kube-system
+  status:
+    conditions:
+    - lastTransitionTime: "2026-06-08T11:44:30Z"
+      message: Policy validation succeeded
+      status: "True"
+      type: Valid
+kind: List
+metadata:
+  resourceVersion: ""

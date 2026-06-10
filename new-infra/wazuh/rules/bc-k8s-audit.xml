@@ -2,37 +2,23 @@
   bc-k8s-audit.xml — Custom Wazuh rules for Kubernetes audit log telemetry.
 
   Rule ID range: 100400-100499 (reserved for bc-k8s)
-  Telemetry source: K8s API server audit logs.
+  Telemetry source: EKS API server audit logs via the CloudWatch Logs wodle
+  (service type="cloudwatchlogs", log group /aws/eks/bc-uatms-prd-eks/cluster)
+  added in phase3-install-wazuh.sh — validated live 2026-06-10 (F-10).
 
-  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  WARNING — RULES IN THIS FILE DO NOT FIRE TODAY. DO NOT BUILD SOAR
-  PLAYBOOKS THAT DEPEND ON THESE RULE IDs UNTIL INGESTION IS WIRED.
-  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  Event shape (verified against a real ingested event 2026-06-10):
+    The wodle unwraps the CloudWatch envelope; full_log is the RAW K8s audit
+    JSON (kind=Event, apiVersion=audit.k8s.io/v1). The built-in json decoder
+    flattens top-level fields: verb, requestURI, user.username, sourceIPs,
+    objectRef.resource / .namespace / .name / .subresource,
+    responseStatus.code (string). Rules below key on those fields.
 
-  Blocking gap 1 — EKS audit log ingestion not enabled:
-    EKS does not emit audit logs to CloudWatch by default. Enabling requires:
-      cluster_enabled_log_types = ["audit", "authenticator"]
-    in the EKS module (eks.tf), plus either:
-      (a) a Wazuh CloudWatch Logs wodle pointed at the
-          /aws/eks/bc-uatms-prd-eks/cluster log group, OR
-      (b) a Lambda subscriber that ships log events to the manager socket.
-    Neither is currently deployed. Until done, zero K8s audit events reach
-    the manager and all rules in this file are dead letters.
-
-  Blocking gap 2 — Wazuh cannot match inside JSON arrays:
-    The Wazuh rule engine evaluates <field> matches against a flat JSON
-    document extracted by a decoder. The requestObject.spec.containers field
-    in a K8s audit event is a JSON array of container objects. Wazuh's
-    decoder will not explode array elements into individually matchable
-    fields, so a rule like:
-      <field name="requestObject.spec.containers.securityContext.privileged">true</field>
-    will NEVER match — containers[0].securityContext.privileged is buried
-    inside an array element, not at the top-level key path the field match
-    expects. To make this work reliably, a pre-processing step is needed:
-    either a custom Wazuh decoder that extracts the first/any privileged
-    container flag, or a Lambda/Logstash enrichment that flattens the array
-    before forwarding to Wazuh.
-    Current rule 100400 is therefore a design placeholder only.
+  Remaining limitation — Wazuh cannot match inside JSON arrays:
+    requestObject.spec.containers is an array; element fields
+    (e.g. containers[0].securityContext.privileged) are NOT flattened into
+    matchable paths. Rule 100400 (privileged pod) therefore remains a design
+    placeholder until a flattening pre-processor exists. All other rules in
+    this file key on scalar top-level fields and DO fire.
 
   Deployed to: /var/ossec/etc/rules/bc-k8s-audit.xml on the manager
                by phase3-install-wazuh.sh via S3 sync on instance boot.
@@ -40,11 +26,91 @@
 <group name="bc-k8s,kubernetes,audit,">
 
   <!-- ============================================================
-       100400 — Privileged pod created
+       100401 — Base anchor for any EKS audit event.
+       LEVEL 0 ON PURPOSE: EKS audit is a firehose (~800 events/min on
+       a 2-node cluster). A level>0 base rule would alert on every event
+       and fill the manager disk (the exact risk flagged in the F-10
+       morning report). Level 0 = silent decode anchor: it does NOT
+       alert, but children below inherit it via <if_sid> and DO alert.
+  ============================================================ -->
+  <rule id="100401" level="0">
+    <decoded_as>json</decoded_as>
+    <field name="kind">^Event$</field>
+    <field name="apiVersion">audit.k8s.io</field>
+    <description>K8s audit anchor (silent)</description>
+  </rule>
+
+  <!-- ============================================================
+       100402 — CronJob/Job created (scheduled-task persistence)
+       MITRE: T1053.007 (Scheduled Task/Job: Container Orchestration Job)
+  ============================================================ -->
+  <rule id="100402" level="10">
+    <if_sid>100401</if_sid>
+    <field name="verb">^create$</field>
+    <field name="objectRef.resource">^cronjobs$|^jobs$</field>
+    <description>K8s persistence: $(objectRef.resource) '$(objectRef.name)' created in $(objectRef.namespace) by $(user.username)</description>
+    <mitre>
+      <id>T1053.007</id>
+    </mitre>
+    <group>persistence,</group>
+  </rule>
+
+  <!-- ============================================================
+       100403 — RBAC object created/modified/deleted
+       MITRE: T1098 (Account Manipulation)
+  ============================================================ -->
+  <rule id="100403" level="12">
+    <if_sid>100401</if_sid>
+    <field name="verb">^create$|^update$|^patch$|^delete$</field>
+    <field name="objectRef.resource">^clusterrolebindings$|^rolebindings$|^clusterroles$|^roles$</field>
+    <description>K8s RBAC change: $(verb) $(objectRef.resource) '$(objectRef.name)' by $(user.username)</description>
+    <mitre>
+      <id>T1098</id>
+    </mitre>
+    <group>privilege_escalation,</group>
+  </rule>
+
+  <!-- ============================================================
+       100404 — Exec/attach into a pod (interactive container access)
+       MITRE: T1609 (Container Administration Command)
+  ============================================================ -->
+  <rule id="100404" level="10">
+    <if_sid>100401</if_sid>
+    <!-- kubectl exec issues verb=get (SPDY channel upgrade), not create —
+         match both so the interactive-shell event is never missed. -->
+    <field name="verb">^create$|^get$|^connect$</field>
+    <field name="objectRef.subresource">^exec$|^attach$</field>
+    <description>K8s exec/attach into pod '$(objectRef.name)' in $(objectRef.namespace) by $(user.username)</description>
+    <mitre>
+      <id>T1609</id>
+    </mitre>
+    <group>execution,</group>
+  </rule>
+
+  <!-- ============================================================
+       100405 — Secret read by a non-system identity
+       MITRE: T1552.007 (Unsecured Credentials: Container API)
+       system:* identities (kubelet, controllers) excluded — they read
+       secrets constantly as part of normal operation.
+  ============================================================ -->
+  <rule id="100405" level="9">
+    <if_sid>100401</if_sid>
+    <field name="verb">^get$|^list$</field>
+    <field name="objectRef.resource">^secrets$</field>
+    <field name="user.username" negate="yes">^system:</field>
+    <description>K8s secret access: $(verb) secret '$(objectRef.name)' in $(objectRef.namespace) by $(user.username)</description>
+    <mitre>
+      <id>T1552.007</id>
+    </mitre>
+    <group>credential_access,</group>
+  </rule>
+
+  <!-- ============================================================
+       100400 — Privileged pod created — PLACEHOLDER, DOES NOT FIRE
+       (containers[] array fields are not flattened by the json
+       decoder — see header). Kept for the rule-ID reservation and
+       as the spec for a future flattening pre-processor.
        MITRE: T1611 (Escape to Host)
-       Level 14: critical — privileged pods can mount the host kernel.
-       Expected false positives: Suricata DaemonSet (needs NET_ADMIN),
-       wazuh-agent DaemonSet. Suppress by namespace if needed.
   ============================================================ -->
   <rule id="100400" level="14">
     <decoded_as>json</decoded_as>

@@ -199,6 +199,23 @@ resource "aws_iam_role_policy" "wazuh_ec2_inline" {
           "kms:CreateGrant"
         ]
         Resource = [aws_kms_key.wazuh_ec2.arn]
+      },
+      {
+        # F-10: EKS control-plane AUDIT log ingestion via the Wazuh
+        # CloudWatch Logs wodle (service type="cloudwatchlogs" in
+        # phase3-install-wazuh.sh, rules bc-k8s-audit.xml 100401-100405).
+        # Read-only on the EKS audit log group only. Applied live
+        # 2026-06-10 as the out-of-band "wazuh-eks-audit-read" policy;
+        # captured here so a cold-start rebuild recreates it.
+        Sid    = "CloudWatchLogsEKSAuditRead"
+        Effect = "Allow"
+        Action = [
+          "logs:GetLogEvents",
+          "logs:FilterLogEvents",
+          "logs:DescribeLogStreams",
+          "logs:DescribeLogGroups"
+        ]
+        Resource = "arn:aws:logs:eu-central-1:${data.aws_caller_identity.current.account_id}:log-group:/aws/eks/bc-uatms-prd-eks/cluster:*"
       }
     ]
   })
@@ -288,7 +305,7 @@ resource "aws_s3_object" "wazuh_install_script" {
   source_hash            = filemd5("${path.module}/../../../scripts/phase3-install-wazuh.sh")
   server_side_encryption = "AES256"
 
-  force_destroy          = true
+  force_destroy = true
 
   lifecycle {
     ignore_changes = [object_lock_mode, object_lock_retain_until_date, object_lock_legal_hold_status]
