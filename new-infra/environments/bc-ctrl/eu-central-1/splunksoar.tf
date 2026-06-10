@@ -1,4 +1,13 @@
-# Commented for now as it is quite expensive to run, uncomment before demo
+# STATUS (reconciled 2026-06-10, Op-4 control-plane red-team): these resources are
+# LIVE and APPLIED — splunk-soar-ec2 (t3.xlarge) is RUNNING and TF-managed, NOT
+# commented out. The box runs Splunk SOAR 8.5.0.248 (UI on nginx:8443, SSM-only,
+# no inbound SG). It IS wired to Wazuh (929 ingested containers, all label=wazuh_alert)
+# but is a PASSIVE SINK: 0 assets, 0 active playbooks, 0 playbook_runs, 0 app_runs ever —
+# collects alerts, runs no automation (GAP-006 made concrete). Both Shuffle (integratord
+# hook) and Splunk SOAR (custom-splunk-soar.py) receive Wazuh alerts. Admin console opens
+# with default/weak creds (soar_local_admin). The instance role (splunk-soar-ec2-role) carries
+# lambda:InvokeFunction/InvokeAsync on Resource:* (see finding F-14). Cost note:
+# t3.xlarge is the most expensive standing box here — stop/right-size if not in use.
 
 resource "aws_instance" "splunk_soar_ec2" {
   ami                         = "ami-06b79627160ae70a8"

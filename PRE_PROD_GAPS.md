@@ -77,17 +77,22 @@ Manager, OpenSearch Indexer, and Dashboard run on one EC2 instance. If it fails,
 
 ---
 
-## GAP-005: Shuffle Has No SSM Instance Profile
+## GAP-005: Splunk SOAR Running but Idle, Over-Privileged, and Unwired (reconciled 2026-06-10)
 
-**Component**: `shuffle-ec2` (t3.large, Ubuntu 24.04, bc-ctrl private subnet)
+**Component**: `splunk-soar-ec2` (t3.xlarge, Amazon Linux 2023, bc-ctrl private subnet) — **replaces the old "Shuffle EC2" framing**
 **Severity**: Medium
-**Impact**: No SSM access — instance is unreachable if SSH is unavailable
+**Impact**: A standing, undocumented, over-privileged SOAR box that performs no detection/response work
 
-Shuffle EC2 has no IAM instance profile registered, meaning AWS Systems Manager cannot manage it. The only access path is via VPC-internal routing. If the instance becomes unresponsive, there is no out-of-band access method.
+Reconciliation of the previous "Shuffle has no SSM profile" gap against the live account (Op-4 control-plane red-team, 2026-06-10):
 
-**Fix**: Attach an IAM instance profile with `AmazonSSMManagedInstanceCore` policy. Register the instance with SSM.
+- **It is running and TF-managed.** `splunksoar.tf` resources are applied (not commented out). The box runs **Splunk SOAR 8.5.0.248** (unprivileged install), UI on `nginx:8443` (returns HTTP 302 login redirect), PostgreSQL 15 + pgbouncer + RabbitMQ backend. It **is** SSM-managed (`AmazonSSMManagedInstanceCore`), so the old "no SSM" concern is resolved.
+- **It IS wired to Wazuh but does nothing with the data.** SOAR has ingested **929 alert containers, every one `label=wazuh_alert`** (newest the same day) — so the `custom-splunk-soar.py` integration is delivering despite a stale "replace me" comment on its `hook_url`. Wazuh feeds **both** Shuffle (via the `shuffle` integration in `integratord`) **and** Splunk SOAR. But SOAR is a **passive sink**: **0 response assets, 0 active playbooks, 0 `playbook_run`, 0 `app_run` ever** — it has never executed a single automated action. This is GAP-006 made concrete on the box meant to provide response. (Earlier triage said "0 containers / not wired"; that was a bad combined SQL query — corrected here.)
+- **Admin console opens with default/weak credentials** (`soar_local_admin`). The authenticated dashboard exposes the full 929-event Wazuh feed (a live map of what the defenders see) plus admin control of the over-privileged box. Network isolation (no inbound SG, SSM-only) is the only thing keeping that console off the network.
+- **It is over-privileged.** The instance role `splunk-soar-ec2-role` carries `lambda:InvokeFunction` + `lambda:InvokeAsync` on `Resource: "*"` (24 functions account-wide, including the destructive IR Lambdas `nukeIAMPerms` / `quarantineEC2` / `removeEC2FromEKS`). See **finding F-14** — a SOAR-box compromise weaponizes the IR automation. Network isolation is a genuine strength: the SOAR SG has **no inbound rules** (SSM-only; unreachable from bc-prd or the internet).
 
-**Cost of fix**: Zero (SSM is free for EC2 instances).
+**Fix**: (1) **Change the default `soar_local_admin` password** immediately. (2) Decide Shuffle **or** Splunk SOAR as the single SOAR and remove the duplicate forwarding; if keeping Splunk SOAR, configure at least one asset + active playbook so the 929 ingested alerts actually drive a response (closes GAP-006). (3) Scope `splunk-soar-ec2-role` down from `lambda:Invoke *` to only the specific IR function ARNs it must call. (4) If the box is not in active use, stop/right-size it (t3.xlarge is the most expensive standing instance in bc-ctrl).
+
+**Cost of fix**: Zero for the IAM/wiring changes; **saves** money if the idle t3.xlarge is stopped.
 
 ---
 
@@ -168,7 +173,7 @@ Before declaring prod-ready, verify each item:
 | GAP-002: MISP curl -k | High | [ ] | | |
 | GAP-003: Image supply chain | High | [ ] | | |
 | GAP-004: Wazuh SPOF | Medium | [ ] | | |
-| GAP-005: Shuffle SSM | Medium | [ ] | | |
+| GAP-005: Splunk SOAR passive/over-priv/default-creds | Medium | [ ] | | Running+TF-managed; wired to Wazuh (929 events) but 0 playbooks/actions ever; default `soar_local_admin` creds; role has `lambda:Invoke *` (F-14) |
 | GAP-006: No active response | Medium | [ ] | | |
 | GAP-007: No cert rotation | Medium | [ ] | | |
 | GAP-008: No OpenSearch S3 snapshots | Medium | [ ] | | |
