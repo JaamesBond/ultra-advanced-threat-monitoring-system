@@ -2014,6 +2014,19 @@ filebeat.modules:
     archives:
       enabled: false
 
+# F-10: EKS control-plane AUDIT alerts (bc-k8s-audit.xml 100401-100405) carry the
+# raw K8s requestObject/responseObject, whose managedFields contain a literal "."
+# key. OpenSearch rejects the whole document with
+#   mapper_parsing_exception: field name cannot contain only the character [.]
+# so every audit alert silently fails to index (visible in alerts.json, absent
+# from the dashboard). Strip those two nested blobs before indexing — the rules
+# key on verb/objectRef/user/responseStatus, which remain. Discovered + fixed
+# live 2026-06-10.
+processors:
+  - drop_fields:
+      fields: ["data.requestObject", "data.responseObject"]
+      ignore_missing: true
+
 logging.level: info
 logging.to_files: true
 logging.files:
