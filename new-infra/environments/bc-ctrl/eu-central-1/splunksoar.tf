@@ -28,7 +28,7 @@ resource "aws_security_group" "splunk_soar_ec2_sg" {
     from_port   = 8443
     to_port     = 8443
     protocol    = "tcp"
-    cidr_blocks = [module.vpc.cidr_block]
+    cidr_blocks = [local.vpc_cidr]
   }
   egress {
     description = "All outbound"
