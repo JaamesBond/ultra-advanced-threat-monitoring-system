@@ -1555,6 +1555,39 @@ if [[ "${HOST_ROLE}" == "manager" || "${HOST_ROLE}" == "all_in_one" ]]; then
   </wodle>
 
   <!--======================================================================
+       13b. AWS CloudWatch Logs — EKS control-plane AUDIT (F-10)
+       Forwards the EKS API-server audit log group into Wazuh so
+       K8s control-plane actions (CronJob/Job create, RBAC change,
+       pod exec, secret read) are alertable. Rules: bc-k8s-audit.xml
+       (100401-100405). Validated live 2026-06-10.
+
+       Auth via the wazuh-ec2-role instance profile — needs the
+       wazuh-eks-audit-read inline policy (logs:GetLogEvents /
+       FilterLogEvents / DescribeLogStreams / DescribeLogGroups on
+       arn:aws:logs:eu-central-1:${AWS_ACCOUNT_ID}:log-group:/aws/eks/bc-uatms-prd-eks/cluster:*).
+
+       NOTES (learned during F-10 bring-up):
+         * <only_logs_after> is parsed as UTC — use the UTC date.
+         * The wodle keeps a per-stream bookmark; after enabling,
+           generate a fresh action and wait one <interval> to see it.
+         * EKS audit is verbose. <interval>1m</interval> is fine for a
+           2-node cluster (~24 GB free on /); raise to 5m and watch
+           df -h /var if log volume grows. skip_on_error keeps a bad
+           poll from wedging the module.
+  =======================================================================-->
+  <wodle name="aws-s3">
+    <disabled>no</disabled>
+    <interval>1m</interval>
+    <run_on_start>yes</run_on_start>
+    <skip_on_error>yes</skip_on_error>
+    <service type="cloudwatchlogs">
+      <aws_log_groups>/aws/eks/bc-uatms-prd-eks/cluster</aws_log_groups>
+      <regions>eu-central-1</regions>
+      <only_logs_after>2026-JUN-10</only_logs_after>
+    </service>
+  </wodle>
+
+  <!--======================================================================
        14. COMMAND MONITORING
   =======================================================================-->
   <wodle name="command">

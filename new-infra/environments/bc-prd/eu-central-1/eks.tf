@@ -110,6 +110,15 @@ module "eks" {
   cluster_addons = {
     coredns = {
       most_recent = true
+      # F-05: the coredns ConfigMap is patched live to add the `log` plugin to
+      # the .:53 block (DNS-exfil visibility — Cilium kubeProxyReplacement makes
+      # CoreDNS the real resolver for all pod DNS, so this is the capture point).
+      # PRESERVE keeps that manual Corefile edit when this addon is version-bumped
+      # by `most_recent`; without it the default OVERWRITE would drop the `log`
+      # plugin on the next apply. NOTE: cold-start (CREATE) still installs the
+      # default Corefile, so after a from-scratch rebuild the log patch must be
+      # re-applied (command in pentest-report/REMEDIATION_RUNBOOK.md, F-05).
+      resolve_conflicts_on_update = "PRESERVE"
     }
     # kube-proxy must stay for cold-start: without it (and before Cilium Stage-2 install),
     # 172.20.0.1 ClusterIP is unreachable → coredns "kubernetes" plugin fails → DNS broken.
@@ -120,7 +129,7 @@ module "eks" {
     }
     vpc-cni = {
       most_recent    = true
-      before_compute = true  # install CNI before node groups join so nodes start Ready (cold-start race fix)
+      before_compute = true # install CNI before node groups join so nodes start Ready (cold-start race fix)
       configuration_values = jsonencode({
         env = {
           AWS_VPC_K8S_CNI_EXTERNALSNAT = "true"

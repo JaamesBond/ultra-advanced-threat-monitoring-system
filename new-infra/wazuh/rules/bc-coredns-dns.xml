@@ -1,0 +1,70 @@
+<!--
+  bc-coredns-dns.xml — DNS exfiltration / tunneling detection from CoreDNS
+  query logs (F-05).
+
+  Rule ID range: 100720-100729 (reserved for bc-coredns).
+
+  Telemetry source: CoreDNS `log` plugin (added to the `.:53` block of the
+  coredns ConfigMap 2026-06-10). CoreDNS is the real resolver for ALL pod
+  DNS on bc-prd — Cilium kubeProxyReplacement BPF-load-balances 172.20.0.10
+  straight to the CoreDNS endpoints, bypassing NodeLocal DNSCache (which runs
+  with -setupiptables=false and is NOT in the pod data path). So logging at
+  CoreDNS captures every external/egress query, which is where DNS exfil
+  shows up. node-local-dns logging would have captured nothing.
+
+  Transport: CoreDNS writes each query to the pod's stdout. containerd records
+  it under /var/log/pods/kube-system_coredns-*/coredns/*.log on the node in
+  CRI text format:
+    2026-06-10T06:45:42.70Z stdout F [INFO] 10.30.11.148:53163 - 8879 "A IN <qname>. udp 89 false 1232" NXDOMAIN qr,rd,ra 197 0.004s
+  The wazuh-agent reads it via a <localfile> on /host/var/log/pods/... — NOT
+  via /host/var/log/containers/coredns-*.log, because those are symlinks to
+  the host-absolute /var/log/pods path which does not resolve inside the agent
+  container's mount namespace.
+
+  Detection signatures (DNS-tunnel / exfil heuristics):
+    100721 — a single DNS label >= 45 chars (tunnels encode data in one long
+             label; legitimate labels are <= ~30). Validated against a
+             59-char canary label 2026-06-10.
+    100722 — a fully-qualified name >= 120 chars total (chunked exfil spread
+             across many labels).
+  Each regex is self-contained (matches the full CoreDNS line shape) so it does
+  not depend on how Wazuh predecodes the CRI timestamp prefix.
+
+  Deployed to /var/ossec/etc/rules/bc-coredns-dns.xml by phase3-install-wazuh.sh
+  via S3 sync on instance boot.
+-->
+<group name="bc-coredns,dns,exfiltration,">
+
+  <!-- 100720 — silent anchor: any CoreDNS query line. Level 0 = no alert
+       (CoreDNS logs every query; alerting here would be a firehose). Used
+       only as the <if_sid> parent for the detection rules below. -->
+  <rule id="100720" level="0">
+    <regex type="pcre2">\[INFO\] \S+:\d+ - \d+ "\w+ IN </regex>
+    <description>CoreDNS query log (anchor, silent)</description>
+  </rule>
+
+  <!-- 100721 — abnormally long single label: classic DNS tunneling. -->
+  <rule id="100721" level="10">
+    <if_sid>100720</if_sid>
+    <regex type="pcre2"> IN \S*?[A-Za-z0-9+/=_-]{45,}</regex>
+    <description>Possible DNS tunneling/exfiltration: abnormally long DNS label in CoreDNS query</description>
+    <mitre>
+      <id>T1048.003</id>
+      <id>T1071.004</id>
+    </mitre>
+    <group>dns_tunnel,exfiltration,</group>
+  </rule>
+
+  <!-- 100722 — excessive total FQDN length: chunked exfil across many labels. -->
+  <rule id="100722" level="9">
+    <if_sid>100720</if_sid>
+    <regex type="pcre2"> IN [A-Za-z0-9._+/=-]{120,}</regex>
+    <description>Possible DNS exfiltration: very long fully-qualified name in CoreDNS query</description>
+    <mitre>
+      <id>T1048.003</id>
+      <id>T1071.004</id>
+    </mitre>
+    <group>dns_tunnel,exfiltration,</group>
+  </rule>
+
+</group>

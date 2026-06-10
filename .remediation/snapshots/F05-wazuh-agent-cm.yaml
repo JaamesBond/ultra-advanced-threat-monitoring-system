@@ -1,0 +1,121 @@
+apiVersion: v1
+data:
+  ossec.conf: |
+    <ossec_config>
+      <client>
+        <server>
+          <address>wazuh-manager.bc-ctrl.internal</address>
+          <port>1514</port>
+          <protocol>tcp</protocol>
+        </server>
+        <enrollment>
+          <enabled>yes</enabled>
+          <manager_address>wazuh-manager.bc-ctrl.internal</manager_address>
+        </enrollment>
+      </client>
+
+      <client_buffer>
+        <disabled>no</disabled>
+        <queue_size>5000</queue_size>
+        <events_per_second>500</events_per_second>
+      </client_buffer>
+
+      <!-- Suricata EVE JSON — Wazuh has built-in decoders for this format -->
+      <localfile>
+        <log_format>json</log_format>
+        <location>/host/var/log/suricata/eve.json</location>
+        <label key="source">suricata</label>
+      </localfile>
+
+      <!-- Zeek logs — conn, dns, http, weird, notice shipped as JSON -->
+      <localfile>
+        <log_format>json</log_format>
+        <location>/host/var/log/zeek/conn.log</location>
+        <label key="source">zeek-conn</label>
+      </localfile>
+
+      <localfile>
+        <log_format>json</log_format>
+        <location>/host/var/log/zeek/dns.log</location>
+        <label key="source">zeek-dns</label>
+      </localfile>
+
+      <localfile>
+        <log_format>json</log_format>
+        <location>/host/var/log/zeek/http.log</location>
+        <label key="source">zeek-http</label>
+      </localfile>
+
+      <localfile>
+        <log_format>json</log_format>
+        <location>/host/var/log/zeek/notice.log</location>
+        <label key="source">zeek-notice</label>
+      </localfile>
+
+      <!-- Zeek Intel framework hits (MISP IOC matches via the misp-intel-sync
+           sidecar land here). Previously NOT shipped — added 2026-06-02 so the
+           MISP -> Zeek -> Wazuh detection chain reaches the SIEM. -->
+      <localfile>
+        <log_format>json</log_format>
+        <location>/host/var/log/zeek/intel.log</location>
+        <label key="source">zeek-intel</label>
+      </localfile>
+
+      <!-- Falco alerts from the host -->
+      <localfile>
+        <log_format>json</log_format>
+        <location>/host/var/log/falco/falco.json</location>
+        <label key="source">falco</label>
+      </localfile>
+
+      <!-- Tetragon eBPF runtime events (process_exec, process_kprobe, etc.)
+           Written by the Tetragon DaemonSet to /var/log/tetragon/tetragon.json
+           on the node (exportDirectory=/var/log/tetragon in helm-security.tf).
+           Reaches this container via the existing /host/var/log hostPath mount. -->
+      <localfile>
+        <log_format>json</log_format>
+        <location>/host/var/log/tetragon/tetragon.json</location>
+        <label key="source">tetragon</label>
+      </localfile>
+
+      <!-- Host syslog -->
+      <localfile>
+        <log_format>syslog</log_format>
+        <location>/host/var/log/messages</location>
+      </localfile>
+
+      <localfile>
+        <log_format>syslog</log_format>
+        <location>/host/var/log/secure</location>
+      </localfile>
+
+      <rootcheck>
+        <disabled>yes</disabled>
+      </rootcheck>
+
+      <syscheck>
+        <disabled>yes</disabled>
+      </syscheck>
+
+      <wodle name="syscollector">
+        <disabled>no</disabled>
+        <interval>1h</interval>
+        <packages>yes</packages>
+        <processes>yes</processes>
+        <network>yes</network>
+      </wodle>
+
+      <logging>
+        <log_format>plain</log_format>
+      </logging>
+    </ossec_config>
+kind: ConfigMap
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","data":{"ossec.conf":"\u003cossec_config\u003e\n  \u003cclient\u003e\n    \u003cserver\u003e\n      \u003caddress\u003ewazuh-manager.bc-ctrl.internal\u003c/address\u003e\n      \u003cport\u003e1514\u003c/port\u003e\n      \u003cprotocol\u003etcp\u003c/protocol\u003e\n    \u003c/server\u003e\n    \u003cenrollment\u003e\n      \u003cenabled\u003eyes\u003c/enabled\u003e\n      \u003cmanager_address\u003ewazuh-manager.bc-ctrl.internal\u003c/manager_address\u003e\n    \u003c/enrollment\u003e\n  \u003c/client\u003e\n\n  \u003cclient_buffer\u003e\n    \u003cdisabled\u003eno\u003c/disabled\u003e\n    \u003cqueue_size\u003e5000\u003c/queue_size\u003e\n    \u003cevents_per_second\u003e500\u003c/events_per_second\u003e\n  \u003c/client_buffer\u003e\n\n  \u003c!-- Suricata EVE JSON — Wazuh has built-in decoders for this format --\u003e\n  \u003clocalfile\u003e\n    \u003clog_format\u003ejson\u003c/log_format\u003e\n    \u003clocation\u003e/host/var/log/suricata/eve.json\u003c/location\u003e\n    \u003clabel key=\"source\"\u003esuricata\u003c/label\u003e\n  \u003c/localfile\u003e\n\n  \u003c!-- Zeek logs — conn, dns, http, weird, notice shipped as JSON --\u003e\n  \u003clocalfile\u003e\n    \u003clog_format\u003ejson\u003c/log_format\u003e\n    \u003clocation\u003e/host/var/log/zeek/conn.log\u003c/location\u003e\n    \u003clabel key=\"source\"\u003ezeek-conn\u003c/label\u003e\n  \u003c/localfile\u003e\n\n  \u003clocalfile\u003e\n    \u003clog_format\u003ejson\u003c/log_format\u003e\n    \u003clocation\u003e/host/var/log/zeek/dns.log\u003c/location\u003e\n    \u003clabel key=\"source\"\u003ezeek-dns\u003c/label\u003e\n  \u003c/localfile\u003e\n\n  \u003clocalfile\u003e\n    \u003clog_format\u003ejson\u003c/log_format\u003e\n    \u003clocation\u003e/host/var/log/zeek/http.log\u003c/location\u003e\n    \u003clabel key=\"source\"\u003ezeek-http\u003c/label\u003e\n  \u003c/localfile\u003e\n\n  \u003clocalfile\u003e\n    \u003clog_format\u003ejson\u003c/log_format\u003e\n    \u003clocation\u003e/host/var/log/zeek/notice.log\u003c/location\u003e\n    \u003clabel key=\"source\"\u003ezeek-notice\u003c/label\u003e\n  \u003c/localfile\u003e\n\n  \u003c!-- Zeek Intel framework hits (MISP IOC matches via the misp-intel-sync\n       sidecar land here). Previously NOT shipped — added 2026-06-02 so the\n       MISP -\u003e Zeek -\u003e Wazuh detection chain reaches the SIEM. --\u003e\n  \u003clocalfile\u003e\n    \u003clog_format\u003ejson\u003c/log_format\u003e\n    \u003clocation\u003e/host/var/log/zeek/intel.log\u003c/location\u003e\n    \u003clabel key=\"source\"\u003ezeek-intel\u003c/label\u003e\n  \u003c/localfile\u003e\n\n  \u003c!-- Falco alerts from the host --\u003e\n  \u003clocalfile\u003e\n    \u003clog_format\u003ejson\u003c/log_format\u003e\n    \u003clocation\u003e/host/var/log/falco/falco.json\u003c/location\u003e\n    \u003clabel key=\"source\"\u003efalco\u003c/label\u003e\n  \u003c/localfile\u003e\n\n  \u003c!-- Tetragon eBPF runtime events (process_exec, process_kprobe, etc.)\n       Written by the Tetragon DaemonSet to /var/log/tetragon/tetragon.json\n       on the node (exportDirectory=/var/log/tetragon in helm-security.tf).\n       Reaches this container via the existing /host/var/log hostPath mount. --\u003e\n  \u003clocalfile\u003e\n    \u003clog_format\u003ejson\u003c/log_format\u003e\n    \u003clocation\u003e/host/var/log/tetragon/tetragon.json\u003c/location\u003e\n    \u003clabel key=\"source\"\u003etetragon\u003c/label\u003e\n  \u003c/localfile\u003e\n\n  \u003c!-- Host syslog --\u003e\n  \u003clocalfile\u003e\n    \u003clog_format\u003esyslog\u003c/log_format\u003e\n    \u003clocation\u003e/host/var/log/messages\u003c/location\u003e\n  \u003c/localfile\u003e\n\n  \u003clocalfile\u003e\n    \u003clog_format\u003esyslog\u003c/log_format\u003e\n    \u003clocation\u003e/host/var/log/secure\u003c/location\u003e\n  \u003c/localfile\u003e\n\n  \u003crootcheck\u003e\n    \u003cdisabled\u003eyes\u003c/disabled\u003e\n  \u003c/rootcheck\u003e\n\n  \u003csyscheck\u003e\n    \u003cdisabled\u003eyes\u003c/disabled\u003e\n  \u003c/syscheck\u003e\n\n  \u003cwodle name=\"syscollector\"\u003e\n    \u003cdisabled\u003eno\u003c/disabled\u003e\n    \u003cinterval\u003e1h\u003c/interval\u003e\n    \u003cpackages\u003eyes\u003c/packages\u003e\n    \u003cprocesses\u003eyes\u003c/processes\u003e\n    \u003cnetwork\u003eyes\u003c/network\u003e\n  \u003c/wodle\u003e\n\n  \u003clogging\u003e\n    \u003clog_format\u003eplain\u003c/log_format\u003e\n  \u003c/logging\u003e\n\u003c/ossec_config\u003e\n"},"kind":"ConfigMap","metadata":{"annotations":{},"name":"wazuh-agent-config","namespace":"wazuh"}}
+  creationTimestamp: "2026-06-08T11:44:14Z"
+  name: wazuh-agent-config
+  namespace: wazuh
+  resourceVersion: "33098"
+  uid: 08734ce4-88a9-4e4b-816c-f205ba958484
