@@ -23,6 +23,13 @@ resource "aws_security_group" "splunk_soar_ec2_sg" {
   description = "Splunk SOAR EC2 security group"
   vpc_id      = module.vpc.vpc_id
 
+  ingress {
+    description = "Allow SOAR Web UI access"
+    from_port   = 8443
+    to_port     = 8443
+    protocol    = "tcp"
+    cidr_blocks = [module.vpc.cidr_block]
+  }
   egress {
     description = "All outbound"
     from_port   = 0

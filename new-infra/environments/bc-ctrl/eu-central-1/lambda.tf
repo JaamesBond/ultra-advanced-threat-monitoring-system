@@ -59,6 +59,8 @@ resource "aws_iam_policy" "lambda_quarantine_ec2_policy" {
           "ec2:DissociateIamInstanceProfile",  // Required to remove any existing IAM instance profile associations
           "ec2:DescribeIamInstanceProfileAssociations", // Required to identify existing IAM instance profile associations
           "ec2:GetLayerVersion", // Required to get the latest SSM agent layer version for the instance's region
+          "ec2:DescribeNetworkAcls", // Required to identify the instance's current network ACLs
+          "ec2:CreateNetworkAclEntry", // Required to create new network ACL entries to block traffic to/from the instance
         ]
         Resource = "*"
       },
