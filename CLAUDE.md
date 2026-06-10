@@ -347,7 +347,7 @@ Summary of open gaps:
 - **GAP-002**: MISP sidecars use `curl -k` — certificate validation disabled, MITM risk
 - **GAP-003**: No container image signing or admission control — supply chain unverified
 - **GAP-004**: Wazuh all-in-one is a single point of failure for the entire telemetry pipeline
-- **GAP-005**: Splunk SOAR EC2 not yet provisioned (Terraform commented out in `splunksoar.tf`) — uncomment before demo
+- **GAP-005**: Splunk SOAR EC2 **is running and TF-managed** (`splunksoar.tf` applied, not commented). It **is wired to Wazuh** (929 `wazuh_alert` containers ingested) but is a **passive sink** — 0 assets/active-playbooks/playbook-runs/actions ever (GAP-006 made concrete). **Default `soar_local_admin` creds**; role has `lambda:Invoke *` (finding F-14). Both Shuffle and Splunk SOAR receive Wazuh alerts. Reconciled 2026-06-10.
 - **GAP-006**: No Wazuh active response configured — detection only, no automated enforcement
 - **GAP-007**: No certificate rotation plan for when GAP-001/002 are fixed
 - **GAP-008**: No OpenSearch S3 snapshot repository — historical alerts lost on EC2 failure, no compliance archive
@@ -416,7 +416,7 @@ What's live now:
 - **Minor pod health**: `suricata` 1/4 Pending, `zeek` 1/4 pod `1/2 Error` (likely the nomad-tainted node) — worth a look.
 - **GitHub Actions Node 20 deprecation (2026-06-16)**: `checkout@v4`, `configure-aws-credentials@v4`, `setup-terraform@v3` etc. forced to Node 24 — bump action versions in the workflows.
 - **privileges-raise blind spot**: runtime exclusions are path-based (`/usr/sbin/runc` on AL2023). **Re-verify the runc path after any EKS AMI upgrade** or the kprobe flood returns.
-- **Splunk SOAR state mismatch**: this doc + GAP-005 say `splunksoar.tf` is commented out / not provisioned, but a running EC2 named `splunk-soar-ec2` (t3.xlarge) was observed in the account. Confirm whether it's TF-managed (uncommented) or an out-of-band instance, and reconcile the docs.
+- **Splunk SOAR state mismatch — RESOLVED 2026-06-10 (Op-4)**: `splunk-soar-ec2` (t3.xlarge, `i-0b48cc6ea79a91a29`) is **running and TF-managed** (`splunksoar.tf` is applied, not commented). It runs Splunk SOAR 8.5.0.248 (UI nginx:8443, SSM-only, no inbound SG). It **is wired to Wazuh** (929 `wazuh_alert` containers ingested via `custom-splunk-soar.py`; Wazuh also forwards to Shuffle) but is a **passive sink** — 0 assets, 0 active playbooks, 0 playbook_runs, 0 app_runs ever (GAP-006). Admin console opens with **default `soar_local_admin` creds**; role `splunk-soar-ec2-role` has `lambda:Invoke *` (finding F-14). Docs + GAP-005 + `splunksoar.tf` comment reconciled.
 - **Node count**: doc says 2× `t3.medium`; live cluster has ~4 nodes (workload pool scaled + the `dedicated=nomad` node). Reconcile if the node group config changed.
 
 ### NOMAD Oasis + Local Keycloak (2026-05-11/12)
