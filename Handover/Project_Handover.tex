@@ -1,0 +1,325 @@
+\documentclass[11pt,a4paper]{report}
+
+% ----------------------------------------------------------------------
+% Project Handover Document
+% UATMS — Ultra Advanced Threat Monitoring System (Big Chemistry XDR)
+% ----------------------------------------------------------------------
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{geometry}
+\geometry{a4paper, margin=2.5cm}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{booktabs}
+\usepackage{hyperref}
+
+% --- Colours ---------------------------------------------------------
+\definecolor{primary}{HTML}{1F3A5F}
+\definecolor{accent}{HTML}{D9772B}
+\definecolor{lightgray}{HTML}{F2F2F2}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=primary,
+    urlcolor=accent,
+    citecolor=primary,
+    pdftitle={UATMS Project Handover Document},
+    pdfauthor={Big Chemistry XDR Team}
+}
+
+% --- Chapter / section styling --------------------------------------
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries\color{primary}}
+  {\filright\Large\color{accent}\MakeUppercase{\chaptertitlename}\ \thechapter}
+  {1ex}
+  {\titlerule\vspace{1ex}\filright}
+
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{primary}}
+  {\thesection}{1em}{}
+
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{accent}}
+  {\thesubsection}{1em}{}
+
+% --- Header / footer -------------------------------------------------
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.2pt}
+\fancyhead[L]{\small\color{primary}UATMS — Project Handover}
+\fancyhead[R]{\small\color{primary}Big Chemistry XDR}
+\fancyfoot[C]{\thepage}
+
+% ====================================================================
+\begin{document}
+
+% --- Title page ------------------------------------------------------
+\begin{titlepage}
+    \centering
+    \vspace*{2cm}
+
+    {\color{accent}\rule{\textwidth}{2pt}}\\[0.6cm]
+    {\Huge\bfseries\color{primary} Project Handover Document\par}
+    \vspace{0.4cm}
+    {\LARGE\color{primary} RobotLab's Advanced Threat Monitoring System \par}
+    \vspace{0.2cm}
+    {\large Big Chemistry — Extended Detection \& Response (XDR) Platform\par}
+    {\color{accent}\rule{\textwidth}{2pt}}\\[1.5cm]
+
+    \begin{tabular}{rl}    
+        \textbf{Date:}          & 12 June 2026 \\[4pt]
+    \end{tabular}
+
+    \vfill
+    
+    \vspace{1cm}
+\end{titlepage}
+
+% --- TOC -------------------------------------------------------------
+\tableofcontents
+\thispagestyle{fancy}
+
+% ====================================================================
+\chapter{Current State of the Project}
+
+This document hands over the RobotLab's Advanced Threat Monitoring System,
+a full Extended Detection \& Response (XDR) platform built for Big Chemistry on
+AWS \texttt{eu-central-1}. It captures the system as it stands today and lays out
+the recommended order of work for the team taking it forward.
+
+\section{Architecture Overview}
+
+The platform follows a two-VPC connected by VPC Peering,
+with no Transit Gateway. The control plane (\textbf{bc-ctrl}, \texttt{10.0.0.0/16})
+hosts EC2-only workloads — Wazuh SIEM, Splunk SOAR, MISP, and the self-hosted
+GitHub runner. The production plane (\textbf{bc-prd}, \texttt{10.30.0.0/16}) runs
+the EKS cluster carrying the security stack and sensor DaemonSets (Cilium, Falco,
+Tetragon, Zeek, Suricata, plus the NOMAD Oasis observability target).
+
+The diagram below reflects the current, deployed state of the infrastructure.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{assets/Architecture_Diagram.jpg}
+    \caption{Current-state architecture of the XDR platform on AWS
+    \texttt{eu-central-1}. bc-ctrl (the ``Brain'') and bc-prd (the ``Data'')
+    VPCs are joined by VPC Peering; shared services (S3, IAM, Route53, Lambda)
+    sit beneath both.}
+    \label{fig:architecture}
+\end{figure}
+
+\section{What Is Live Today}
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{bc-ctrl (Control plane):} Wazuh all-in-one (Manager + Indexer +
+          Dashboard), MISP threat-intel platform, Splunk SOAR, and
+          a self-hosted GitHub Actions runner.
+    \item \textbf{bc-prd (Production plane):} EKS cluster running Cilium , Falco (\texttt{modern\_ebpf}), Tetragon, Hubble,
+          and the Zeek / Suricata / wazuh-agent DaemonSets.
+    \item \textbf{Telemetry pipeline:} Suricata, Zeek, Falco, and Tetragon emit to
+          host-path logs that the wazuh-agent ships to the Wazuh manager. 
+    \item \textbf{Threat-intel sync:} MISP IOCs are synced hourly into Zeek Intel
+          and Suricata rule formats via sidecar containers.
+\end{itemize}
+
+The platform is operational but remains in a pre-production hardening phase. The
+chapters that follow define the recommended sequence of work.
+
+% ====================================================================
+\chapter{First Priority: Stabilise NOMAD Oasis}
+
+\section{Why This Comes First}
+
+The single most important first task for the incoming team is to ensure that
+\textbf{NOMAD Oasis is running properly}. NOMAD Oasis is the primary observability
+and workload target on the bc-prd EKS cluster — it is what exercises the security
+stack end-to-end. Until it is reliably healthy, every downstream detection,
+enforcement, and analytics effort is being validated against an unstable base.
+
+To date, NOMAD Oasis has converged on the cluster but has \emph{not} reached a
+fully validated, repeatable healthy state.
+
+%\section{Concrete Actions}
+
+%\begin{enumerate}[leftmargin=*]
+%    \item \textbf{Confirm a clean cold-start.} Run a full pipeline deployment from
+ %         empty AWS state and verify NOMAD Oasis reaches a green, ready state with
+  %        zero manual intervention. Capture the run ID and pod-readiness output as
+   
+          %evidence.
+    %\item \textbf{Validate the supporting data tier.} MongoDB, PostgreSQL,
+    %      Elasticsearch, RabbitMQ, and Temporal must all be healthy and bound to
+          %their PVCs (gp3 / EFS). Confirm Temporal connects to Postgres and the
+          %schema job completes.
+   % \item \textbf{Verify CiliumNetworkPolicy selectors.} Mixed Helm sub-charts emit
+   %       inconsistent labels; confirm every CNP selects the pods it intends to
+    %      (use \texttt{kubectl get pod -o jsonpath='\{.metadata.labels\}'} and match
+     %     exactly). A wrong selector silently drops traffic under
+          %\texttt{policyEnforcementMode=default}.
+    %\item \textbf{Resolve the Keycloak browser-login blocker.} The dev-path HTTP
+    %      login is blocked by Keycloak 24's \texttt{SameSite=None; Secure} cookie
+     %     defaults. The recommended fix is the production path: ALB Ingress + ACM
+      %    certificate + Route53, giving real HTTPS so secure cookies work natively.
+    %\item \textbf{Reconcile node-count drift.} Documentation states 2× t3.medium;
+     %     the live cluster currently runs additional nodes (workload pool plus the
+      %    \texttt{dedicated=nomad} node). Confirm the node-group configuration
+       %   matches reality and is intentional.
+%\end{enumerate}
+
+\noindent\fcolorbox{accent}{lightgray}{%
+\begin{minipage}{0.97\textwidth}
+\textbf{Exit criterion:} A documented, reproducible cold-start that brings NOMAD
+Oasis to a fully healthy state (including browser login) with no manual steps.
+Only once this is met should the team move on to the hardening work below.
+\end{minipage}}
+
+% ====================================================================
+\chapter{Unit-Scope Security Hardening}
+
+With NOMAD Oasis stable, the next focus shifts to a more \textbf{unitary scope}:
+embedding security controls at the level of individual code and container
+artifacts, rather than only at the runtime / network layer where the platform is
+already strong. These controls close the supply-chain and application-security
+gaps that the current detection-centric posture does not cover.
+
+\section{Container Image Scanning}
+
+The platform currently has no container image scanning or admission control
+, so images are deployed without provenance or vulnerability
+verification. Recommended measures:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Vulnerability scanning} of every image at build time and in the
+          registry (e.g. Trivy or Grype against ECR), failing the pipeline on
+          critical / high CVEs.
+    \item \textbf{Image signing and verification} (e.g. Cosign / Sigstore) so only
+          signed, attested images can run.
+    \item \textbf{Admission control} on the cluster (e.g. a policy controller) to
+          enforce signature and scan-result requirements before a pod is admitted.
+\end{itemize}
+
+\section{Static Application Security Testing (SAST)}
+
+Introduce SAST into the CI pipeline to catch vulnerabilities in source before
+they ship — insecure patterns, injection flaws, hardcoded secrets, and unsafe
+dependencies. Run it on every pull request and gate merges on the results. This
+complements the existing infrastructure review (\texttt{/tf-review},
+\texttt{/security-audit}) with application-code coverage.
+
+\section{Dynamic Application Security Testing (DAST)}
+
+Add DAST against running services (the NOMAD Oasis web tier, the Wazuh / MISP
+dashboards, Splunk SOAR, and any exposed API). DAST exercises the deployed
+application from the outside to surface authentication weaknesses, injection,
+and misconfiguration that only manifest at runtime.
+
+\section{Fuzzing}
+
+For the higher-risk parsing and ingestion surfaces — the telemetry pipeline that
+consumes Suricata \texttt{eve.json}, Zeek logs, and MISP-sourced rules — introduce
+\textbf{fuzz testing} to harden input handling against malformed or adversarial
+data. Untrusted external data crossing a system boundary is exactly where
+fuzzing yields the most value.
+
+\noindent\fcolorbox{accent}{lightgray}{%
+\begin{minipage}{0.97\textwidth}
+\textbf{Goal:} shift security ``left'' to the individual code and container unit,
+covering SAST, DAST, and fuzzing in CI plus image scanning and signing at the
+registry / admission boundary — closing the supply-chain gaps the runtime stack
+cannot.
+\end{minipage}}
+
+% ====================================================================
+\chapter{Forward Research: A Machine Learning Pipeline for XDR}
+
+The next strategic direction for the research effort is to build a
+\textbf{Machine Learning pipeline for XDR}. The platform already aggregates a
+rich, multi-source telemetry stream — Suricata, Zeek, Falco, Tetragon, Wazuh
+alerts, VPC flow logs, CloudTrail, and GuardDuty — which is precisely the
+high-volume, labelled-and-unlabelled data foundation an ML detection layer needs.
+
+\section{Motivation}
+
+Today the system is rule- and signature-driven: it detects what it has been
+explicitly told to look for. An ML layer adds the ability to surface
+\emph{unknown} threats — anomalous process trees, unusual network flows,
+credential-misuse patterns, and slow-burn lateral movement — that evade static
+rules. It also offers a path to reducing alert fatigue by scoring and correlating
+the existing detections.
+
+%\section{Proposed Pipeline Stages}
+
+%\begin{enumerate}[leftmargin=*]
+
+    %\item \textbf{Data collection \& lake.} Centralise the existing telemetry into
+     %     a queryable store (the S3 log buckets are the natural landing zone) with
+      %    a consistent, normalised schema across sensors.
+    %\item \textbf{Feature engineering.} Derive behavioural features — per-host
+     %     process baselines, network-flow statistics, authentication sequences,
+      %    and time-series aggregates — from the normalised events.
+    %\item \textbf{Model development.} Start with unsupervised anomaly detection
+    %      (the realistic first step given limited labelled incidents), then layer
+    %      supervised models as labelled alert outcomes accumulate from analyst
+    %      triage.
+    %\item \textbf{Inference \& integration.} Serve models against the live stream
+    %      and feed scored detections back into Wazuh / Splunk SOAR so they enrich
+    %      existing alerts and can drive automated response.
+    %\item \textbf{Feedback loop \& MLOps.} Capture analyst verdicts as labels,
+    %      monitor for model and data drift, and retrain on a schedule — closing
+    %      the loop so the system improves over time.
+%\end{enumerate}
+
+\section{Considerations}
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Cost discipline.} ML infrastructure (training compute,
+          storage, inference) must be scoped and justified.
+    \item \textbf{Explainability.} Detections that drive response must be
+          explainable to stakeholders; favour models and scoring whose output a human
+          can reason about during incident response.
+    \item \textbf{Data governance.} Telemetry includes sensitive operational
+          detail; apply the same least-privilege and KMS-encryption discipline used
+          across the rest of the platform to the data lake and ML artifacts.
+\end{itemize}
+
+\noindent\fcolorbox{accent}{lightgray}{%
+\begin{minipage}{0.97\textwidth}
+\textbf{Direction:} evolve the monitoring system from a rule-driven detection platform into a
+learning system — an ML pipeline that turns the existing multi-sensor telemetry
+into adaptive, anomaly-aware XDR detection.
+\end{minipage}}
+
+% ====================================================================
+\chapter{Summary Roadmap}
+
+\begin{table}[H]
+    \centering
+    \renewcommand{\arraystretch}{1.4}
+    \begin{tabular}{@{}p{1.2cm}p{4.5cm}p{8cm}@{}}
+        \toprule
+        \textbf{Order} & \textbf{Workstream} & \textbf{Outcome} \\
+        \midrule
+        1 & Stabilise NOMAD Oasis & Reproducible, fully healthy cold-start
+            including browser login; stable base for all downstream work. \\
+        2 & Unit-scope security hardening & Container scanning + signing +
+            admission control, and SAST / DAST / fuzzing in CI. \\
+        3 & ML pipeline for XDR & Adaptive, anomaly-aware detection built on the
+            existing multi-sensor telemetry. \\
+        \bottomrule
+    \end{tabular}
+    \caption{Recommended order of work for the incoming team.}
+\end{table}
+
+\vspace{1cm}
+\begin{center}
+    {\color{primary}\itshape End of Handover Document.}
+\end{center}
+
+\end{document}
